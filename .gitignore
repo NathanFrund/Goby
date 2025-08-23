@@ -1,0 +1,3 @@
+# Ignore sensitive information (e.g., environment variables)
+.env
+.env.*
