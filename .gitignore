@@ -3,7 +3,7 @@ bin/
 
 # Environment files
 .env
-*.env
+.env.test
 
 # IDE specific files
 .vscode/
