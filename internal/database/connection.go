@@ -59,7 +59,7 @@ func NewConnection(ctx context.Context) (*surrealdb.DB, error) {
 			Password: cfg.Password,
 		}
 
-		if _, err := db.SignIn(ctx, authData); err != nil {
+		if _, err := db.SignIn(ctx, authData); err != nil { // surrealdb.SignIn takes interface{}
 			db.Close(ctx)
 			return nil, fmt.Errorf("database authentication failed: %w", err)
 		}

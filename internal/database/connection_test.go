@@ -37,7 +37,7 @@ func TestNewConnection(t *testing.T) {
 	})
 
 	t.Run("missing required config", func(t *testing.T) {
-		// Save original values
+		// Save original values to restore them after the test
 		origURL := os.Getenv("SURREAL_URL")
 		origNS := os.Getenv("SURREAL_NS")
 		origDB := os.Getenv("SURREAL_DB")
@@ -65,5 +65,3 @@ func TestNewConnection(t *testing.T) {
 		}
 	})
 }
-
-// Rest of your test file...

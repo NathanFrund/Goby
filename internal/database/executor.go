@@ -15,7 +15,7 @@ import (
 //
 //	query := "SELECT * FROM user WHERE active = $active"
 //	users, err := Query[User](ctx, db, query, map[string]interface{}{"active": true})
-func Query[T any](ctx context.Context, db *surrealdb.DB, query string, params map[string]interface{}) ([]T, error) {
+func Query[T any](ctx context.Context, db *surrealdb.DB, query string, params map[string]any) ([]T, error) {
 	queryResults, err := surrealdb.Query[[]T](ctx, db, query, params)
 	if err != nil {
 		return nil, fmt.Errorf("query execution failed: %w", err)
@@ -33,7 +33,7 @@ func Query[T any](ctx context.Context, db *surrealdb.DB, query string, params ma
 //
 //	query := "SELECT * FROM user WHERE email = $email"
 //	user, err := QueryOne[User](ctx, db, query, map[string]interface{}{"email": "test@example.com"})
-func QueryOne[T any](ctx context.Context, db *surrealdb.DB, query string, params map[string]interface{}) (*T, error) {
+func QueryOne[T any](ctx context.Context, db *surrealdb.DB, query string, params map[string]any) (*T, error) {
 	// Ensure we're only getting one result
 	if !hasLimitClause(query) {
 		query += " LIMIT 1"
@@ -59,7 +59,7 @@ func QueryOne[T any](ctx context.Context, db *surrealdb.DB, query string, params
 //	    "id": "user:123",
 //	    "name": "New Name",
 //	})
-func Execute(ctx context.Context, db *surrealdb.DB, query string, params map[string]interface{}) ([]surrealdb.QueryResult[[]interface{}], error) {
+func Execute(ctx context.Context, db *surrealdb.DB, query string, params map[string]any) ([]surrealdb.QueryResult[[]any], error) {
 	results, err := surrealdb.Query[[]interface{}](ctx, db, query, params)
 	if err != nil {
 		return nil, fmt.Errorf("query execution failed: %w", err)

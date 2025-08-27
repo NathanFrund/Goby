@@ -75,7 +75,7 @@ func TestNewDB(t *testing.T) {
 				assert.NoError(t, err, "should be able to get database info")
 
 				// Cleanup
-				db.Close(ctx)
+				_ = db.Close(ctx) // Ignoring error for cleanup
 			}
 		})
 	}

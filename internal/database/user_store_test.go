@@ -22,21 +22,21 @@ func TestFindUserByEmail(t *testing.T) {
 	defer cleanup()
 
 	// Clean up any existing test users before starting
-	_, err := surrealdb.Query[[]models.User](ctx, db, "DELETE user WHERE email = $email", map[string]interface{}{
+	_, err := surrealdb.Query[[]models.User](ctx, db, "DELETE user WHERE email = $email", map[string]any{
 		"email": "test@example.com",
 	})
 	require.NoError(t, err, "failed to clean up test users")
 
 	// Test data
 	testUser := &models.User{
-		Email:    "test@example.com",
-		Name:     "Test User",
+		Email: "test@example.com",
+		Name:  "Test User",
 	}
 
 	t.Run("success - finds existing user", func(t *testing.T) {
 		// Insert test user using Query to be consistent with FindUserByEmail
 		query := "CREATE user SET email = $email, name = $name, password = $password"
-		params := map[string]interface{}{
+		params := map[string]any{
 			"email":    testUser.Email,
 			"name":     testUser.Name,
 			"password": "testpassword123",
@@ -99,8 +99,8 @@ func setupTestDB(t *testing.T) (*surrealdb.DB, func()) {
 
 	// Sign in
 	_, err = db.SignIn(ctx, map[string]interface{}{
-		"user": os.Getenv("SURREAL_USER"),
-		"pass": os.Getenv("SURREAL_PASS"),
+		"user": os.Getenv("SURREAL_USER"), // Using interface{} here to match surrealdb.SignIn signature
+		"pass": os.Getenv("SURREAL_PASS"), // Using interface{} here to match surrealdb.SignIn signature
 	})
 	require.NoError(t, err, "failed to sign in")
 
