@@ -8,15 +8,23 @@ import (
 	"github.com/surrealdb/surrealdb.go"
 )
 
+// UserStore encapsulates database operations for users.
+type UserStore struct {
+	db *surrealdb.DB
+}
+
+// NewUserStore creates a new UserStore.
+func NewUserStore(db *surrealdb.DB) *UserStore {
+	return &UserStore{db: db}
+}
+
 // FindUserByEmail queries for a single user by their email address.
-// This function demonstrates a functional/procedural approach, taking the db connection
-// as a direct argument rather than being a method on a store/repository struct.
-func FindUserByEmail(ctx context.Context, db *surrealdb.DB, email string) (*models.User, error) {
+func (s *UserStore) FindUserByEmail(ctx context.Context, email string) (*models.User, error) {
 	query := "SELECT * FROM user WHERE email = $email"
 	params := map[string]any{"email": email}
 
 	// Use the QueryOne helper which handles all the result processing
-	user, err := QueryOne[models.User](ctx, db, query, params)
+	user, err := QueryOne[models.User](ctx, s.db, query, params)
 	if err != nil {
 		return nil, fmt.Errorf("database query failed: %w", err)
 	}

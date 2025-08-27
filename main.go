@@ -19,8 +19,10 @@ func main() {
 	}
 	defer db.Close(ctx)
 
+	userStore := database.NewUserStore(db)
+
 	// Example usage in main()
-	user, err := database.FindUserByEmail(ctx, db, "nathan.frund@gmail.com")
+	user, err := userStore.FindUserByEmail(ctx, "nathan.frund@gmail.com")
 	if err != nil {
 		log.Fatalf("Error finding user: %v", err)
 	}

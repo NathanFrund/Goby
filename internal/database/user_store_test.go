@@ -20,6 +20,9 @@ func TestFindUserByEmail(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
+	// Create the store we are testing
+	store := NewUserStore(db)
+
 	// Test data
 	testUser := &models.User{
 		Email: "test@example.com",
@@ -50,7 +53,7 @@ func TestFindUserByEmail(t *testing.T) {
 		createdUser := &(*results)[0].Result[0]
 
 		// Test
-		foundUser, err := FindUserByEmail(ctx, db, testUser.Email)
+		foundUser, err := store.FindUserByEmail(ctx, testUser.Email)
 
 		// Assert
 		require.NoError(t, err)
@@ -61,26 +64,26 @@ func TestFindUserByEmail(t *testing.T) {
 	})
 
 	t.Run("error - user not found", func(t *testing.T) {
-		user, err := FindUserByEmail(ctx, db, "nonexistent@example.com")
+		user, err := store.FindUserByEmail(ctx, "nonexistent@example.com")
 
 		assert.Nil(t, user)
 		assert.NoError(t, err) // No error expected for non-existent user, returns nil user
 	})
 
 	t.Run("empty email returns no error", func(t *testing.T) {
-		user, err := FindUserByEmail(ctx, db, "")
+		user, err := store.FindUserByEmail(ctx, "")
 
 		assert.Nil(t, user)
 		assert.NoError(t, err) // No error expected for empty email
 	})
 
 	t.Run("database connection error", func(t *testing.T) {
-		// Create a new context with cancellation to simulate connection error
+		// Create a new context with cancellation to simulate a connection error
 		cancelCtx, cancel := context.WithCancel(context.Background())
 		cancel() // Cancel the context immediately
 
-		// Test with canceled context to simulate connection error
-		user, err := FindUserByEmail(cancelCtx, db, "test@example.com")
+		// Test with canceled context
+		user, err := store.FindUserByEmail(cancelCtx, "test@example.com")
 		assert.Nil(t, user)
 		assert.Error(t, err, "should return error with canceled context")
 	})
