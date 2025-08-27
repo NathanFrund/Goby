@@ -2,7 +2,6 @@ package database
 
 import (
 	"context"
-	"os"
 	"testing"
 
 	"github.com/nfrund/goby/internal/models"
@@ -21,12 +20,6 @@ func TestFindUserByEmail(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	// Clean up any existing test users before starting
-	_, err := surrealdb.Query[[]models.User](ctx, db, "DELETE user WHERE email = $email", map[string]any{
-		"email": "test@example.com",
-	})
-	require.NoError(t, err, "failed to clean up test users")
-
 	// Test data
 	testUser := &models.User{
 		Email: "test@example.com",
@@ -34,6 +27,11 @@ func TestFindUserByEmail(t *testing.T) {
 	}
 
 	t.Run("success - finds existing user", func(t *testing.T) {
+		// Setup: create a user for this specific test case.
+		t.Cleanup(func() {
+			_, _ = surrealdb.Query[any](ctx, db, "DELETE user WHERE email = $email", map[string]any{"email": testUser.Email})
+		})
+
 		// Insert test user using Query to be consistent with FindUserByEmail
 		query := "CREATE user SET email = $email, name = $name, password = $password"
 		params := map[string]any{
@@ -86,32 +84,4 @@ func TestFindUserByEmail(t *testing.T) {
 		assert.Nil(t, user)
 		assert.Error(t, err, "should return error with canceled context")
 	})
-}
-
-// setupTestDB creates a test database connection and returns a cleanup function
-func setupTestDB(t *testing.T) (*surrealdb.DB, func()) {
-	t.Helper()
-
-	// Initialize database connection
-	ctx := context.Background()
-	db, err := surrealdb.FromEndpointURLString(ctx, os.Getenv("SURREAL_URL"))
-	require.NoError(t, err, "failed to connect to database")
-
-	// Sign in
-	_, err = db.SignIn(ctx, map[string]interface{}{
-		"user": os.Getenv("SURREAL_USER"), // Using interface{} here to match surrealdb.SignIn signature
-		"pass": os.Getenv("SURREAL_PASS"), // Using interface{} here to match surrealdb.SignIn signature
-	})
-	require.NoError(t, err, "failed to sign in")
-
-	// Use test namespace and database
-	err = db.Use(ctx, os.Getenv("SURREAL_NS"), os.Getenv("SURREAL_DB"))
-	require.NoError(t, err, "failed to use namespace/database")
-
-	// Return connection and cleanup function
-	return db, func() {
-		// Clean up test data
-		_, _ = surrealdb.Query[[]models.User](ctx, db, "DELETE user", nil)
-		db.Close(ctx)
-	}
 }

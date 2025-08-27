@@ -2,7 +2,6 @@ package database
 
 import (
 	"context"
-	"os"
 	"testing"
 
 	"github.com/nfrund/goby/internal/config"
@@ -15,14 +14,8 @@ func TestNewDB(t *testing.T) {
 		t.Skip("skipping integration test in short mode")
 	}
 
-	// Load test configuration
-	cfg := &config.Config{
-		DBUrl:  os.Getenv("SURREAL_URL"),
-		DBNs:   os.Getenv("SURREAL_NS"),
-		DBDb:   os.Getenv("SURREAL_DB"),
-		DBUser: os.Getenv("SURREAL_USER"),
-		DBPass: os.Getenv("SURREAL_PASS"),
-	}
+	// Load configuration using the application's standard mechanism.
+	baseCfg := config.New()
 
 	tests := []struct {
 		name    string
@@ -32,14 +25,14 @@ func TestNewDB(t *testing.T) {
 		{
 			name: "success - valid configuration",
 			prepare: func() *config.Config {
-				return cfg
+				return baseCfg
 			},
 			wantErr: false,
 		},
 		{
 			name: "error - invalid URL",
 			prepare: func() *config.Config {
-				invalidCfg := *cfg
+				invalidCfg := *baseCfg
 				invalidCfg.DBUrl = "invalid://url"
 				return &invalidCfg
 			},
@@ -48,7 +41,7 @@ func TestNewDB(t *testing.T) {
 		{
 			name: "error - invalid credentials",
 			prepare: func() *config.Config {
-				invalidCfg := *cfg
+				invalidCfg := *baseCfg
 				invalidCfg.DBPass = "wrongpassword"
 				return &invalidCfg
 			},
@@ -90,13 +83,7 @@ func TestNewDB_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	cfg := &config.Config{
-		DBUrl:  os.Getenv("SURREAL_URL"),
-		DBNs:   os.Getenv("SURREAL_NS"),
-		DBDb:   os.Getenv("SURREAL_DB"),
-		DBUser: os.Getenv("SURREAL_USER"),
-		DBPass: os.Getenv("SURREAL_PASS"),
-	}
+	cfg := config.New()
 
 	db, err := NewDB(ctx, cfg)
 	assert.Error(t, err, "should return error with cancelled context")
