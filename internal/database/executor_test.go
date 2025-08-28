@@ -109,7 +109,7 @@ func TestExecutor(t *testing.T) {
 		require.NoError(t, err)
 
 		// Test update
-		_, err = Execute(ctx, db, "UPDATE user SET name = $name WHERE email = $email",
+		err = Execute(ctx, db, "UPDATE user SET name = $name WHERE email = $email",
 			map[string]any{
 				"name":  "Updated Name",
 				"email": testEmail,

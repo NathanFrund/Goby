@@ -34,19 +34,21 @@ func Query[T any](ctx context.Context, db *surrealdb.DB, query string, params ma
 //	query := "SELECT * FROM user WHERE email = $email"
 //	user, err := QueryOne[User](ctx, db, query, map[string]interface{}{"email": "test@example.com"})
 func QueryOne[T any](ctx context.Context, db *surrealdb.DB, query string, params map[string]any) (*T, error) {
-	// Ensure we're only getting one result
-	if !hasLimitClause(query) {
+	// Ensure we're only getting one result for SELECT queries.
+	// CREATE/UPDATE/DELETE statements don't support LIMIT.
+	if strings.HasPrefix(strings.ToUpper(strings.TrimSpace(query)), "SELECT") && !hasLimitClause(query) {
 		query += " LIMIT 1"
 	}
 
-	results, err := surrealdb.Query[[]T](ctx, db, query, params)
+	// Reuse the Query helper to avoid duplicating logic for handling results.
+	results, err := Query[T](ctx, db, query, params)
 	if err != nil {
-		return nil, fmt.Errorf("query execution failed: %w", err)
+		return nil, err // Error is already wrapped by the Query function
 	}
-	if len(*results) == 0 || len((*results)[0].Result) == 0 {
+	if len(results) == 0 {
 		return nil, nil
 	}
-	return &(*results)[0].Result[0], nil
+	return &results[0], nil
 }
 
 // Execute runs a query that doesn't return rows (INSERT, UPDATE, DELETE, etc.)
@@ -59,12 +61,12 @@ func QueryOne[T any](ctx context.Context, db *surrealdb.DB, query string, params
 //	    "id": "user:123",
 //	    "name": "New Name",
 //	})
-func Execute(ctx context.Context, db *surrealdb.DB, query string, params map[string]any) ([]surrealdb.QueryResult[[]any], error) {
-	results, err := surrealdb.Query[[]interface{}](ctx, db, query, params)
-	if err != nil {
-		return nil, fmt.Errorf("query execution failed: %w", err)
+func Execute(ctx context.Context, db *surrealdb.DB, query string, params map[string]any) error {
+	// Use the underlying Query method but discard the results. We only care about the error.
+	if _, err := surrealdb.Query[any](ctx, db, query, params); err != nil {
+		return fmt.Errorf("query execution failed: %w", err)
 	}
-	return *results, nil
+	return nil
 }
 
 // hasLimitClause checks if the query already has a LIMIT clause

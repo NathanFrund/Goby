@@ -31,3 +31,19 @@ func (s *UserStore) FindUserByEmail(ctx context.Context, email string) (*models.
 
 	return user, nil
 }
+
+// CreateUser inserts a new user into the database. SurrealDB handles hashing the password.
+func (s *UserStore) CreateUser(ctx context.Context, user *models.User, password string) (*models.User, error) {
+	query := "CREATE user SET name = $name, email = $email, password = $password"
+	params := map[string]any{
+		"name":     user.Name,
+		"email":    user.Email,
+		"password": password,
+	}
+
+	createdUser, err := QueryOne[models.User](ctx, s.db, query, params)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create user: %w", err)
+	}
+	return createdUser, nil
+}
