@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/nfrund/goby/internal/config"
 	"github.com/nfrund/goby/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -19,9 +20,10 @@ func TestFindUserByEmail(t *testing.T) {
 	ctx := context.Background()
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
+	cfg := config.New()
 
 	// Create the store we are testing
-	store := NewUserStore(db)
+	store := NewUserStore(db, cfg.DBNs, cfg.DBDb)
 
 	// Test data
 	testUser := &models.User{
@@ -89,6 +91,83 @@ func TestFindUserByEmail(t *testing.T) {
 	})
 }
 
+// testDBQuery is a helper to run a query and log the results for debugging
+func TestSignUp(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	// Setup test database
+	ctx := context.Background()
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+	cfg := config.New()
+
+	// Create the store we are testing
+	store := NewUserStore(db, cfg.DBNs, cfg.DBDb)
+
+	t.Run("success - creates and signs up a new user", func(t *testing.T) {
+		// Test data
+		testEmail := "signup-test@example.com"
+		testPassword := "securepassword123"
+		testName := "Test SignUp User"
+
+		// Cleanup after test
+		t.Cleanup(func() {
+			_, _ = surrealdb.Query[any](ctx, db, "DELETE user WHERE email = $email", map[string]any{"email": testEmail})
+		})
+
+		// Create user using SignUp
+		token, err := store.SignUp(ctx, &models.User{
+			Email: testEmail,
+			Name:  testName,
+		}, testPassword)
+
+		// Verify results
+		require.NoError(t, err, "SignUp should not return an error")
+		assert.NotEmpty(t, token, "SignUp should return a non-empty token")
+
+		// Verify user was created (only email is set during signup)
+		user, err := store.FindUserByEmail(ctx, testEmail)
+		require.NoError(t, err, "Should find the created user")
+		assert.Equal(t, testEmail, user.Email)
+		// Note: Name is not set during signup, only email and password are used
+	})
+
+	t.Run("error - duplicate email", func(t *testing.T) {
+		// Test data
+		testEmail := "duplicate-signup@example.com"
+		testPassword := "securepassword123"
+
+		// Create a user first
+		_, err := store.SignUp(ctx, &models.User{
+			Email: testEmail,
+			Name:  "First User",
+		}, testPassword)
+		require.NoError(t, err)
+
+		// Try to create another user with the same email
+		_, err = store.SignUp(ctx, &models.User{
+			Email: testEmail,
+			Name:  "Duplicate User",
+		}, "anotherpassword")
+
+		// Verify error (actual error from SurrealDB)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "The record access signup query failed")
+	})
+}
+
+func testDBQuery(t *testing.T, ctx context.Context, db *surrealdb.DB, query string, params map[string]interface{}) {
+	t.Helper()
+	result, err := surrealdb.Query[any](ctx, db, query, params)
+	if err != nil {
+		t.Logf("Query failed: %v", err)
+		return
+	}
+	t.Logf("Query result: %+v", result)
+}
+
 func TestCreateUser(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -98,7 +177,55 @@ func TestCreateUser(t *testing.T) {
 	ctx := context.Background()
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
-	store := NewUserStore(db)
+	cfg := config.New()
+
+	// Log database connection details
+	t.Logf("Connecting to database - URL: %s, NS: %s, DB: %s", cfg.DBUrl, cfg.DBNs, cfg.DBDb)
+
+	store := NewUserStore(db, cfg.DBNs, cfg.DBDb)
+
+	// Verify database connection and check permissions
+	if err := db.Use(ctx, cfg.DBNs, cfg.DBDb); err != nil {
+		t.Fatalf("Failed to use database: %v", err)
+	}
+	t.Log("Successfully connected to database")
+
+	// Check database info and permissions
+	info, err := db.Info(ctx)
+	if err != nil {
+		t.Logf("Failed to get database info: %v", err)
+	} else {
+		t.Logf("Database info: %+v", info)
+	}
+
+	// Check if we can query the user table
+	testDBQuery(t, ctx, db, "INFO FOR TABLE user", nil)
+	testDBQuery(t, ctx, db, "SELECT * FROM user LIMIT 10", nil)
+
+	// Test creating a user directly with a query
+	t.Run("direct query - create user", func(t *testing.T) {
+		query := `
+			CREATE user SET 
+				email = $email, 
+				name = $name, 
+				password = crypto::argon2::generate($password)
+		`
+		params := map[string]interface{}{
+			"email":    "direct-test@example.com",
+			"name":     "Direct Test User",
+			"password": "testpassword123",
+		}
+
+		result, err := surrealdb.Query[any](ctx, db, query, params)
+		if err != nil {
+			t.Fatalf("Direct query failed: %v", err)
+		}
+		t.Logf("Direct query result: %+v", result)
+
+		// Cleanup
+		_, _ = surrealdb.Query[any](ctx, db, "DELETE user WHERE email = $email", 
+			map[string]any{"email": "direct-test@example.com"})
+	})
 
 	t.Run("success - creates a new user", func(t *testing.T) {
 		// Arrange: Define the user data we want to create.
@@ -111,7 +238,12 @@ func TestCreateUser(t *testing.T) {
 		// Use t.Cleanup to ensure the test user is deleted after this sub-test runs,
 		// keeping our tests isolated from each other.
 		t.Cleanup(func() {
-			_, _ = surrealdb.Query[any](ctx, db, "DELETE user WHERE email = $email", map[string]any{"email": newUser.Email})
+			result, err := surrealdb.Query[any](ctx, db, "DELETE user WHERE email = $email", map[string]any{"email": newUser.Email})
+			if err != nil {
+				t.Logf("Cleanup failed to delete user: %v", err)
+			} else {
+				t.Logf("Cleanup deleted user: %+v", result)
+			}
 		})
 
 		// Act: Call the method we are testing.
