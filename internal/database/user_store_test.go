@@ -92,6 +92,85 @@ func TestFindUserByEmail(t *testing.T) {
 }
 
 // testDBQuery is a helper to run a query and log the results for debugging
+func TestSignIn(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	// Setup test database
+	ctx := context.Background()
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+	cfg := config.New()
+
+	// Create the store we are testing
+	store := NewUserStore(db, cfg.DBNs, cfg.DBDb)
+
+	t.Run("success - signs in with correct credentials", func(t *testing.T) {
+		// Test data
+		testEmail := "signin-test@example.com"
+		testPassword := "securepassword123"
+
+		// Create a user first using SignUp
+		_, err := store.SignUp(ctx, &models.User{
+			Email: testEmail,
+			Name:  "Test SignIn User",
+		}, testPassword)
+		require.NoError(t, err, "failed to create test user")
+
+		// Cleanup after test
+		t.Cleanup(func() {
+			_, _ = surrealdb.Query[any](ctx, db, "DELETE user WHERE email = $email", map[string]any{"email": testEmail})
+		})
+
+		// Test SignIn
+		token, err := store.SignIn(ctx, &models.User{
+			Email: testEmail,
+		}, testPassword)
+
+		// Verify results
+		require.NoError(t, err, "SignIn should not return an error with correct credentials")
+		assert.NotEmpty(t, token, "SignIn should return a non-empty token")
+	})
+
+	t.Run("error - invalid password", func(t *testing.T) {
+		// Test data
+		testEmail := "signin-fail@example.com"
+		testPassword := "correctpassword"
+
+		// Create a user first using SignUp
+		_, err := store.SignUp(ctx, &models.User{
+			Email: testEmail,
+			Name:  "Test SignIn Fail",
+		}, testPassword)
+		require.NoError(t, err, "failed to create test user")
+
+		// Cleanup after test
+		t.Cleanup(func() {
+			_, _ = surrealdb.Query[any](ctx, db, "DELETE user WHERE email = $email", map[string]any{"email": testEmail})
+		})
+
+		// Test SignIn with wrong password
+		token, err := store.SignIn(ctx, &models.User{
+			Email: testEmail,
+		}, "wrongpassword")
+
+		// Verify results
+		assert.Error(t, err, "SignIn should return an error with incorrect password")
+		assert.Empty(t, token, "Token should be empty on error")
+	})
+
+	t.Run("error - non-existent user", func(t *testing.T) {
+		nonExistentEmail := "nonexistent@example.com"
+		token, err := store.SignIn(ctx, &models.User{
+			Email: nonExistentEmail,
+		}, "somepassword")
+
+		assert.Error(t, err, "SignIn should return an error for non-existent user")
+		assert.Empty(t, token, "Token should be empty on error")
+	})
+}
+
 func TestSignUp(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")

@@ -52,6 +52,23 @@ func (s *UserStore) SignUp(ctx context.Context, user *models.User, password stri
 	return token, err
 }
 
+func (s *UserStore) SignIn(ctx context.Context, user *models.User, password string) (string, error) {
+	// Format matches the JavaScript SDK's implementation
+	token, err := s.db.SignIn(ctx, map[string]interface{}{
+		"ns":       s.ns,      // lowercase 'ns' to match JS SDK
+		"db":       s.dbName,  // lowercase 'db' to match JS SDK
+		"ac":       "account", // access control namespace
+		"email":    user.Email,
+		"password": password,
+	})
+
+	if err == nil && token != "" {
+		log.Printf("Successfully signed in user %s. Token: %s", user.Email, token)
+	}
+
+	return token, err
+}
+
 // CreateUser creates a new user in the database.
 func (s *UserStore) CreateUser(ctx context.Context, user *models.User, password string) (*models.User, error) {
 	// First check if user with this email already exists
