@@ -26,9 +26,10 @@ func TestFindUserByEmail(t *testing.T) {
 	store := NewUserStore(db, cfg.DBNs, cfg.DBDb)
 
 	// Test data
+	testUserName := "Test User"
 	testUser := &models.User{
 		Email: "test@example.com",
-		Name:  "Test User",
+		Name:  &testUserName,
 	}
 
 	t.Run("success - finds existing user", func(t *testing.T) {
@@ -62,7 +63,7 @@ func TestFindUserByEmail(t *testing.T) {
 		require.NotNil(t, foundUser)
 		assert.Equal(t, createdUser.ID, foundUser.ID)
 		assert.Equal(t, testUser.Email, foundUser.Email)
-		assert.Equal(t, testUser.Name, foundUser.Name)
+		assert.Equal(t, *testUser.Name, *foundUser.Name)
 	})
 
 	t.Run("error - user not found", func(t *testing.T) {
@@ -92,6 +93,15 @@ func TestFindUserByEmail(t *testing.T) {
 }
 
 // testDBQuery is a helper to run a query and log the results for debugging
+func testDBQuery(t *testing.T, ctx context.Context, db *surrealdb.DB, query string, params map[string]interface{}) {
+	results, err := surrealdb.Query[[]map[string]interface{}](ctx, db, query, params)
+	if err != nil {
+		t.Logf("Query error: %v", err)
+		return
+	}
+	t.Logf("Query results: %+v", results)
+}
+
 func TestSignIn(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -108,25 +118,24 @@ func TestSignIn(t *testing.T) {
 
 	t.Run("success - signs in with correct credentials", func(t *testing.T) {
 		// Test data
-		testEmail := "signin-test@example.com"
+		signInUserName := "Test SignIn User"
+		testUser := &models.User{
+			Name:  &signInUserName,
+			Email: "signin-test@example.com",
+		}
 		testPassword := "securepassword123"
 
 		// Create a user first using SignUp
-		_, err := store.SignUp(ctx, &models.User{
-			Email: testEmail,
-			Name:  "Test SignIn User",
-		}, testPassword)
+		_, err := store.SignUp(ctx, testUser, testPassword)
 		require.NoError(t, err, "failed to create test user")
 
 		// Cleanup after test
 		t.Cleanup(func() {
-			_, _ = surrealdb.Query[any](ctx, db, "DELETE user WHERE email = $email", map[string]any{"email": testEmail})
+			_, _ = surrealdb.Query[any](ctx, db, "DELETE user WHERE email = $email", map[string]any{"email": testUser.Email})
 		})
 
 		// Test SignIn
-		token, err := store.SignIn(ctx, &models.User{
-			Email: testEmail,
-		}, testPassword)
+		token, err := store.SignIn(ctx, testUser, testPassword)
 
 		// Verify results
 		require.NoError(t, err, "SignIn should not return an error with correct credentials")
@@ -139,9 +148,10 @@ func TestSignIn(t *testing.T) {
 		testPassword := "correctpassword"
 
 		// Create a user first using SignUp
+		signInFailName := "Test SignIn Fail"
 		_, err := store.SignUp(ctx, &models.User{
 			Email: testEmail,
-			Name:  "Test SignIn Fail",
+			Name:  &signInFailName,
 		}, testPassword)
 		require.NoError(t, err, "failed to create test user")
 
@@ -199,7 +209,7 @@ func TestSignUp(t *testing.T) {
 		// Create user using SignUp
 		token, err := store.SignUp(ctx, &models.User{
 			Email: testEmail,
-			Name:  testName,
+			Name:  &testName,
 		}, testPassword)
 
 		// Verify results
@@ -219,32 +229,24 @@ func TestSignUp(t *testing.T) {
 		testPassword := "securepassword123"
 
 		// Create a user first
+		firstUserName := "First User"
 		_, err := store.SignUp(ctx, &models.User{
 			Email: testEmail,
-			Name:  "First User",
+			Name:  &firstUserName,
 		}, testPassword)
 		require.NoError(t, err)
 
 		// Try to create another user with the same email
+		duplicateUserName := "Duplicate User"
 		_, err = store.SignUp(ctx, &models.User{
 			Email: testEmail,
-			Name:  "Duplicate User",
+			Name:  &duplicateUserName,
 		}, "anotherpassword")
 
 		// Verify error (actual error from SurrealDB)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "The record access signup query failed")
 	})
-}
-
-func testDBQuery(t *testing.T, ctx context.Context, db *surrealdb.DB, query string, params map[string]interface{}) {
-	t.Helper()
-	result, err := surrealdb.Query[any](ctx, db, query, params)
-	if err != nil {
-		t.Logf("Query failed: %v", err)
-		return
-	}
-	t.Logf("Query result: %+v", result)
 }
 
 func TestCreateUser(t *testing.T) {
@@ -308,9 +310,10 @@ func TestCreateUser(t *testing.T) {
 
 	t.Run("success - creates a new user", func(t *testing.T) {
 		// Arrange: Define the user data we want to create.
+		createTestUserName := "Create Test User"
 		newUser := &models.User{
+			Name:  &createTestUserName,
 			Email: "create-test@example.com",
-			Name:  "Create Test User",
 		}
 		password := "a-strong-password-123"
 
@@ -335,26 +338,27 @@ func TestCreateUser(t *testing.T) {
 		// Check that the returned user has the correct data and a database-generated ID.
 		assert.NotEmpty(t, createdUser.ID, "ID should be set by the database")
 		assert.Equal(t, newUser.Email, createdUser.Email)
-		assert.Equal(t, newUser.Name, createdUser.Name)
+		assert.Equal(t, *newUser.Name, *createdUser.Name)
 	})
 
 	t.Run("error - email already exists", func(t *testing.T) {
 		// Arrange: Create an initial user that we will try to duplicate.
-		initialUser := &models.User{
-			Email: "duplicate-test@example.com",
-			Name:  "Initial User",
+		firstUserName := "First User"
+		firstUser := &models.User{
+			Name:  &firstUserName,
+			Email: "first@example.com",
 		}
 		password := "some-password"
 
-		_, err := store.CreateUser(ctx, initialUser, password)
+		_, err := store.CreateUser(ctx, firstUser, password)
 		require.NoError(t, err, "failed to create the initial user for the test")
 
 		t.Cleanup(func() {
-			_, _ = surrealdb.Query[any](ctx, db, "DELETE user WHERE email = $email", map[string]any{"email": initialUser.Email})
+			_, _ = surrealdb.Query[any](ctx, db, "DELETE user WHERE email = $email", map[string]any{"email": firstUser.Email})
 		})
 
 		// Act: Attempt to create another user with the same email.
-		duplicateUser, err := store.CreateUser(ctx, initialUser, "another-password")
+		duplicateUser, err := store.CreateUser(ctx, firstUser, "another-password")
 
 		// Assert: Verify that we get an error and a nil user.
 		assert.Error(t, err, "expected an error when creating a user with a duplicate email")

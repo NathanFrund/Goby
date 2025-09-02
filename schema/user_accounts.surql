@@ -9,7 +9,7 @@ DEFINE INDEX IF NOT EXISTS email ON user FIELDS email UNIQUE;
 -- Add the password reset token field (nullable string)
 DEFINE FIELD IF NOT EXISTS resetToken ON TABLE user TYPE option<string>;
 
--- Add the password reset token expiry field (nullable string, or use datetime if you prefer)
+-- Add the password reset token expiry field (stored as ISO 8601 string)
 DEFINE FIELD IF NOT EXISTS resetTokenExpires ON TABLE user TYPE option<string>;
 
 -- Remove the access method if it exists, to allow re-defining it. This ensures the script is idempotent.

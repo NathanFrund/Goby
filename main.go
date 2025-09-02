@@ -18,9 +18,10 @@ func createTestUser(ctx context.Context, store *database.UserStore) error {
 		email = os.Args[2] // Allow email to be passed as second argument
 	}
 
+	testUserName := "Test User"
 	user := &models.User{
 		Email: email,
-		Name:  "Test User",
+		Name:  &testUserName,
 	}
 
 	token, err := store.SignUp(ctx, user, "testpassword123")

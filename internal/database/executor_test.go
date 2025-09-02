@@ -80,7 +80,8 @@ func TestExecutor(t *testing.T) {
 		// Verify
 		assert.NoError(t, err)
 		require.NotNil(t, user)
-		assert.Equal(t, "QueryOne User", user.Name)
+		require.NotNil(t, user.Name, "user name should not be nil")
+		assert.Equal(t, "QueryOne User", *user.Name)
 	})
 
 	t.Run("QueryOne - returns nil when not found", func(t *testing.T) {
@@ -123,7 +124,8 @@ func TestExecutor(t *testing.T) {
 			map[string]any{"email": testEmail})
 		assert.NoError(t, err)
 		require.NotNil(t, user, "user should be found after update")
-		assert.Equal(t, "Updated Name", user.Name, "user name should be updated")
+		require.NotNil(t, user.Name, "user name should not be nil")
+		assert.Equal(t, "Updated Name", *user.Name, "user name should be updated")
 	})
 	t.Run("Query - handles errors", func(t *testing.T) {
 		// Test with invalid query
