@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{template "title" .}} - Go Template</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    {{template "head" .}}
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>{{template "title" .}}</h1>
+            {{if .Flash}}
+            <div class="alert alert-{{.Flash.Type}}">
+                {{.Flash.Message}}
+            </div>
+            {{end}}
+        </header>
+        
+        <main>
+            {{template "content" .}}
+        </main>
+        
+        <footer class="mt-8 text-center text-sm text-gray-500">
+            <p>© 2025 Go Template. All rights reserved.</p>
+        </footer>
+    </div>
+    
+    {{template "scripts" .}}
+</body>
+</html>
+
+{{/* Default template blocks */}}
+{{define "title"}}Go Template{{end}}
+{{define "head"}}{{end}}
+{{define "content"}}{{end}}
+{{define "scripts"}}{{end}}
