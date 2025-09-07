@@ -1,0 +1,14 @@
+{
+  "name": "goby",
+  "dependencies": {
+    "@tailwindcss/cli": "^4.1.13",
+    "tailwindcss": "^4.1.13"
+  },
+  "scripts": {
+    "dev:tailwind": "tailwindcss --input=./src/css/input.css --output=./static/css/style.css --watch",
+    "clean": "rm -rf .tailwindcss"
+  },
+  "devDependencies": {
+    "daisyui": "latest"
+  }
+}

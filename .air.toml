@@ -5,16 +5,16 @@ root = "."
 tmp_dir = "tmp"
 
 [build]
-# Just plain old shell command. You could use `make` as well.
-cmd = "go build -o ./tmp/main ./cmd/server"
-# Binary file produced by `cmd`.
+# Build the Go application
+cmd = "cd cmd/server && go build -o ../../tmp/main ."
+# Binary file produced by `cmd`
 bin = "tmp/main"
-# Customize binary.
+# Command to run the built binary
 full_bin = "./tmp/main"
-# Watch these filename extensions.
-include_ext = ["go", "tpl", "tmpl", "html", "css"]
-# Ignore these directories.
-exclude_dir = ["assets", "tmp", "vendor", "node_modules"]
+# Watch these filename extensions for Go rebuilds
+include_ext = ["go", "html"]
+# Ignore these directories
+exclude_dir = ["tmp", "node_modules"]
 # It's not necessary to trigger build each time file changes if it's too frequent.
 delay = 1000 # ms
 # Stop running old binary when build errors occur.
