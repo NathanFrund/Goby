@@ -22,7 +22,7 @@ func main() {
 	e.Renderer = templates.New()
 
 	// Static files
-	e.Static("/static", "static")
+	e.Static("/static", "web/static")
 
 	// Add a simple health check endpoint
 	e.GET("/health", func(c echo.Context) error {

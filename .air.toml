@@ -6,7 +6,7 @@ tmp_dir = "tmp"
 
 [build]
 # Build the Go application
-cmd = "cd cmd/server && go build -o ../../tmp/main ."
+cmd = "go build -o ./tmp/main ./cmd/server"
 # Binary file produced by `cmd`
 bin = "tmp/main"
 # Command to run the built binary

@@ -5,7 +5,7 @@
     "tailwindcss": "^4.1.13"
   },
   "scripts": {
-    "dev:tailwind": "tailwindcss --input=./src/css/input.css --output=./static/css/style.css --watch",
+    "dev:tailwind": "tailwindcss --input=./web/src/css/input.css --output=./web/static/css/style.css --watch",
     "clean": "rm -rf .tailwindcss"
   },
   "devDependencies": {

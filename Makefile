@@ -1,18 +1,40 @@
-.PHONY: test test-short test-cover test-watch
+.PHONY: dev build clean tidy test
+
+# ==============================================================================
+# DEVELOPMENT
+# ==============================================================================
+
+# Run the development server with live-reloading for Go and Tailwind CSS.
+dev:
+	@overmind start
+
+# ==============================================================================
+# BUILD
+# ==============================================================================
+
+# Build the Go binary and the production CSS.
+build:
+	@echo "Building Go binary..."
+	@go build -o ./tmp/goby ./cmd/server
+	@echo "Building production CSS..."
+	@npm exec tailwindcss -- -i ./web/src/css/input.css -o ./web/static/css/style.css --minify
+
+# ==============================================================================
+# HELPERS
+# ==============================================================================
+
+# Remove build artifacts.
+clean:
+	@rm -rf ./tmp ./coverage.* ./.tailwindcss
+
+# Tidy go.mod and go.sum.
+tidy:
+	@go mod tidy
+
+# ==============================================================================
+# TESTING
+# ==============================================================================
 
 # Run all tests
 test:
 	go test ./... -v
-
-# Run only unit tests (skip integration tests)
-test-short:
-	go test -short ./... -v
-
-# Run tests with coverage
-test-cover:
-	go test -coverprofile=coverage.out ./...
-	go tool cover -html=coverage.out -o coverage.html
-
-# Watch for changes and run tests (requires modd)
-test-watch:
-	modd
