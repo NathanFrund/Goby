@@ -2,11 +2,15 @@
   "name": "goby",
   "dependencies": {
     "@tailwindcss/cli": "^4.1.13",
+    "alpinejs": "^3.14.1",
+    "htmx.org": "^2.0.1",
     "tailwindcss": "^4.1.13"
   },
   "scripts": {
     "dev:tailwind": "tailwindcss --input=./web/src/css/input.css --output=./web/static/css/style.css --watch",
-    "clean": "rm -rf .tailwindcss"
+    "clean": "rm -rf .tailwindcss",
+    "build:js": "node scripts/build.js",
+    "postinstall": "npm run build:js"
   },
   "devDependencies": {
     "daisyui": "latest"
