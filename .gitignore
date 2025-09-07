@@ -13,3 +13,8 @@ bin/
 .DS_Store
 
 node_modules
+
+# Build artifacts & temp files
+tmp/
+coverage.out
+coverage.html
