@@ -10,6 +10,7 @@
     "dev:tailwind": "tailwindcss --input=./web/src/css/input.css --output=./web/static/css/style.css --watch",
     "clean": "rm -rf .tailwindcss",
     "build:js": "node scripts/build.js",
+    "build:css": "tailwindcss -i ./web/src/css/input.css -o ./web/static/css/style.css --minify",
     "postinstall": "npm run build:js"
   },
   "devDependencies": {

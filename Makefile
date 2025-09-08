@@ -16,8 +16,9 @@ dev:
 build:
 	@echo "Building Go binary..."
 	@go build -o ./tmp/goby ./cmd/server
-	@echo "Building production CSS..."
-	@npm exec tailwindcss -- -i ./web/src/css/input.css -o ./web/static/css/style.css --minify
+	@echo "Building production assets..."
+	@npm run build:js
+	@npm exec tailwindcss -- --input=./web/src/css/input.css --output=./web/static/css/style.css --minify
 
 # ==============================================================================
 # HELPERS

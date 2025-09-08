@@ -4,17 +4,23 @@ import (
 	"net/http"
 
 	"github.com/labstack/echo/v4"
+	"github.com/surrealdb/surrealdb.go"
 )
 
 // AuthHandler handles authentication-related requests.
 type AuthHandler struct {
-	// In the future, we would add dependencies here, like a user service.
-	// userService *user.Service
+	db     *surrealdb.DB
+	ns     string
+	dbName string
 }
 
 // NewAuthHandler creates a new AuthHandler.
-func NewAuthHandler() *AuthHandler {
-	return &AuthHandler{}
+func NewAuthHandler(db *surrealdb.DB, ns, dbName string) *AuthHandler {
+	return &AuthHandler{
+		db:     db,
+		ns:     ns,
+		dbName: dbName,
+	}
 }
 
 // RegisterGet handles the request to show the registration page.
@@ -22,7 +28,7 @@ func (h *AuthHandler) RegisterGet(c echo.Context) error {
 	// This handler's only job is to render the registration page template.
 	// The template name "pages/register" corresponds to the file
 	// "web/src/templates/pages/register.html".
-	return c.Render(http.StatusOK, "pages/register", nil)
+	return c.Render(http.StatusOK, "register.html", nil)
 }
 
 // RegisterPost handles the form submission for creating a new user.

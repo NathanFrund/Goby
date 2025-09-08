@@ -1,4 +1,5 @@
-{{define "title"}}Create an Account{{end}} {{define "content"}}
+{{template "base.html" .}} {{define "title"}}Create an Account{{end}} {{define
+"content"}}
 <div class="hero min-h-screen bg-base-200">
   <div class="hero-content flex-col lg:flex-row-reverse">
     <div class="text-center lg:text-left">
@@ -15,6 +16,7 @@
             type="email"
             name="email"
             placeholder="email"
+            autocomplete="email"
             class="input input-bordered"
             required
           />
@@ -27,6 +29,7 @@
             type="password"
             name="password"
             placeholder="password"
+            autocomplete="new-password"
             class="input input-bordered"
             required
           />
@@ -39,6 +42,7 @@
             type="password"
             name="password_confirm"
             placeholder="confirm password"
+            autocomplete="new-password"
             class="input input-bordered"
             required
           />

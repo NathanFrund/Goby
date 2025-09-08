@@ -5,29 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>{{template "title" .}} - Goby</title>
     <link rel="stylesheet" href="/static/css/style.css" />
-    {{template "head" .}}
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
   </head>
   <body>
-    <div class="container">
-      <header>
-        <h1>{{template "title" .}}</h1>
-        {{if .Flash}}
-        <div class="alert alert-{{.Flash.Type}}">{{.Flash.Message}}</div>
-        {{end}}
-      </header>
-
-      <main>{{template "content" .}}</main>
-
-      <footer class="mt-8 text-center text-sm text-gray-500">
-        <p>© 2025 Goby project. All rights reserved.</p>
-      </footer>
-    </div>
-
-    <script src="/static/js/htmx.min.js"></script>
-    <script defer src="/static/js/alpine.min.js"></script>
-    {{template "scripts" .}}
+    {{template "content" .}}
   </body>
 </html>
-
-{{/* Default template blocks */}} {{define "title"}}Goby{{end}} {{define
-"head"}}{{end}} {{define "content"}}{{end}} {{define "scripts"}}{{end}}

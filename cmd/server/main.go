@@ -1,46 +1,16 @@
 package main
 
 import (
-	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
-	"github.com/nfrund/goby/internal/handlers"
-	"github.com/nfrund/goby/internal/templates"
+	"github.com/nfrund/goby/internal/server"
 )
 
 func main() {
-	e := echo.New()
+	// Create a new server instance.
+	s := server.New()
 
-	// Configure Echo to not use rate limiting
-	e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
-		Skipper: func(c echo.Context) bool {
-			// Skip logging for health check endpoints
-			return c.Path() == "/health"
-		},
-	}))
-	e.Use(middleware.Recover())
+	// Register all application routes.
+	s.RegisterRoutes()
 
-	// Template rendering
-	e.Renderer = templates.New()
-
-	// Static files
-	e.Static("/static", "web/static")
-
-	// Add a simple health check endpoint
-	e.GET("/health", func(c echo.Context) error {
-		return c.String(200, "OK")
-	})
-
-	// Routes
-	e.GET("/", func(c echo.Context) error {
-		return c.Render(200, "pages/home", nil)
-	})
-
-	// Authentication routes
-	authHandler := handlers.NewAuthHandler()
-	e.GET("/register", authHandler.RegisterGet)
-	e.POST("/register", authHandler.RegisterPost)
-
-	// Start server
-	e.Logger.Info("Starting server on :8080")
-	e.Logger.Fatal(e.Start(":8080"))
+	// Start the server.
+	s.Start(":8080")
 }
