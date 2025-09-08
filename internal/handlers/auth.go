@@ -98,12 +98,8 @@ func (h *AuthHandler) RegisterPost(c echo.Context) error {
 
 // LoginGet handles the request to show the login page.
 func (h *AuthHandler) LoginGet(c echo.Context) error {
-	data := map[string]interface{}{}
-	// Check for a query parameter to show a success message after registration.
-	if c.QueryParam("registered") == "true" {
-		data["Success"] = "Registration successful! You can now log in."
-	}
-	return c.Render(http.StatusOK, "login.html", data)
+	// This handler's only job is to render the login page template.
+	return c.Render(http.StatusOK, "login.html", nil)
 }
 
 // LoginPost handles the form submission for logging in a user.
