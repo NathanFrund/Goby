@@ -22,10 +22,10 @@ func (t *Template) Render(w io.Writer, name string, data interface{}, c echo.Con
 	tmpl, ok := t.templates[name]
 	if !ok {
 		// Parse template if not in cache
-		path := filepath.Join("web/templates", name+".html")
+		path := filepath.Join("web/src/templates", name+".html")
 		var err error
 		tmpl, err = template.ParseFiles(
-			"web/templates/base.html",
+			"web/src/templates/base.html",
 			path,
 		)
 		if err != nil {
