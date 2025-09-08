@@ -25,7 +25,7 @@ func (t *Template) Render(w io.Writer, name string, data interface{}, c echo.Con
 		path := filepath.Join("web/src/templates", name+".html")
 		var err error
 		tmpl, err = template.ParseFiles(
-			"web/src/templates/base.html",
+			"web/src/templates/layouts/base.html",
 			path,
 		)
 		if err != nil {

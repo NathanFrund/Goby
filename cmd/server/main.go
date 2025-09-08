@@ -31,7 +31,7 @@ func main() {
 
 	// Routes
 	e.GET("/", func(c echo.Context) error {
-		return c.Render(200, "home", nil)
+		return c.Render(200, "pages/home", nil)
 	})
 
 	// Start server
