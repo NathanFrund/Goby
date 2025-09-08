@@ -3,6 +3,7 @@ package main
 import (
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	"github.com/nfrund/goby/internal/handlers"
 	"github.com/nfrund/goby/internal/templates"
 )
 
@@ -33,6 +34,11 @@ func main() {
 	e.GET("/", func(c echo.Context) error {
 		return c.Render(200, "pages/home", nil)
 	})
+
+	// Authentication routes
+	authHandler := handlers.NewAuthHandler()
+	e.GET("/register", authHandler.RegisterGet)
+	e.POST("/register", authHandler.RegisterPost)
 
 	// Start server
 	e.Logger.Info("Starting server on :8080")
