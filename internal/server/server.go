@@ -33,6 +33,12 @@ func New() *Server {
 		log.Fatalf("Failed to connect to database: %v", err)
 	}
 
+	// Ensure the connection is scoped to the correct namespace and database.
+	// This is crucial for all subsequent database operations.
+	if err := db.Use(context.Background(), cfg.DBNs, cfg.DBDb); err != nil {
+		log.Fatalf("failed to use namespace/db: %v", err)
+	}
+
 	e := echo.New()
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())

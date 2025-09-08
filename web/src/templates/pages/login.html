@@ -1,14 +1,32 @@
-{{template "base.html" .}} {{define "title"}}Create an Account{{end}} {{define
-"content"}}
+{{template "base.html" .}} {{define "title"}}Login{{end}} {{define "content"}}
 <div class="hero min-h-screen bg-base-200">
   <div class="hero-content flex-col lg:flex-row-reverse">
     <div class="text-center lg:text-left">
-      <h1 class="text-5xl font-bold">Join Goby!</h1>
-      <p class="py-6">Create an account to get started. It's fast and easy.</p>
+      <h1 class="text-5xl font-bold">Login now!</h1>
+      <p class="py-6">
+        Welcome back. Please enter your credentials to access your account.
+      </p>
     </div>
     <div class="card shrink-0 w-full max-w-sm shadow-2xl bg-base-100">
-      <form class="card-body" method="POST" action="/register">
-        {{if .Error}}
+      <form class="card-body" method="POST" action="/login">
+        {{if .Success}}
+        <div role="alert" class="alert alert-success">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            class="stroke-current shrink-0 h-6 w-6"
+            fill="none"
+            viewBox="0 0 24 24"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+            />
+          </svg>
+          <span>{{.Success}}</span>
+        </div>
+        {{end}} {{if .Error}}
         <div role="alert" class="alert alert-error">
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -35,7 +53,6 @@
             name="email"
             placeholder="email"
             autocomplete="email"
-            value="{{.Email}}"
             class="input input-bordered"
             required
           />
@@ -48,30 +65,22 @@
             type="password"
             name="password"
             placeholder="password"
-            autocomplete="new-password"
+            autocomplete="current-password"
             class="input input-bordered"
             required
           />
-        </div>
-        <div class="form-control">
           <label class="label">
-            <span class="label-text">Confirm Password</span>
+            <a href="/forgot-password" class="label-text-alt link link-hover"
+              >Forgot password?</a
+            >
           </label>
-          <input
-            type="password"
-            name="password_confirm"
-            placeholder="confirm password"
-            autocomplete="new-password"
-            class="input input-bordered"
-            required
-          />
         </div>
         <div class="form-control mt-6">
-          <button type="submit" class="btn btn-primary">Create Account</button>
+          <button class="btn btn-primary">Login</button>
         </div>
         <label class="label">
-          <a href="/login" class="label-text-alt link link-hover"
-            >Already have an account? Login</a
+          <a href="/register" class="label-text-alt link link-hover"
+            >Don't have an account? Register</a
           >
         </label>
       </form>
