@@ -46,7 +46,7 @@ This project is configured for a streamlined development experience. The recomme
     overmind start
     ```
 
-This will start both processes defined in the `Procfile`. Your application will be available at `http://localhost:3000` and will automatically reload when you make changes to Go or CSS files.
+This will start both processes defined in the `Procfile`. Your application will be available at `http://localhost:8080` and will automatically reload when you make changes to Go or CSS files.
 
 ### Alternative: Running in Separate Terminals
 
@@ -63,4 +63,4 @@ If you prefer not to install `overmind` and `tmux`, you can run the Go live-relo
     air
     ```
 
-This setup achieves the same result, with your Go application running on `http://localhost:3000` and live-reloading enabled for both backend and frontend changes.
+This setup achieves the same result, with your Go application running on `http://localhost:8080` and live-reloading enabled for both backend and frontend changes.
