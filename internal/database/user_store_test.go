@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/nfrund/goby/internal/config"
 	"github.com/nfrund/goby/internal/models"
@@ -251,44 +252,97 @@ func TestPasswordResetFlow(t *testing.T) {
 	cfg := config.New()
 	store := NewUserStore(db, cfg.DBNs, cfg.DBDb)
 
-	// Test data
-	testEmail := "reset-test@example.com"
-	initialPassword := "initialPassword123"
-	newPassword := "newSecurePassword456"
-	testName := "Reset Test User"
+	t.Run("success - full password reset flow", func(t *testing.T) {
+		// Test data
+		testEmail := "reset-test@example.com"
+		initialPassword := "initialPassword123"
+		newPassword := "newSecurePassword456"
+		testName := "Reset Test User"
 
-	// 1. Create a user to test with
-	_, err := store.SignUp(ctx, &models.User{
-		Email: testEmail,
-		Name:  &testName,
-	}, initialPassword)
-	require.NoError(t, err, "failed to sign up initial user for reset test")
+		// 1. Create a user to test with
+		_, err := store.SignUp(ctx, &models.User{
+			Email: testEmail,
+			Name:  &testName,
+		}, initialPassword)
+		require.NoError(t, err, "failed to sign up initial user for reset test")
 
-	// Cleanup the user after the test
-	t.Cleanup(func() {
-		_, _ = surrealdb.Query[any](ctx, db, "DELETE user WHERE email = $email", map[string]any{"email": testEmail})
+		// Cleanup the user after the test
+		t.Cleanup(func() {
+			_, _ = surrealdb.Query[any](ctx, db, "DELETE user WHERE email = $email", map[string]any{"email": testEmail})
+		})
+
+		// 2. Generate a reset token for the user
+		resetToken, err := store.GenerateResetToken(ctx, testEmail)
+		require.NoError(t, err, "GenerateResetToken should not return an error")
+		require.NotEmpty(t, resetToken, "GenerateResetToken should return a non-empty token")
+
+		// Verify the token was stored correctly by fetching the user again
+		user, err := store.FindUserByEmail(ctx, testEmail)
+		require.NoError(t, err, "Should be able to find user by email")
+		require.NotNil(t, user, "User should exist")
+		require.NotNil(t, user.ResetToken, "Reset token should be set")
+		require.NotEmpty(t, *user.ResetToken, "Reset token should not be empty")
+		require.Equal(t, resetToken, *user.ResetToken, "Stored reset token should match generated token")
+
+		// 3. Reset the password using the token
+		err = store.ResetPassword(ctx, resetToken, newPassword)
+		require.NoError(t, err, "ResetPassword should not return an error with a valid token")
+
+		// 4. Verify the password was changed by signing in with the new password
+		token, err := store.SignIn(ctx, &models.User{Email: testEmail}, newPassword)
+		require.NoError(t, err, "SignIn with new password should succeed")
+		assert.NotEmpty(t, token, "Should receive a token after signing in with the new password")
+
+		// 5. Verify the old password no longer works
+		_, err = store.SignIn(ctx, &models.User{Email: testEmail}, initialPassword)
+		assert.Error(t, err, "SignIn with old password should fail")
 	})
 
-	// 2. Generate a reset token for the user
-	resetToken, err := store.GenerateResetToken(ctx, testEmail)
-	require.NoError(t, err, "GenerateResetToken should not return an error")
-	require.NotEmpty(t, resetToken, "GenerateResetToken should return a non-empty token")
+	t.Run("error - expired token", func(t *testing.T) {
+		// Test data
+		testEmail := "expired-token-test@example.com"
+		initialPassword := "initialPassword123"
+		newPassword := "newSecurePassword456"
+		testName := "Expired Token Test User"
 
-	// Verify the token was stored correctly by fetching the user again
-	// First, get the user by email to verify the token was set
-	user, err := store.FindUserByEmail(ctx, testEmail)
-	require.NoError(t, err, "Should be able to find user by email")
-	require.NotNil(t, user, "User should exist")
-	require.NotNil(t, user.ResetToken, "Reset token should be set")
-	require.NotEmpty(t, *user.ResetToken, "Reset token should not be empty")
-	require.Equal(t, resetToken, *user.ResetToken, "Stored reset token should match generated token")
+		// 1. Create user
+		_, err := store.SignUp(ctx, &models.User{Email: testEmail, Name: &testName}, initialPassword)
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			_, _ = surrealdb.Query[any](ctx, db, "DELETE user WHERE email = $email", map[string]any{"email": testEmail})
+		})
 
-	// 3. Reset the password using the token
-	err = store.ResetPassword(ctx, resetToken, newPassword)
-	require.NoError(t, err, "ResetPassword should not return an error with a valid token")
+		// 2. Generate a reset token
+		resetToken, err := store.GenerateResetToken(ctx, testEmail)
+		require.NoError(t, err)
+		require.NotEmpty(t, resetToken)
 
-	// 4. Verify the password was changed by signing in with the new password
-	token, err := store.SignIn(ctx, &models.User{Email: testEmail}, newPassword)
-	require.NoError(t, err, "SignIn with new password should succeed")
-	assert.NotEmpty(t, token, "Should receive a token after signing in with the new password")
+		// 3. Manually expire the token in the database
+		user, err := store.FindUserByEmail(ctx, testEmail)
+		require.NoError(t, err)
+		require.NotNil(t, user)
+
+		// Set expiration to yesterday
+		expiredTime := time.Now().UTC().Add(-24 * time.Hour).Format(time.RFC3339)
+		_, err = surrealdb.Query[any](ctx, db, "UPDATE $id SET resetTokenExpires = $expires", map[string]any{
+			"id":      user.ID,
+			"expires": expiredTime,
+		})
+		require.NoError(t, err, "failed to manually expire token")
+
+		// 4. Attempt to reset password with the expired token
+		err = store.ResetPassword(ctx, resetToken, newPassword)
+		require.Error(t, err, "ResetPassword should fail with an expired token")
+		assert.Contains(t, err.Error(), "invalid or expired reset token")
+
+		// 5. Verify the password was NOT changed
+		// Sign in with new password should fail
+		_, err = store.SignIn(ctx, &models.User{Email: testEmail}, newPassword)
+		assert.Error(t, err, "SignIn with new password should fail")
+
+		// Sign in with old password should succeed
+		token, err := store.SignIn(ctx, &models.User{Email: testEmail}, initialPassword)
+		assert.NoError(t, err, "SignIn with original password should still succeed")
+		assert.NotEmpty(t, token, "Should receive a token when signing in with original password")
+	})
 }
