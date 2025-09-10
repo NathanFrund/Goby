@@ -2,13 +2,15 @@ package server
 
 import (
 	"context"
-	"log"
+	"log/slog"
+	"os"
 
 	"github.com/joho/godotenv"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/nfrund/goby/internal/config"
 	"github.com/nfrund/goby/internal/database"
+	"github.com/nfrund/goby/internal/logging"
 	"github.com/nfrund/goby/internal/templates"
 	"github.com/surrealdb/surrealdb.go"
 )
@@ -24,19 +26,22 @@ type Server struct {
 func New() *Server {
 	// Load environment variables from .env file if it exists.
 	if err := godotenv.Load(); err != nil {
-		log.Println("No .env file found, relying on environment variables.")
+		// We don't have slog configured yet, so we use the standard logger here.
+		// This is acceptable as it's only for the initial setup.
+		slog.Info("No .env file found, relying on environment variables.")
 	}
 
+	logging.New() // Initialize the structured logger
 	cfg := config.New()
 	db, err := database.NewDB(context.Background(), cfg)
 	if err != nil {
-		log.Fatalf("Failed to connect to database: %v", err)
+		slog.Error("Failed to connect to database", "error", err)
+		os.Exit(1)
 	}
 
-	// Ensure the connection is scoped to the correct namespace and database.
-	// This is crucial for all subsequent database operations.
 	if err := db.Use(context.Background(), cfg.DBNs, cfg.DBDb); err != nil {
-		log.Fatalf("failed to use namespace/db: %v", err)
+		slog.Error("Failed to use namespace/db", "error", err)
+		os.Exit(1)
 	}
 
 	e := echo.New()

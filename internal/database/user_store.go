@@ -6,7 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"time"
 
 	"github.com/nfrund/goby/internal/models"
@@ -55,7 +55,11 @@ func (s *UserStore) SignUp(ctx context.Context, user *models.User, password stri
 	})
 
 	if err == nil && token != "" {
-		log.Printf("Successfully signed up user %s. Token: %s", user.Email, token)
+		slog.Info(
+			"Successfully signed up user",
+			"email", user.Email,
+			"token", token,
+		)
 	}
 
 	return token, err
@@ -72,7 +76,11 @@ func (s *UserStore) SignIn(ctx context.Context, user *models.User, password stri
 	})
 
 	if err == nil && token != "" {
-		log.Printf("Successfully signed in user %s. Token: %s", user.Email, token)
+		slog.Info(
+			"Successfully signed in user",
+			"email", user.Email,
+			"token", token,
+		)
 	}
 
 	return token, err
@@ -114,7 +122,12 @@ func (s *UserStore) GenerateResetToken(ctx context.Context, email string) (strin
 	expires := time.Now().UTC().Add(24 * time.Hour).Format(time.RFC3339)
 
 	// Log the token and expiration for debugging
-	log.Printf("DEBUG: Setting reset token for user %s: %q (expires: %s)", user.ID, token, expires)
+	slog.Debug(
+		"Setting reset token for user",
+		"user_id", user.ID,
+		"token", token,
+		"expires", expires,
+	)
 
 	// Update user with reset token and expiration
 	query := `
@@ -161,37 +174,37 @@ func (s *UserStore) GetUserByResetToken(ctx context.Context, token string) (*mod
 
 	user, err := QueryOne[models.User](ctx, s.db, query, params)
 	if err != nil {
-		log.Printf("DEBUG: Error finding user by reset token: %v", err)
+		slog.Debug("Error finding user by reset token", "error", err)
 		return nil, fmt.Errorf("error finding user by reset token: %w", err)
 	}
 
 	// If no user found with this token
 	if user == nil {
-		log.Println("DEBUG: No user found with the provided reset token")
+		slog.Debug("No user found with the provided reset token")
 		return nil, nil
 	}
 
 	// Explicitly check if the token field exists and matches.
 	// While the query should ensure this, this check prevents any ambiguity.
 	if user.ResetToken == nil || *user.ResetToken != token {
-		log.Println("DEBUG: User found, but reset token does not match or is nil")
+		slog.Debug("User found, but reset token does not match or is nil")
 		return nil, nil
 	}
 
 	// Check if token has expired
 	if user.ResetTokenExpires == nil {
-		log.Println("DEBUG: Reset token has no expiration time")
+		slog.Debug("Reset token has no expiration time")
 		return nil, nil
 	}
 
 	expires, err := time.Parse(time.RFC3339, *user.ResetTokenExpires)
 	if err != nil {
-		log.Printf("DEBUG: Error parsing reset token expiration: %v", err)
+		slog.Debug("Error parsing reset token expiration", "error", err)
 		return nil, fmt.Errorf("invalid reset token expiration format: %w", err)
 	}
 
 	if time.Now().After(expires) {
-		log.Printf("DEBUG: Reset token expired at %s", *user.ResetTokenExpires)
+		slog.Debug("Reset token expired", "expires_at", *user.ResetTokenExpires)
 		return nil, nil
 	}
 
@@ -211,7 +224,7 @@ func (s *UserStore) GetUserByResetToken(ctx context.Context, token string) (*mod
 		return nil, fmt.Errorf("critical: failed to invalidate reset token for user %s: %w", user.ID, err)
 	}
 
-	log.Printf("DEBUG: Successfully validated reset token for user: %s", user.ID)
+	slog.Debug("Successfully validated reset token for user", "user_id", user.ID)
 	return user, nil
 }
 

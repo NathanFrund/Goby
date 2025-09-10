@@ -2,12 +2,12 @@ package database
 
 import (
 	"context"
-	"log"
 	"os"
 	"testing"
 
 	"github.com/joho/godotenv"
 	"github.com/nfrund/goby/internal/config"
+	"github.com/nfrund/goby/internal/logging"
 	"github.com/stretchr/testify/require"
 	"github.com/surrealdb/surrealdb.go"
 )
@@ -16,9 +16,11 @@ import (
 // It's used here to load the test-specific environment variables from `.env.test`.
 func TestMain(m *testing.M) {
 	// Attempt to load the .env.test file from the project root.
+	// This is safe to fail if running in a CI environment where vars are set directly.
 	if err := godotenv.Load("../../.env.test"); err != nil {
-		log.Println("Warning: .env.test file not found, relying on environment variables.")
+		// No need to log here, as the config will fall back to env vars.
 	}
+	logging.New() // Initialize logger for tests
 	os.Exit(m.Run())
 }
 

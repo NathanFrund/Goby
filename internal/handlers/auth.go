@@ -1,7 +1,7 @@
 package handlers
 
 import (
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -72,7 +72,7 @@ func (h *AuthHandler) RegisterPost(c echo.Context) error {
 				"Email": email,
 			})
 		}
-		log.Printf("Error creating user: %v", err)
+		slog.Error("Error creating user", "error", err)
 		return c.Render(http.StatusInternalServerError, "register.html", map[string]interface{}{
 			"Error": "Could not create user account.",
 			"Email": email,
@@ -103,7 +103,7 @@ func (h *AuthHandler) LoginPost(c echo.Context) error {
 	token, err := h.userStore.SignIn(c.Request().Context(), user, password)
 	if err != nil {
 		// The SignIn method will fail if credentials are invalid.
-		log.Printf("Failed login attempt for %s: %v", email, err)
+		slog.Warn("Failed login attempt", "email", email, "error", err)
 		return c.Render(http.StatusUnauthorized, "login.html", map[string]interface{}{
 			"Error": "Invalid email or password.",
 			"Email": email,
@@ -130,14 +130,14 @@ func (h *AuthHandler) ForgotPasswordPost(c echo.Context) error {
 	if err != nil {
 		// To prevent email enumeration attacks, we show a generic success message
 		// even if the user was not found. The error is logged for debugging.
-		log.Printf("Error generating reset token for %s: %v", email, err)
+		slog.Info("Error generating reset token, hiding from user", "email", email, "error", err)
 	}
 
 	// In a real application, you would send an email with the reset link here.
 	// For development, we'll log the token to the console.
 	if token != "" {
-		log.Printf("Password reset token for %s: %s", email, token)
-		log.Printf("Reset link for dev: /reset-password?token=%s", token)
+		slog.Info("Password reset token generated", "email", email, "token", token)
+		slog.Info("Reset link for dev", "url", "/reset-password?token="+token)
 	}
 
 	return c.Render(http.StatusOK, "forgot-password.html", map[string]interface{}{
@@ -180,7 +180,7 @@ func (h *AuthHandler) ResetPasswordPost(c echo.Context) error {
 
 	err := h.userStore.ResetPassword(c.Request().Context(), token, password)
 	if err != nil {
-		log.Printf("Error resetting password: %v", err)
+		slog.Warn("Error resetting password", "error", err)
 		return c.Render(http.StatusUnauthorized, "reset-password.html", map[string]interface{}{"Error": "Invalid or expired reset link."})
 	}
 

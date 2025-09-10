@@ -3,7 +3,7 @@ package database
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 
 	"github.com/nfrund/goby/internal/config"
 	"github.com/surrealdb/surrealdb.go"
@@ -31,6 +31,6 @@ func NewDB(ctx context.Context, cfg *config.Config) (*surrealdb.DB, error) {
 		return nil, fmt.Errorf("failed to use namespace/db: %w", err)
 	}
 
-	log.Println("Successfully signed in to SurrealDB")
+	slog.Info("Successfully signed in to SurrealDB")
 	return db, nil
 }
