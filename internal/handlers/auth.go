@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"context"
 	"log"
 	"net/http"
 	"strings"
@@ -63,7 +62,7 @@ func (h *AuthHandler) RegisterPost(c echo.Context) error {
 	}
 
 	// Use the SignUp method, which is the correct high-level function for registration.
-	token, err := h.userStore.SignUp(context.Background(), newUser, password)
+	token, err := h.userStore.SignUp(c.Request().Context(), newUser, password)
 	if err != nil {
 		// The SignUp method will fail if the user already exists. The underlying error
 		// from SurrealDB often contains "signup query failed" in this case.
@@ -101,7 +100,7 @@ func (h *AuthHandler) LoginPost(c echo.Context) error {
 	// --- Database Interaction ---
 	// The user model is only used to pass the email to the SignIn method.
 	user := &models.User{Email: email}
-	token, err := h.userStore.SignIn(context.Background(), user, password)
+	token, err := h.userStore.SignIn(c.Request().Context(), user, password)
 	if err != nil {
 		// The SignIn method will fail if credentials are invalid.
 		log.Printf("Failed login attempt for %s: %v", email, err)
