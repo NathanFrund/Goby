@@ -81,16 +81,7 @@ func (h *AuthHandler) RegisterPost(c echo.Context) error {
 	}
 
 	// --- Session Management ---
-	// On successful registration, create a session cookie to log the user in.
-	cookie := new(http.Cookie)
-	cookie.Name = "auth_token"
-	cookie.Value = token
-	cookie.Path = "/"
-	cookie.Expires = time.Now().Add(24 * time.Hour)
-	cookie.HttpOnly = true                 // Prevents client-side JavaScript from accessing the cookie.
-	cookie.Secure = c.Request().TLS != nil // Should be true in production (when using HTTPS).
-	cookie.SameSite = http.SameSiteLaxMode
-	c.SetCookie(cookie)
+	setAuthCookie(c, token)
 
 	// On success, redirect to the home page as a logged-in user.
 	return c.Redirect(http.StatusSeeOther, "/")
@@ -120,16 +111,28 @@ func (h *AuthHandler) LoginPost(c echo.Context) error {
 	}
 
 	// --- Session Management ---
+	setAuthCookie(c, token)
+
+	// On success, redirect to the home page.
+	return c.Redirect(http.StatusSeeOther, "/")
+}
+
+// setAuthCookie is a helper function to create and set the authentication cookie.
+func setAuthCookie(c echo.Context, token string) {
 	cookie := new(http.Cookie)
 	cookie.Name = "auth_token"
 	cookie.Value = token
 	cookie.Path = "/"
+	// The cookie will expire in 24 hours.
 	cookie.Expires = time.Now().Add(24 * time.Hour)
+	// HttpOnly flag prevents client-side JavaScript from accessing the cookie,
+	// which is a crucial security measure against XSS attacks.
 	cookie.HttpOnly = true
+	// Secure flag ensures the cookie is only sent over HTTPS connections.
+	// The check `c.Request().TLS != nil` makes this work in production (with HTTPS)
+	// and local development (without HTTPS).
 	cookie.Secure = c.Request().TLS != nil
+	// SameSite=Lax provides a good balance of security and usability for CSRF protection.
 	cookie.SameSite = http.SameSiteLaxMode
 	c.SetCookie(cookie)
-
-	// On success, redirect to the home page.
-	return c.Redirect(http.StatusSeeOther, "/")
 }
