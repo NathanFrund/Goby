@@ -206,8 +206,9 @@ func (s *UserStore) GetUserByResetToken(ctx context.Context, token string) (*mod
 	}
 
 	if err := Execute(ctx, s.db, invalidateQuery, invalidateParams); err != nil {
-		log.Printf("DEBUG: Failed to invalidate reset token: %v", err)
-		// Continue anyway since we found a valid token
+		// If we can't invalidate the token, we must not proceed.
+		// This prevents the token from being reused if the database operation fails.
+		return nil, fmt.Errorf("critical: failed to invalidate reset token for user %s: %w", user.ID, err)
 	}
 
 	log.Printf("DEBUG: Successfully validated reset token for user: %s", user.ID)

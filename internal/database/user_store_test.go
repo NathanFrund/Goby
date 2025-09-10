@@ -376,4 +376,41 @@ func TestPasswordResetFlow(t *testing.T) {
 		assert.NoError(t, err, "SignIn with original password should still succeed")
 		assert.NotEmpty(t, token, "Should receive a token when signing in with original password")
 	})
+
+	t.Run("error - token reuse", func(t *testing.T) {
+		// Test data
+		testEmail := "token-reuse-test@example.com"
+		initialPassword := "initialPassword123"
+		firstNewPassword := "newPassword456"
+		secondNewPassword := "anotherPassword789"
+		testName := "Token Reuse Test User"
+
+		// 1. Create user
+		_, err := store.SignUp(ctx, &models.User{Email: testEmail, Name: &testName}, initialPassword)
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			_, _ = surrealdb.Query[any](ctx, db, "DELETE user WHERE email = $email", map[string]any{"email": testEmail})
+		})
+
+		// 2. Generate a reset token
+		resetToken, err := store.GenerateResetToken(ctx, testEmail)
+		require.NoError(t, err)
+		require.NotEmpty(t, resetToken)
+
+		// 3. Use the token successfully for the first time
+		err = store.ResetPassword(ctx, resetToken, firstNewPassword)
+		require.NoError(t, err, "first password reset should succeed")
+
+		// Verify the new password works
+		_, err = store.SignIn(ctx, &models.User{Email: testEmail}, firstNewPassword)
+		require.NoError(t, err, "sign in with the new password should work")
+
+		// 4. Attempt to reuse the same token
+		err = store.ResetPassword(ctx, resetToken, secondNewPassword)
+		require.Error(t, err, "ResetPassword should fail on token reuse")
+
+		// 5. Verify the password was NOT changed by the second attempt
+		_, err = store.SignIn(ctx, &models.User{Email: testEmail}, secondNewPassword)
+		assert.Error(t, err, "SignIn with the second new password should fail")
+	})
 }
