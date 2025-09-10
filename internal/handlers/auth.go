@@ -117,6 +117,76 @@ func (h *AuthHandler) LoginPost(c echo.Context) error {
 	return c.Redirect(http.StatusSeeOther, "/")
 }
 
+// ForgotPasswordGet handles rendering the forgot password page.
+func (h *AuthHandler) ForgotPasswordGet(c echo.Context) error {
+	return c.Render(http.StatusOK, "forgot-password.html", nil)
+}
+
+// ForgotPasswordPost handles the form submission for requesting a password reset.
+func (h *AuthHandler) ForgotPasswordPost(c echo.Context) error {
+	email := c.FormValue("email")
+
+	token, err := h.userStore.GenerateResetToken(c.Request().Context(), email)
+	if err != nil {
+		// To prevent email enumeration attacks, we show a generic success message
+		// even if the user was not found. The error is logged for debugging.
+		log.Printf("Error generating reset token for %s: %v", email, err)
+	}
+
+	// In a real application, you would send an email with the reset link here.
+	// For development, we'll log the token to the console.
+	if token != "" {
+		log.Printf("Password reset token for %s: %s", email, token)
+		log.Printf("Reset link for dev: /reset-password?token=%s", token)
+	}
+
+	return c.Render(http.StatusOK, "forgot-password.html", map[string]interface{}{
+		"Success": "If an account with that email exists, a password reset link has been sent.",
+	})
+}
+
+// ResetPasswordGet handles rendering the password reset page.
+func (h *AuthHandler) ResetPasswordGet(c echo.Context) error {
+	token := c.QueryParam("token")
+	if token == "" {
+		// If no token is provided, redirect to the forgot password page.
+		return c.Redirect(http.StatusSeeOther, "/forgot-password")
+	}
+
+	return c.Render(http.StatusOK, "reset-password.html", map[string]interface{}{
+		"Token": token,
+	})
+}
+
+// ResetPasswordPost handles the form submission for setting a new password.
+func (h *AuthHandler) ResetPasswordPost(c echo.Context) error {
+	token := c.FormValue("token")
+	password := c.FormValue("password")
+	passwordConfirm := c.FormValue("password_confirm")
+
+	if password != passwordConfirm {
+		return c.Render(http.StatusBadRequest, "reset-password.html", map[string]interface{}{
+			"Token": token,
+			"Error": "Passwords do not match.",
+		})
+	}
+
+	if len(password) < 8 {
+		return c.Render(http.StatusBadRequest, "reset-password.html", map[string]interface{}{
+			"Token": token,
+			"Error": "Password must be at least 8 characters long.",
+		})
+	}
+
+	err := h.userStore.ResetPassword(c.Request().Context(), token, password)
+	if err != nil {
+		log.Printf("Error resetting password: %v", err)
+		return c.Render(http.StatusUnauthorized, "reset-password.html", map[string]interface{}{"Error": "Invalid or expired reset link."})
+	}
+
+	return c.Redirect(http.StatusSeeOther, "/login?reset=success")
+}
+
 // setAuthCookie is a helper function to create and set the authentication cookie.
 func setAuthCookie(c echo.Context, token string) {
 	cookie := new(http.Cookie)
@@ -124,7 +194,7 @@ func setAuthCookie(c echo.Context, token string) {
 	cookie.Value = token
 	cookie.Path = "/"
 	// The cookie will expire in 24 hours.
-	cookie.Expires = time.Now().Add(24 * time.Hour)
+	cookie.Expires = time.Now().UTC().Add(24 * time.Hour)
 	// HttpOnly flag prevents client-side JavaScript from accessing the cookie,
 	// which is a crucial security measure against XSS attacks.
 	cookie.HttpOnly = true

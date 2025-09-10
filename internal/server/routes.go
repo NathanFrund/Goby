@@ -24,6 +24,12 @@ func (s *Server) RegisterRoutes() {
 	s.E.GET("/login", authHandler.LoginGet)
 	s.E.POST("/login", authHandler.LoginPost)
 
+	s.E.GET("/forgot-password", authHandler.ForgotPasswordGet)
+	s.E.POST("/forgot-password", authHandler.ForgotPasswordPost)
+
+	s.E.GET("/reset-password", authHandler.ResetPasswordGet)
+	s.E.POST("/reset-password", authHandler.ResetPasswordPost)
+
 	s.E.GET("/health", func(c echo.Context) error {
 		return c.String(http.StatusOK, "OK")
 	})

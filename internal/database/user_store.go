@@ -27,6 +27,11 @@ func NewUserStore(db *surrealdb.DB, ns, dbName string) *UserStore {
 
 // FindUserByEmail queries for a single user by their email address.
 func (s *UserStore) FindUserByEmail(ctx context.Context, email string) (*models.User, error) {
+	// Ensure the correct namespace and database are selected for this operation.
+	if err := s.db.Use(ctx, s.ns, s.dbName); err != nil {
+		return nil, fmt.Errorf("failed to set database scope: %w", err)
+	}
+
 	query := "SELECT * FROM user WHERE email = $email"
 	params := map[string]any{"email": email}
 
@@ -85,6 +90,11 @@ func generateSecureToken(length int) (string, error) {
 
 // GenerateResetToken creates a secure reset token and sets its expiration
 func (s *UserStore) GenerateResetToken(ctx context.Context, email string) (string, error) {
+	// Ensure the correct namespace and database are selected for this operation.
+	if err := s.db.Use(ctx, s.ns, s.dbName); err != nil {
+		return "", fmt.Errorf("failed to set database scope: %w", err)
+	}
+
 	// Find the user by email
 	user, err := s.FindUserByEmail(ctx, email)
 	if err != nil {
@@ -101,21 +111,24 @@ func (s *UserStore) GenerateResetToken(ctx context.Context, email string) (strin
 	}
 
 	// Set token expiration (24 hours from now)
-	expires := time.Now().Add(24 * time.Hour).Format(time.RFC3339)
+	expires := time.Now().UTC().Add(24 * time.Hour).Format(time.RFC3339)
+
+	// Log the token and expiration for debugging
+	log.Printf("DEBUG: Setting reset token for user %s: %q (expires: %s)", user.ID, token, expires)
 
 	// Update user with reset token and expiration
 	query := `
 		UPDATE $id SET 
-			resetToken = $token,
+			resetToken = $reset_token,
 			resetTokenExpires = $expires
 	`
 	params := map[string]interface{}{
-		"id":    user.ID,
-		"token": token,
-		"expires": expires,
+		"id":          user.ID,
+		"reset_token": token,
+		"expires":     expires,
 	}
 
-	_, err = surrealdb.Query[any](ctx, s.db, query, params)
+	err = Execute(ctx, s.db, query, params)
 	if err != nil {
 		return "", fmt.Errorf("failed to update user with reset token: %w", err)
 	}
@@ -123,31 +136,86 @@ func (s *UserStore) GenerateResetToken(ctx context.Context, email string) (strin
 	return token, nil
 }
 
-// GetUserByResetToken finds a user by their reset token if it's still valid
+// GetUserByResetToken finds and validates a reset token.
+// It returns the user if the token is valid and not expired.
+// The token is automatically invalidated after this call to prevent reuse.
 func (s *UserStore) GetUserByResetToken(ctx context.Context, token string) (*models.User, error) {
 	if token == "" {
 		return nil, errors.New("reset token cannot be empty")
 	}
 
+	// Ensure the correct namespace and database are selected for this operation.
+	if err := s.db.Use(ctx, s.ns, s.dbName); err != nil {
+		return nil, fmt.Errorf("failed to set database scope: %w", err)
+	}
+
+	// First, find the user with the given token
+	// Note: Don't include semicolon as QueryOne will add LIMIT 1 if needed
 	query := `
 		SELECT * FROM user 
-		WHERE resetToken = $token 
-		AND resetTokenExpires > time::now()
-		LIMIT 1
+		WHERE resetToken = $reset_token
 	`
 	params := map[string]interface{}{
-		"token": token,
+		"reset_token": token,
 	}
 
 	user, err := QueryOne[models.User](ctx, s.db, query, params)
 	if err != nil {
+		log.Printf("DEBUG: Error finding user by reset token: %v", err)
 		return nil, fmt.Errorf("error finding user by reset token: %w", err)
 	}
 
+	// If no user found with this token
+	if user == nil {
+		log.Println("DEBUG: No user found with the provided reset token")
+		return nil, nil
+	}
+
+	// Explicitly check if the token field exists and matches.
+	// While the query should ensure this, this check prevents any ambiguity.
+	if user.ResetToken == nil || *user.ResetToken != token {
+		log.Println("DEBUG: User found, but reset token does not match or is nil")
+		return nil, nil
+	}
+
+	// Check if token has expired
+	if user.ResetTokenExpires == nil {
+		log.Println("DEBUG: Reset token has no expiration time")
+		return nil, nil
+	}
+
+	expires, err := time.Parse(time.RFC3339, *user.ResetTokenExpires)
+	if err != nil {
+		log.Printf("DEBUG: Error parsing reset token expiration: %v", err)
+		return nil, fmt.Errorf("invalid reset token expiration format: %w", err)
+	}
+
+	if time.Now().After(expires) {
+		log.Printf("DEBUG: Reset token expired at %s", *user.ResetTokenExpires)
+		return nil, nil
+	}
+
+	// Invalidate the token to prevent reuse
+	invalidateQuery := `
+		UPDATE $id SET 
+			resetToken = NONE,
+			resetTokenExpires = NONE
+	`
+	invalidateParams := map[string]interface{}{
+		"id": user.ID,
+	}
+
+	if err := Execute(ctx, s.db, invalidateQuery, invalidateParams); err != nil {
+		log.Printf("DEBUG: Failed to invalidate reset token: %v", err)
+		// Continue anyway since we found a valid token
+	}
+
+	log.Printf("DEBUG: Successfully validated reset token for user: %s", user.ID)
 	return user, nil
 }
 
 // ResetPassword updates a user's password using a valid reset token
+// The token is automatically invalidated as part of GetUserByResetToken
 func (s *UserStore) ResetPassword(ctx context.Context, token, newPassword string) error {
 	if token == "" {
 		return errors.New("reset token cannot be empty")
@@ -156,73 +224,28 @@ func (s *UserStore) ResetPassword(ctx context.Context, token, newPassword string
 		return errors.New("new password cannot be empty")
 	}
 
-	// Get user by token (this also checks if token is expired)
+	// Get and validate the user by token - this will also invalidate the token
 	user, err := s.GetUserByResetToken(ctx, token)
 	if err != nil {
 		return fmt.Errorf("invalid or expired reset token: %w", err)
 	}
+	if user == nil {
+		return fmt.Errorf("invalid or expired reset token")
+	}
 
-	// Update the password and clear the reset token
+	// Update the user's password using SurrealDB's built-in password hashing
 	query := `
 		UPDATE $id SET 
-			password = crypto::argon2::generate($password),
-			resetToken = NONE,
-			resetTokenExpires = NONE
+			password = crypto::argon2::generate($password)
 	`
 	params := map[string]interface{}{
 		"id":       user.ID,
 		"password": newPassword,
 	}
 
-	_, err = surrealdb.Query[any](ctx, s.db, query, params)
-	if err != nil {
+	if err := Execute(ctx, s.db, query, params); err != nil {
 		return fmt.Errorf("failed to update password: %w", err)
 	}
 
 	return nil
-}
-
-// CreateUser creates a new user in the database.
-func (s *UserStore) CreateUser(ctx context.Context, user *models.User, password string) (*models.User, error) {
-	// First check if user with this email already exists
-	existingUser, err := s.FindUserByEmail(ctx, user.Email)
-	if err == nil && existingUser != nil {
-		return nil, fmt.Errorf("user with email %s already exists", user.Email)
-	}
-
-	// Set the namespace and database for the scope of this operation
-	if err := s.db.Use(ctx, s.ns, s.dbName); err != nil {
-		log.Printf("Failed to set database scope (ns: %s, db: %s): %v", s.ns, s.dbName, err)
-		return nil, fmt.Errorf("failed to set database scope: %w", err)
-	}
-
-	// Log the user creation attempt
-	log.Printf("Attempting to create user with email: %s", user.Email)
-
-	// Create the user using a direct query
-	query := `
-		CREATE user SET 
-			email = $email, 
-			name = $name, 
-			password = crypto::argon2::generate($password)
-	`
-	params := map[string]interface{}{
-		"email":    user.Email,
-		"name":     user.Name,
-		"password": password,
-	}
-
-	_, err = surrealdb.Query[any](ctx, s.db, query, params)
-	if err != nil {
-		log.Printf("Failed to create user %s: %v", user.Email, err)
-		return nil, fmt.Errorf("failed to create user: %w", err)
-	}
-
-	// Return the created user by querying it back
-	createdUser, err := s.FindUserByEmail(ctx, user.Email)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch created user: %w", err)
-	}
-
-	return createdUser, nil
 }

@@ -92,16 +92,6 @@ func TestFindUserByEmail(t *testing.T) {
 	})
 }
 
-// testDBQuery is a helper to run a query and log the results for debugging
-func testDBQuery(t *testing.T, ctx context.Context, db *surrealdb.DB, query string, params map[string]interface{}) {
-	results, err := surrealdb.Query[[]map[string]interface{}](ctx, db, query, params)
-	if err != nil {
-		t.Logf("Query error: %v", err)
-		return
-	}
-	t.Logf("Query results: %+v", results)
-}
-
 func TestSignIn(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -249,119 +239,56 @@ func TestSignUp(t *testing.T) {
 	})
 }
 
-func TestCreateUser(t *testing.T) {
+func TestPasswordResetFlow(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
 	}
 
-	// Setup test database and store, following the pattern from TestFindUserByEmail
+	// Setup
 	ctx := context.Background()
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 	cfg := config.New()
-
-	// Log database connection details
-	t.Logf("Connecting to database - URL: %s, NS: %s, DB: %s", cfg.DBUrl, cfg.DBNs, cfg.DBDb)
-
 	store := NewUserStore(db, cfg.DBNs, cfg.DBDb)
 
-	// Verify database connection and check permissions
-	if err := db.Use(ctx, cfg.DBNs, cfg.DBDb); err != nil {
-		t.Fatalf("Failed to use database: %v", err)
-	}
-	t.Log("Successfully connected to database")
+	// Test data
+	testEmail := "reset-test@example.com"
+	initialPassword := "initialPassword123"
+	newPassword := "newSecurePassword456"
+	testName := "Reset Test User"
 
-	// Check database info and permissions
-	info, err := db.Info(ctx)
-	if err != nil {
-		t.Logf("Failed to get database info: %v", err)
-	} else {
-		t.Logf("Database info: %+v", info)
-	}
+	// 1. Create a user to test with
+	_, err := store.SignUp(ctx, &models.User{
+		Email: testEmail,
+		Name:  &testName,
+	}, initialPassword)
+	require.NoError(t, err, "failed to sign up initial user for reset test")
 
-	// Check if we can query the user table
-	testDBQuery(t, ctx, db, "INFO FOR TABLE user", nil)
-	testDBQuery(t, ctx, db, "SELECT * FROM user LIMIT 10", nil)
-
-	// Test creating a user directly with a query
-	t.Run("direct query - create user", func(t *testing.T) {
-		query := `
-			CREATE user SET 
-				email = $email, 
-				name = $name, 
-				password = crypto::argon2::generate($password)
-		`
-		params := map[string]interface{}{
-			"email":    "direct-test@example.com",
-			"name":     "Direct Test User",
-			"password": "testpassword123",
-		}
-
-		result, err := surrealdb.Query[any](ctx, db, query, params)
-		if err != nil {
-			t.Fatalf("Direct query failed: %v", err)
-		}
-		t.Logf("Direct query result: %+v", result)
-
-		// Cleanup
-		_, _ = surrealdb.Query[any](ctx, db, "DELETE user WHERE email = $email", 
-			map[string]any{"email": "direct-test@example.com"})
+	// Cleanup the user after the test
+	t.Cleanup(func() {
+		_, _ = surrealdb.Query[any](ctx, db, "DELETE user WHERE email = $email", map[string]any{"email": testEmail})
 	})
 
-	t.Run("success - creates a new user", func(t *testing.T) {
-		// Arrange: Define the user data we want to create.
-		createTestUserName := "Create Test User"
-		newUser := &models.User{
-			Name:  &createTestUserName,
-			Email: "create-test@example.com",
-		}
-		password := "a-strong-password-123"
+	// 2. Generate a reset token for the user
+	resetToken, err := store.GenerateResetToken(ctx, testEmail)
+	require.NoError(t, err, "GenerateResetToken should not return an error")
+	require.NotEmpty(t, resetToken, "GenerateResetToken should return a non-empty token")
 
-		// Use t.Cleanup to ensure the test user is deleted after this sub-test runs,
-		// keeping our tests isolated from each other.
-		t.Cleanup(func() {
-			result, err := surrealdb.Query[any](ctx, db, "DELETE user WHERE email = $email", map[string]any{"email": newUser.Email})
-			if err != nil {
-				t.Logf("Cleanup failed to delete user: %v", err)
-			} else {
-				t.Logf("Cleanup deleted user: %+v", result)
-			}
-		})
+	// Verify the token was stored correctly by fetching the user again
+	// First, get the user by email to verify the token was set
+	user, err := store.FindUserByEmail(ctx, testEmail)
+	require.NoError(t, err, "Should be able to find user by email")
+	require.NotNil(t, user, "User should exist")
+	require.NotNil(t, user.ResetToken, "Reset token should be set")
+	require.NotEmpty(t, *user.ResetToken, "Reset token should not be empty")
+	require.Equal(t, resetToken, *user.ResetToken, "Stored reset token should match generated token")
 
-		// Act: Call the method we are testing.
-		createdUser, err := store.CreateUser(ctx, newUser, password)
+	// 3. Reset the password using the token
+	err = store.ResetPassword(ctx, resetToken, newPassword)
+	require.NoError(t, err, "ResetPassword should not return an error with a valid token")
 
-		// Assert: Verify the outcome.
-		require.NoError(t, err)
-		require.NotNil(t, createdUser)
-
-		// Check that the returned user has the correct data and a database-generated ID.
-		assert.NotEmpty(t, createdUser.ID, "ID should be set by the database")
-		assert.Equal(t, newUser.Email, createdUser.Email)
-		assert.Equal(t, *newUser.Name, *createdUser.Name)
-	})
-
-	t.Run("error - email already exists", func(t *testing.T) {
-		// Arrange: Create an initial user that we will try to duplicate.
-		firstUserName := "First User"
-		firstUser := &models.User{
-			Name:  &firstUserName,
-			Email: "first@example.com",
-		}
-		password := "some-password"
-
-		_, err := store.CreateUser(ctx, firstUser, password)
-		require.NoError(t, err, "failed to create the initial user for the test")
-
-		t.Cleanup(func() {
-			_, _ = surrealdb.Query[any](ctx, db, "DELETE user WHERE email = $email", map[string]any{"email": firstUser.Email})
-		})
-
-		// Act: Attempt to create another user with the same email.
-		duplicateUser, err := store.CreateUser(ctx, firstUser, "another-password")
-
-		// Assert: Verify that we get an error and a nil user.
-		assert.Error(t, err, "expected an error when creating a user with a duplicate email")
-		assert.Nil(t, duplicateUser, "the returned user should be nil on error")
-	})
+	// 4. Verify the password was changed by signing in with the new password
+	token, err := store.SignIn(ctx, &models.User{Email: testEmail}, newPassword)
+	require.NoError(t, err, "SignIn with new password should succeed")
+	assert.NotEmpty(t, token, "Should receive a token after signing in with the new password")
 }
