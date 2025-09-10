@@ -16,5 +16,12 @@ func NewHomeHandler() *HomeHandler {
 
 // HomeGet handles the GET request for the home page.
 func (h *HomeHandler) HomeGet(c echo.Context) error {
-	return c.Render(http.StatusOK, "home.html", nil)
+	// Check if the user is authenticated by looking for the auth cookie.
+	// A more robust implementation would validate the token, but this is sufficient for UI purposes.
+	cookie, err := c.Cookie("auth_token")
+	isAuthenticated := err == nil && cookie.Value != ""
+
+	return c.Render(http.StatusOK, "home.html", map[string]interface{}{
+		"IsAuthenticated": isAuthenticated,
+	})
 }

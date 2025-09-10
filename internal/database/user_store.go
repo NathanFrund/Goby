@@ -230,21 +230,21 @@ func (s *UserStore) GetUserByResetToken(ctx context.Context, token string) (*mod
 
 // ResetPassword updates a user's password using a valid reset token
 // The token is automatically invalidated as part of GetUserByResetToken
-func (s *UserStore) ResetPassword(ctx context.Context, token, newPassword string) error {
+func (s *UserStore) ResetPassword(ctx context.Context, token, newPassword string) (*models.User, error) {
 	if token == "" {
-		return errors.New("reset token cannot be empty")
+		return nil, errors.New("reset token cannot be empty")
 	}
 	if newPassword == "" {
-		return errors.New("new password cannot be empty")
+		return nil, errors.New("new password cannot be empty")
 	}
 
 	// Get and validate the user by token - this will also invalidate the token
 	user, err := s.GetUserByResetToken(ctx, token)
 	if err != nil {
-		return fmt.Errorf("invalid or expired reset token: %w", err)
+		return nil, fmt.Errorf("invalid or expired reset token: %w", err)
 	}
 	if user == nil {
-		return fmt.Errorf("invalid or expired reset token")
+		return nil, fmt.Errorf("invalid or expired reset token")
 	}
 
 	// Update the user's password using SurrealDB's built-in password hashing
@@ -258,8 +258,8 @@ func (s *UserStore) ResetPassword(ctx context.Context, token, newPassword string
 	}
 
 	if err := Execute(ctx, s.db, query, params); err != nil {
-		return fmt.Errorf("failed to update password: %w", err)
+		return nil, fmt.Errorf("failed to update password: %w", err)
 	}
 
-	return nil
+	return user, nil
 }

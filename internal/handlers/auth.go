@@ -117,6 +117,15 @@ func (h *AuthHandler) LoginPost(c echo.Context) error {
 	return c.Redirect(http.StatusSeeOther, "/")
 }
 
+// Logout handles logging the user out by clearing their session cookie.
+func (h *AuthHandler) Logout(c echo.Context) error {
+	// To log a user out, we expire the authentication cookie immediately.
+	// Setting MaxAge to -1 is the standard way to delete a cookie.
+	setAuthCookie(c, "") // Set an empty token
+
+	return c.Redirect(http.StatusSeeOther, "/login")
+}
+
 // ForgotPasswordGet handles rendering the forgot password page.
 func (h *AuthHandler) ForgotPasswordGet(c echo.Context) error {
 	return c.Render(http.StatusOK, "forgot-password.html", nil)
@@ -178,13 +187,24 @@ func (h *AuthHandler) ResetPasswordPost(c echo.Context) error {
 		})
 	}
 
-	err := h.userStore.ResetPassword(c.Request().Context(), token, password)
+	user, err := h.userStore.ResetPassword(c.Request().Context(), token, password)
 	if err != nil {
 		slog.Warn("Error resetting password", "error", err)
 		return c.Render(http.StatusUnauthorized, "reset-password.html", map[string]interface{}{"Error": "Invalid or expired reset link."})
 	}
 
-	return c.Redirect(http.StatusSeeOther, "/login?reset=success")
+	// Automatically sign the user in after a successful password reset.
+	sessionToken, err := h.userStore.SignIn(c.Request().Context(), user, password)
+	if err != nil {
+		// This is unlikely, but we should handle it. If sign-in fails,
+		// redirect to the login page with a success message as a fallback.
+		slog.Error("Failed to sign in user after password reset", "error", err, "user_id", user.ID)
+		return c.Redirect(http.StatusSeeOther, "/login?reset=success")
+	}
+
+	setAuthCookie(c, sessionToken)
+
+	return c.Redirect(http.StatusSeeOther, "/")
 }
 
 // setAuthCookie is a helper function to create and set the authentication cookie.
@@ -194,7 +214,12 @@ func setAuthCookie(c echo.Context, token string) {
 	cookie.Value = token
 	cookie.Path = "/"
 	// The cookie will expire in 24 hours.
-	cookie.Expires = time.Now().UTC().Add(24 * time.Hour)
+	if token == "" {
+		// If the token is empty, we're logging out, so expire the cookie immediately.
+		cookie.MaxAge = -1
+	} else {
+		cookie.Expires = time.Now().UTC().Add(24 * time.Hour)
+	}
 	// HttpOnly flag prevents client-side JavaScript from accessing the cookie,
 	// which is a crucial security measure against XSS attacks.
 	cookie.HttpOnly = true

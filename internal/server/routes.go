@@ -23,6 +23,7 @@ func (s *Server) RegisterRoutes() {
 
 	s.E.GET("/login", authHandler.LoginGet)
 	s.E.POST("/login", authHandler.LoginPost)
+	s.E.GET("/logout", authHandler.Logout)
 
 	s.E.GET("/forgot-password", authHandler.ForgotPasswordGet)
 	s.E.POST("/forgot-password", authHandler.ForgotPasswordPost)

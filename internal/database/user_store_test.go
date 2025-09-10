@@ -285,7 +285,7 @@ func TestPasswordResetFlow(t *testing.T) {
 		require.Equal(t, resetToken, *user.ResetToken, "Stored reset token should match generated token")
 
 		// 3. Reset the password using the token
-		err = store.ResetPassword(ctx, resetToken, newPassword)
+		_, err = store.ResetPassword(ctx, resetToken, newPassword)
 		require.NoError(t, err, "ResetPassword should not return an error with a valid token")
 
 		// 4. Verify the password was changed by signing in with the new password
@@ -331,7 +331,7 @@ func TestPasswordResetFlow(t *testing.T) {
 		require.NoError(t, err, "failed to manually expire token")
 
 		// 4. Attempt to reset password with the expired token
-		err = store.ResetPassword(ctx, resetToken, newPassword)
+		_, err = store.ResetPassword(ctx, resetToken, newPassword)
 		require.Error(t, err, "ResetPassword should fail with an expired token")
 		assert.Contains(t, err.Error(), "invalid or expired reset token")
 
@@ -362,7 +362,7 @@ func TestPasswordResetFlow(t *testing.T) {
 
 		// 2. Attempt to reset password with a completely invalid token
 		invalidToken := "this-is-not-a-real-token"
-		err = store.ResetPassword(ctx, invalidToken, newPassword)
+		_, err = store.ResetPassword(ctx, invalidToken, newPassword)
 		require.Error(t, err, "ResetPassword should fail with an invalid token")
 		assert.Contains(t, err.Error(), "invalid or expired reset token")
 
@@ -398,7 +398,7 @@ func TestPasswordResetFlow(t *testing.T) {
 		require.NotEmpty(t, resetToken)
 
 		// 3. Use the token successfully for the first time
-		err = store.ResetPassword(ctx, resetToken, firstNewPassword)
+		_, err = store.ResetPassword(ctx, resetToken, firstNewPassword)
 		require.NoError(t, err, "first password reset should succeed")
 
 		// Verify the new password works
@@ -406,7 +406,7 @@ func TestPasswordResetFlow(t *testing.T) {
 		require.NoError(t, err, "sign in with the new password should work")
 
 		// 4. Attempt to reuse the same token
-		err = store.ResetPassword(ctx, resetToken, secondNewPassword)
+		_, err = store.ResetPassword(ctx, resetToken, secondNewPassword)
 		require.Error(t, err, "ResetPassword should fail on token reuse")
 
 		// 5. Verify the password was NOT changed by the second attempt

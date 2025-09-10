@@ -14,8 +14,12 @@
       />
 
       <div class="space-x-2">
+        {{if .IsAuthenticated}}
+        <a href="/logout" class="btn btn-outline">Logout</a>
+        {{else}}
         <a href="/login" class="btn btn-primary">Login</a>
         <a href="/register" class="btn btn-ghost">Register</a>
+        {{end}}
       </div>
     </div>
   </div>
