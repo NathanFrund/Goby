@@ -106,6 +106,7 @@ func (h *AuthHandler) LoginPost(c echo.Context) error {
 		log.Printf("Failed login attempt for %s: %v", email, err)
 		return c.Render(http.StatusUnauthorized, "login.html", map[string]interface{}{
 			"Error": "Invalid email or password.",
+			"Email": email,
 		})
 	}
 
