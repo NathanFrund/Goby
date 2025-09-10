@@ -64,3 +64,26 @@ If you prefer not to install `overmind` and `tmux`, you can run the Go live-relo
     ```
 
 This setup achieves the same result, with your Go application running on `http://localhost:8080` and live-reloading enabled for both backend and frontend changes.
+
+## Configuration
+
+The application is configured using environment variables. For local development, you can create a `.env` file in the project root to manage these settings.
+
+### Database
+
+- `SURREAL_URL`: The URL of your SurrealDB instance (e.g., `ws://localhost:8000/rpc`).
+- `SURREAL_NS`: The namespace to use in SurrealDB.
+- `SURREAL_DB`: The database to use in SurrealDB.
+- `SURREAL_USER`: The user for authenticating with SurrealDB.
+- `SURREAL_PASS`: The password for authenticating with SurrealDB.
+
+### Server
+
+- `SERVER_ADDR`: The address and port for the server to listen on. Defaults to `:8080`.
+- `APP_BASE_URL`: The public base URL for the application, used for generating links in emails. Defaults to `http://localhost:8080` for local development.
+
+### Email
+
+- `EMAIL_PROVIDER`: The email service to use. Defaults to `log` (which prints emails to the console). Set to `resend` to use the Resend API.
+- `EMAIL_API_KEY`: Your API key for the chosen email provider (e.g., your Resend API key).
+- `EMAIL_SENDER`: The "from" address for outgoing emails (e.g., `you@yourdomain.com`). For Resend, this can be omitted to use the default `onboarding@resend.dev`.

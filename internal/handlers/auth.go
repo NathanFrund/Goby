@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -8,18 +9,23 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/database"
+	"github.com/nfrund/goby/internal/email"
 	"github.com/nfrund/goby/internal/models"
 )
 
 // AuthHandler handles authentication-related requests.
 type AuthHandler struct {
 	userStore *database.UserStore
+	emailer   email.EmailSender
+	baseURL   string
 }
 
 // NewAuthHandler creates a new AuthHandler.
-func NewAuthHandler(userStore *database.UserStore) *AuthHandler {
+func NewAuthHandler(userStore *database.UserStore, emailer email.EmailSender, baseURL string) *AuthHandler {
 	return &AuthHandler{
 		userStore: userStore,
+		emailer:   emailer,
+		baseURL:   baseURL,
 	}
 }
 
@@ -144,9 +150,14 @@ func (h *AuthHandler) ForgotPasswordPost(c echo.Context) error {
 
 	// In a real application, you would send an email with the reset link here.
 	// For development, we'll log the token to the console.
-	if token != "" {
-		slog.Info("Password reset token generated", "email", email, "token", token)
-		slog.Info("Reset link for dev", "url", "/reset-password?token="+token)
+	if token != "" && h.emailer != nil {
+		resetLink := h.baseURL + "/reset-password?token=" + token
+		htmlBody := fmt.Sprintf(`<p>Click the link below to reset your password:</p><a href="%s">Reset Password</a>`, resetLink)
+		err = h.emailer.Send(email, "Reset Your Password", htmlBody)
+		if err != nil {
+			// Log the error but still show a success message to the user.
+			slog.Error("Failed to send password reset email", "error", err, "email", email)
+		}
 	}
 
 	return c.Render(http.StatusOK, "forgot-password.html", map[string]interface{}{

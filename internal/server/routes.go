@@ -13,7 +13,7 @@ func (s *Server) RegisterRoutes() {
 	// Create instances of all application handlers.
 	homeHandler := handlers.NewHomeHandler()
 	userStore := database.NewUserStore(s.DB, s.Cfg.DBNs, s.Cfg.DBDb)
-	authHandler := handlers.NewAuthHandler(userStore)
+	authHandler := handlers.NewAuthHandler(userStore, s.Emailer, s.Cfg.AppBaseURL)
 
 	// Register routes.
 	s.E.GET("/", homeHandler.HomeGet)
