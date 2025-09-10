@@ -345,4 +345,35 @@ func TestPasswordResetFlow(t *testing.T) {
 		assert.NoError(t, err, "SignIn with original password should still succeed")
 		assert.NotEmpty(t, token, "Should receive a token when signing in with original password")
 	})
+
+	t.Run("error - invalid token", func(t *testing.T) {
+		// Test data
+		testEmail := "invalid-token-test@example.com"
+		initialPassword := "initialPassword123"
+		newPassword := "newSecurePassword456"
+		testName := "Invalid Token Test User"
+
+		// 1. Create user
+		_, err := store.SignUp(ctx, &models.User{Email: testEmail, Name: &testName}, initialPassword)
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			_, _ = surrealdb.Query[any](ctx, db, "DELETE user WHERE email = $email", map[string]any{"email": testEmail})
+		})
+
+		// 2. Attempt to reset password with a completely invalid token
+		invalidToken := "this-is-not-a-real-token"
+		err = store.ResetPassword(ctx, invalidToken, newPassword)
+		require.Error(t, err, "ResetPassword should fail with an invalid token")
+		assert.Contains(t, err.Error(), "invalid or expired reset token")
+
+		// 3. Verify the password was NOT changed
+		// Sign in with new password should fail
+		_, err = store.SignIn(ctx, &models.User{Email: testEmail}, newPassword)
+		assert.Error(t, err, "SignIn with new password should fail")
+
+		// Sign in with old password should succeed
+		token, err := store.SignIn(ctx, &models.User{Email: testEmail}, initialPassword)
+		assert.NoError(t, err, "SignIn with original password should still succeed")
+		assert.NotEmpty(t, token, "Should receive a token when signing in with original password")
+	})
 }
