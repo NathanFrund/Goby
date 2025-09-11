@@ -86,6 +86,40 @@ func (s *UserStore) SignIn(ctx context.Context, user *models.User, password stri
 	return token, err
 }
 
+// Authenticate validates a session token and returns the associated user.
+func (s *UserStore) Authenticate(ctx context.Context, token string) (*models.User, error) {
+	// First, ensure we're using the correct namespace and database.
+	if err := s.db.Use(ctx, s.ns, s.dbName); err != nil {
+		return nil, fmt.Errorf("failed to set namespace/database: %w", err)
+	}
+
+	// Authenticate the connection using the provided token.
+	// This validates the token against the 'account' scope.
+	err := s.db.Authenticate(ctx, token)
+	if err != nil {
+		// This error indicates the token is invalid or expired.
+		return nil, fmt.Errorf("token authentication failed: %w", err)
+	}
+
+	// After successful authentication, get the current user's information
+	// using a direct query to get the current user
+	users, err := Query[models.User](ctx, s.db, "SELECT * FROM $auth", nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get authenticated user: %w", err)
+	}
+
+	if len(users) == 0 || users[0].ID == nil {
+		return nil, fmt.Errorf("no authenticated user found")
+	}
+
+	user := &users[0]
+
+	// Clear the password before returning
+	user.Password = ""
+
+	return user, nil
+}
+
 // CreateUser creates a new user in the database.
 // generateSecureToken creates a cryptographically secure random token
 func generateSecureToken(length int) (string, error) {

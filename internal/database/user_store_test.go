@@ -414,3 +414,54 @@ func TestPasswordResetFlow(t *testing.T) {
 		assert.Error(t, err, "SignIn with the second new password should fail")
 	})
 }
+
+func TestAuthenticate(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	// Setup
+	ctx := context.Background()
+	db, cleanup := setupTestDB(t)
+	defer cleanup()
+	cfg := config.New()
+	store := NewUserStore(db, cfg.DBNs, cfg.DBDb)
+
+	t.Run("success - authenticates with a valid token", func(t *testing.T) {
+		// Test data
+		testEmail := "auth-test@example.com"
+		testPassword := "securepassword123"
+		testName := "Auth Test User"
+
+		// 1. Create a user and sign them in to get a valid token
+		_, err := store.SignUp(ctx, &models.User{Email: testEmail, Name: &testName}, testPassword)
+		require.NoError(t, err, "failed to sign up user for auth test")
+
+		token, err := store.SignIn(ctx, &models.User{Email: testEmail}, testPassword)
+		require.NoError(t, err, "failed to sign in user for auth test")
+		require.NotEmpty(t, token, "sign in should return a token")
+
+		// Cleanup the user after the test
+		t.Cleanup(func() {
+			_, _ = surrealdb.Query[any](ctx, db, "DELETE user WHERE email = $email", map[string]any{"email": testEmail})
+		})
+
+		// 2. Test the Authenticate method with the valid token
+		user, err := store.Authenticate(ctx, token)
+
+		// 3. Verify the results
+		require.NoError(t, err, "Authenticate should not return an error with a valid token")
+		require.NotNil(t, user, "Authenticate should return a user")
+		assert.Equal(t, testEmail, user.Email, "Authenticated user email should match")
+	})
+
+	t.Run("error - invalid token", func(t *testing.T) {
+		// Test with a completely invalid token
+		invalidToken := "this-is-not-a-real-token"
+		user, err := store.Authenticate(ctx, invalidToken)
+
+		assert.Error(t, err, "Authenticate should return an error for an invalid token")
+		assert.Nil(t, user, "User should be nil on authentication failure")
+		assert.Contains(t, err.Error(), "token authentication failed", "Error message should indicate token failure")
+	})
+}

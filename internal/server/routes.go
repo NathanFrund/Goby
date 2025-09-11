@@ -15,7 +15,11 @@ func (s *Server) RegisterRoutes() {
 	homeHandler := handlers.NewHomeHandler()
 	userStore := database.NewUserStore(s.DB, s.Cfg.DBNs, s.Cfg.DBDb)
 	authHandler := handlers.NewAuthHandler(userStore, s.Emailer, s.Cfg.AppBaseURL)
+	dashboardHandler := handlers.NewDashboardHandler()
+
+	// Create instances of all application middleware.
 	rateLimiter := middleware.RateLimiter()
+	authMiddleware := middleware.Auth(userStore)
 
 	// Register routes.
 	s.E.GET("/", homeHandler.HomeGet)
@@ -36,4 +40,7 @@ func (s *Server) RegisterRoutes() {
 	s.E.GET("/health", func(c echo.Context) error {
 		return c.String(http.StatusOK, "OK")
 	})
+
+	// Protected routes
+	s.E.GET("/dashboard", dashboardHandler.DashboardGet, authMiddleware)
 }
