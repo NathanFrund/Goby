@@ -11,6 +11,7 @@ import (
 	"github.com/nfrund/goby/internal/config"
 	"github.com/nfrund/goby/internal/database"
 	"github.com/nfrund/goby/internal/email"
+	"github.com/nfrund/goby/internal/handlers"
 	"github.com/nfrund/goby/internal/logging"
 	"github.com/nfrund/goby/internal/templates"
 	"github.com/surrealdb/surrealdb.go"
@@ -18,10 +19,14 @@ import (
 
 // Server holds the dependencies for the HTTP server.
 type Server struct {
-	E       *echo.Echo
-	DB      *surrealdb.DB
-	Cfg     *config.Config
-	Emailer email.EmailSender
+	E                *echo.Echo
+	DB               *surrealdb.DB
+	Cfg              *config.Config
+	Emailer          email.EmailSender
+	userStore        *database.UserStore
+	homeHandler      *handlers.HomeHandler
+	authHandler      *handlers.AuthHandler
+	dashboardHandler *handlers.DashboardHandler
 }
 
 // New creates a new Server instance.
@@ -41,16 +46,17 @@ func New() *Server {
 		os.Exit(1)
 	}
 
-	if err := db.Use(context.Background(), cfg.DBNs, cfg.DBDb); err != nil {
-		slog.Error("Failed to use namespace/db", "error", err)
-		os.Exit(1)
-	}
-
 	emailer, err := email.NewEmailService(cfg)
 	if err != nil {
 		slog.Error("Failed to initialize email service", "error", err)
 		os.Exit(1)
 	}
+
+	// Create stores and handlers, making them dependencies of the server.
+	userStore := database.NewUserStore(db, cfg.DBNs, cfg.DBDb)
+	homeHandler := handlers.NewHomeHandler()
+	authHandler := handlers.NewAuthHandler(userStore, emailer, cfg.AppBaseURL)
+	dashboardHandler := handlers.NewDashboardHandler()
 
 	e := echo.New()
 	e.Use(middleware.Logger())
@@ -62,5 +68,14 @@ func New() *Server {
 	// Setup template renderer
 	e.Renderer = templates.NewRenderer("web/src/templates")
 
-	return &Server{E: e, DB: db, Cfg: cfg, Emailer: emailer}
+	return &Server{
+		E:                e,
+		DB:               db,
+		Cfg:              cfg,
+		Emailer:          emailer,
+		userStore:        userStore,
+		homeHandler:      homeHandler,
+		authHandler:      authHandler,
+		dashboardHandler: dashboardHandler,
+	}
 }
