@@ -17,7 +17,7 @@ func Auth(store *database.UserStore) echo.MiddlewareFunc {
 			cookie, err := c.Cookie("auth_token")
 			if err != nil || cookie.Value == "" {
 				// If the cookie is not set or is empty, redirect to login.
-				return c.Redirect(http.StatusSeeOther, "/login")
+				return c.Redirect(http.StatusSeeOther, "/auth/login")
 			}
 			token := cookie.Value
 
@@ -33,13 +33,13 @@ func Auth(store *database.UserStore) echo.MiddlewareFunc {
 					Path:   "/",
 					MaxAge: -1,
 				})
-				return c.Redirect(http.StatusSeeOther, "/login")
+				return c.Redirect(http.StatusSeeOther, "/auth/login")
 			}
 
 			if user == nil {
 				// This case should ideally not be hit if Authenticate returns an error
 				// for an invalid token, but as a safeguard:
-				return c.Redirect(http.StatusSeeOther, "/login")
+				return c.Redirect(http.StatusSeeOther, "/auth/login")
 			}
 
 			// 3. Store user information in the context for downstream handlers.

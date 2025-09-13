@@ -129,7 +129,7 @@ func (h *AuthHandler) Logout(c echo.Context) error {
 	// Setting MaxAge to -1 is the standard way to delete a cookie.
 	setAuthCookie(c, "") // Set an empty token
 
-	return c.Redirect(http.StatusSeeOther, "/login")
+	return c.Redirect(http.StatusSeeOther, "/auth/login")
 }
 
 // ForgotPasswordGet handles rendering the forgot password page.
@@ -151,7 +151,7 @@ func (h *AuthHandler) ForgotPasswordPost(c echo.Context) error {
 	// In a real application, you would send an email with the reset link here.
 	// For development, we'll log the token to the console.
 	if token != "" && h.emailer != nil {
-		resetLink := h.baseURL + "/reset-password?token=" + token
+		resetLink := h.baseURL + "/auth/reset-password?token=" + token
 		htmlBody := fmt.Sprintf(`<p>Click the link below to reset your password:</p><a href="%s">Reset Password</a>`, resetLink)
 		err = h.emailer.Send(email, "Reset Your Password", htmlBody)
 		if err != nil {
@@ -170,7 +170,7 @@ func (h *AuthHandler) ResetPasswordGet(c echo.Context) error {
 	token := c.QueryParam("token")
 	if token == "" {
 		// If no token is provided, redirect to the forgot password page.
-		return c.Redirect(http.StatusSeeOther, "/forgot-password")
+		return c.Redirect(http.StatusSeeOther, "/auth/forgot-password")
 	}
 
 	return c.Render(http.StatusOK, "reset-password.html", map[string]interface{}{
@@ -210,7 +210,7 @@ func (h *AuthHandler) ResetPasswordPost(c echo.Context) error {
 		// This is unlikely, but we should handle it. If sign-in fails,
 		// redirect to the login page with a success message as a fallback.
 		slog.Error("Failed to sign in user after password reset", "error", err, "user_id", user.ID)
-		return c.Redirect(http.StatusSeeOther, "/login?reset=success")
+		return c.Redirect(http.StatusSeeOther, "/auth/login?reset=success")
 	}
 
 	setAuthCookie(c, sessionToken)

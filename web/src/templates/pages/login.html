@@ -8,7 +8,7 @@
       </p>
     </div>
     <div class="card shrink-0 w-full max-w-sm shadow-2xl bg-base-100">
-      <form class="card-body" method="POST" action="/login">
+      <form class="card-body" method="POST" action="/auth/login">
         {{if .Error}}
         <div role="alert" class="alert alert-error">
           <svg
@@ -54,7 +54,9 @@
             required
           />
           <label class="label">
-            <a href="/forgot-password" class="label-text-alt link link-hover"
+            <a
+              href="/auth/forgot-password"
+              class="label-text-alt link link-hover"
               >Forgot password?</a
             >
           </label>
@@ -63,7 +65,7 @@
           <button class="btn btn-primary">Login</button>
         </div>
         <label class="label">
-          <a href="/register" class="label-text-alt link link-hover"
+          <a href="/auth/register" class="label-text-alt link link-hover"
             >Don't have an account? Register</a
           >
         </label>

@@ -64,20 +64,20 @@ func TestAuthMiddleware(t *testing.T) {
 		user := c.Get(UserContextKey).(*models.User)
 		return c.String(http.StatusOK, "Welcome "+user.Email)
 	}
-	e.GET("/dashboard", testDashboardHandler, authMiddleware)
-	e.GET("/login", func(c echo.Context) error {
+	e.GET("/app/dashboard", testDashboardHandler, authMiddleware)
+	e.GET("/auth/login", func(c echo.Context) error {
 		return c.String(http.StatusOK, "Login Page")
 	}) // Dummy login page for redirect checks
 
 	t.Run("unauthenticated user is redirected to login", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/dashboard", nil)
+		req := httptest.NewRequest(http.MethodGet, "/app/dashboard", nil)
 		rec := httptest.NewRecorder()
 
 		e.ServeHTTP(rec, req)
 
 		// Assert that the user is redirected
 		assert.Equal(t, http.StatusSeeOther, rec.Code)
-		assert.Equal(t, "/login", rec.Header().Get("Location"))
+		assert.Equal(t, "/auth/login", rec.Header().Get("Location"))
 	})
 
 	t.Run("authenticated user can access protected route", func(t *testing.T) {
@@ -99,7 +99,7 @@ func TestAuthMiddleware(t *testing.T) {
 		})
 
 		// 2. Create a request with the auth cookie
-		req := httptest.NewRequest(http.MethodGet, "/dashboard", nil)
+		req := httptest.NewRequest(http.MethodGet, "/app/dashboard", nil)
 		rec := httptest.NewRecorder()
 		req.AddCookie(&http.Cookie{
 			Name:  "auth_token",
@@ -117,7 +117,7 @@ func TestAuthMiddleware(t *testing.T) {
 	})
 
 	t.Run("user with invalid token is redirected", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/dashboard", nil)
+		req := httptest.NewRequest(http.MethodGet, "/app/dashboard", nil)
 		rec := httptest.NewRecorder()
 		req.AddCookie(&http.Cookie{
 			Name:  "auth_token",
@@ -129,6 +129,6 @@ func TestAuthMiddleware(t *testing.T) {
 
 		// Assert that the user is redirected
 		assert.Equal(t, http.StatusSeeOther, rec.Code)
-		assert.Equal(t, "/login", rec.Header().Get("Location"))
+		assert.Equal(t, "/auth/login", rec.Header().Get("Location"))
 	})
 }

@@ -7,7 +7,7 @@
       <p class="py-6">Create an account to get started. It's fast and easy.</p>
     </div>
     <div class="card shrink-0 w-full max-w-sm shadow-2xl bg-base-100">
-      <form class="card-body" method="POST" action="/register">
+      <form class="card-body" method="POST" action="/auth/register">
         {{if .Error}}
         <div role="alert" class="alert alert-error">
           <svg
@@ -70,7 +70,7 @@
           <button type="submit" class="btn btn-primary">Create Account</button>
         </div>
         <label class="label">
-          <a href="/login" class="label-text-alt link link-hover"
+          <a href="/auth/login" class="label-text-alt link link-hover"
             >Already have an account? Login</a
           >
         </label>

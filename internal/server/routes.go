@@ -21,26 +21,27 @@ func (s *Server) RegisterRoutes() {
 	rateLimiter := middleware.RateLimiter()
 	authMiddleware := middleware.Auth(userStore)
 
-	// Register routes.
-	s.E.GET("/", homeHandler.HomeGet)
-
-	s.E.GET("/register", authHandler.RegisterGet)
-	s.E.POST("/register", authHandler.RegisterPost, rateLimiter)
-
-	s.E.GET("/login", authHandler.LoginGet)
-	s.E.POST("/login", authHandler.LoginPost, rateLimiter)
-	s.E.GET("/logout", authHandler.Logout)
-
-	s.E.GET("/forgot-password", authHandler.ForgotPasswordGet)
-	s.E.POST("/forgot-password", authHandler.ForgotPasswordPost, rateLimiter)
-
-	s.E.GET("/reset-password", authHandler.ResetPasswordGet)
-	s.E.POST("/reset-password", authHandler.ResetPasswordPost)
-
-	s.E.GET("/health", func(c echo.Context) error {
+	// Public routes
+	public := s.E.Group("")
+	public.GET("/", homeHandler.HomeGet)
+	public.GET("/health", func(c echo.Context) error {
 		return c.String(http.StatusOK, "OK")
 	})
 
-	// Protected routes
-	s.E.GET("/dashboard", dashboardHandler.DashboardGet, authMiddleware)
+	// Auth routes
+	auth := s.E.Group("/auth")
+	auth.GET("/register", authHandler.RegisterGet)
+	auth.POST("/register", authHandler.RegisterPost, rateLimiter)
+	auth.GET("/login", authHandler.LoginGet)
+	auth.POST("/login", authHandler.LoginPost, rateLimiter)
+	auth.GET("/logout", authHandler.Logout)
+	auth.GET("/forgot-password", authHandler.ForgotPasswordGet)
+	auth.POST("/forgot-password", authHandler.ForgotPasswordPost, rateLimiter)
+	auth.GET("/reset-password", authHandler.ResetPasswordGet)
+	auth.POST("/reset-password", authHandler.ResetPasswordPost)
+
+	// Protected routes (require authentication)
+	protected := s.E.Group("/app")
+	protected.Use(authMiddleware)
+	protected.GET("/dashboard", dashboardHandler.DashboardGet)
 }
