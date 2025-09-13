@@ -4,12 +4,11 @@ import (
 	"fmt"
 	"html/template"
 	"io"
-	"io/fs"
 	"log"
 	"path/filepath"
-	"strings"
 
 	"github.com/labstack/echo/v4"
+	"github.com/nfrund/goby/internal/view"
 )
 
 // Renderer is a custom html/template renderer for Echo framework
@@ -22,36 +21,27 @@ type Renderer struct {
 func NewRenderer(path string) *Renderer {
 	templates := make(map[string]*template.Template)
 
-	// Find all layout files, which will be shared across all pages.
-	layouts, err := filepath.Glob(filepath.Join(path, "layouts", "*.html"))
+	// Find all base and partial templates
+	layouts, err := filepath.Glob(filepath.Join(path, "base.html"))
 	if err != nil {
-		log.Fatalf("could not glob layouts: %v", err)
+		log.Fatalf("could not glob base template: %v", err)
+	}
+	partials, err := filepath.Glob(filepath.Join(path, "partials", "*.html"))
+	if err != nil {
+		log.Fatalf("could not glob partials: %v", err)
 	}
 
-	// Find all include/partial files, also shared.
-	includes, err := filepath.Glob(filepath.Join(path, "includes", "*.html"))
+	// Find all page templates
+	pages, err := filepath.Glob(filepath.Join(path, "pages", "*.html"))
 	if err != nil {
-		log.Fatalf("could not glob includes: %v", err)
+		log.Fatalf("could not glob page templates: %v", err)
 	}
 
-	// Walk the "pages" directory. For each page, create a new template set
-	// that includes the page itself, the layouts, and the includes.
-	// This isolates each page's `{{define}}` blocks.
-	err = filepath.WalkDir(filepath.Join(path, "pages"), func(pagePath string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-
-		if !d.IsDir() && strings.HasSuffix(d.Name(), ".html") {
-			filesToParse := append([]string{pagePath}, layouts...)
-			filesToParse = append(filesToParse, includes...)
-			templates[d.Name()] = template.Must(template.ParseFiles(filesToParse...))
-		}
-		return nil
-	})
-
-	if err != nil {
-		log.Fatalf("could not walk pages directory: %v", err)
+	// For each page, parse it with the base and partials
+	for _, page := range pages {
+		files := append(layouts, partials...)
+		files = append(files, page)
+		templates[filepath.Base(page)] = template.Must(template.ParseFiles(files...))
 	}
 
 	return &Renderer{templates: templates}
@@ -59,9 +49,16 @@ func NewRenderer(path string) *Renderer {
 
 // Render renders a template document
 func (t *Renderer) Render(w io.Writer, name string, data interface{}, c echo.Context) error {
+	// Add flash messages to the data map for every render.
+	dataMap, _ := data.(map[string]interface{})
+	if dataMap == nil {
+		dataMap = make(map[string]interface{})
+	}
+	dataMap["Flashes"] = view.GetFlashes(c)
+
 	tmpl, ok := t.templates[name]
 	if !ok {
 		return fmt.Errorf("template not found: %s", name)
 	}
-	return tmpl.ExecuteTemplate(w, name, data)
+	return tmpl.ExecuteTemplate(w, "base.html", dataMap)
 }

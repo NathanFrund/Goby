@@ -3,18 +3,20 @@ module github.com/nfrund/goby
 go 1.23.0
 
 require (
+	github.com/gorilla/sessions v1.3.0
 	github.com/joho/godotenv v1.5.1
+	github.com/labstack/echo-contrib v0.17.1
 	github.com/labstack/echo/v4 v4.13.4
 	github.com/stretchr/testify v1.11.0
 	github.com/surrealdb/surrealdb.go v0.9.0
 )
 
-replace github.com/nfrund/goby => ./
-
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/fxamacker/cbor/v2 v2.7.0 // indirect
 	github.com/gofrs/uuid v4.4.0+incompatible // indirect
+	github.com/gorilla/context v1.1.2 // indirect
+	github.com/gorilla/securecookie v1.1.2 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/kr/text v0.2.0 // indirect
 	github.com/labstack/gommon v0.4.2 // indirect
@@ -31,3 +33,5 @@ require (
 	golang.org/x/time v0.11.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+replace github.com/nfrund/goby => ./

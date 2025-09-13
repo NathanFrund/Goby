@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -8,20 +9,28 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
-	"github.com/nfrund/goby/internal/database"
 	"github.com/nfrund/goby/internal/email"
 	"github.com/nfrund/goby/internal/models"
+	"github.com/nfrund/goby/internal/view"
 )
+
+// UserStorer defines the interface for user storage operations.
+type UserStorer interface {
+	SignUp(ctx context.Context, user *models.User, password string) (string, error)
+	SignIn(ctx context.Context, user *models.User, password string) (string, error)
+	GenerateResetToken(ctx context.Context, email string) (string, error)
+	ResetPassword(ctx context.Context, token, password string) (*models.User, error)
+}
 
 // AuthHandler handles authentication-related requests.
 type AuthHandler struct {
-	userStore *database.UserStore
+	userStore UserStorer
 	emailer   email.EmailSender
 	baseURL   string
 }
 
 // NewAuthHandler creates a new AuthHandler.
-func NewAuthHandler(userStore *database.UserStore, emailer email.EmailSender, baseURL string) *AuthHandler {
+func NewAuthHandler(userStore UserStorer, emailer email.EmailSender, baseURL string) *AuthHandler {
 	return &AuthHandler{
 		userStore: userStore,
 		emailer:   emailer,
@@ -45,17 +54,13 @@ func (h *AuthHandler) RegisterPost(c echo.Context) error {
 
 	// --- Validation ---
 	if password != passwordConfirm {
-		return c.Render(http.StatusBadRequest, "register.html", map[string]interface{}{
-			"Error": "Passwords do not match.",
-			"Email": email,
-		})
+		view.SetFlashError(c, "Passwords do not match.")
+		return c.Redirect(http.StatusSeeOther, "/auth/register")
 	}
 
 	if len(password) < 8 {
-		return c.Render(http.StatusBadRequest, "register.html", map[string]interface{}{
-			"Error": "Password must be at least 8 characters long.",
-			"Email": email,
-		})
+		view.SetFlashError(c, "Password must be at least 8 characters long.")
+		return c.Redirect(http.StatusSeeOther, "/auth/register")
 	}
 
 	// --- Database Interaction ---
@@ -71,24 +76,20 @@ func (h *AuthHandler) RegisterPost(c echo.Context) error {
 	token, err := h.userStore.SignUp(c.Request().Context(), newUser, password)
 	if err != nil {
 		// The SignUp method will fail if the user already exists. The underlying error
-		// from SurrealDB often contains "signup query failed" in this case.
-		if strings.Contains(err.Error(), "signup query failed") || strings.Contains(err.Error(), "already exists") {
-			return c.Render(http.StatusConflict, "register.html", map[string]interface{}{
-				"Error": "A user with this email already exists.",
-				"Email": email,
-			})
+		if strings.Contains(err.Error(), "already exists") {
+			view.SetFlashError(c, "A user with this email already exists.")
+		} else {
+			slog.Error("Error creating user", "error", err)
+			view.SetFlashError(c, "Could not create your account.")
 		}
-		slog.Error("Error creating user", "error", err)
-		return c.Render(http.StatusInternalServerError, "register.html", map[string]interface{}{
-			"Error": "Could not create user account.",
-			"Email": email,
-		})
+		return c.Redirect(http.StatusSeeOther, "/auth/register")
 	}
 
 	// --- Session Management ---
 	setAuthCookie(c, token)
 
 	// On success, redirect to the home page as a logged-in user.
+	view.SetFlashSuccess(c, "Account created successfully!")
 	return c.Redirect(http.StatusSeeOther, "/")
 }
 
@@ -110,16 +111,15 @@ func (h *AuthHandler) LoginPost(c echo.Context) error {
 	if err != nil {
 		// The SignIn method will fail if credentials are invalid.
 		slog.Warn("Failed login attempt", "email", email, "error", err)
-		return c.Render(http.StatusUnauthorized, "login.html", map[string]interface{}{
-			"Error": "Invalid email or password.",
-			"Email": email,
-		})
+		view.SetFlashError(c, "Invalid email or password.")
+		return c.Redirect(http.StatusSeeOther, "/auth/login")
 	}
 
 	// --- Session Management ---
 	setAuthCookie(c, token)
 
 	// On success, redirect to the home page.
+	view.SetFlashSuccess(c, "Logged in successfully!")
 	return c.Redirect(http.StatusSeeOther, "/")
 }
 
@@ -129,6 +129,7 @@ func (h *AuthHandler) Logout(c echo.Context) error {
 	// Setting MaxAge to -1 is the standard way to delete a cookie.
 	setAuthCookie(c, "") // Set an empty token
 
+	view.SetFlashSuccess(c, "You have been logged out.")
 	return c.Redirect(http.StatusSeeOther, "/auth/login")
 }
 
@@ -160,9 +161,8 @@ func (h *AuthHandler) ForgotPasswordPost(c echo.Context) error {
 		}
 	}
 
-	return c.Render(http.StatusOK, "forgot-password.html", map[string]interface{}{
-		"Success": "If an account with that email exists, a password reset link has been sent.",
-	})
+	view.SetFlashSuccess(c, "If an account with that email exists, a password reset link has been sent.")
+	return c.Redirect(http.StatusSeeOther, "/auth/forgot-password")
 }
 
 // ResetPasswordGet handles rendering the password reset page.
@@ -185,23 +185,20 @@ func (h *AuthHandler) ResetPasswordPost(c echo.Context) error {
 	passwordConfirm := c.FormValue("password_confirm")
 
 	if password != passwordConfirm {
-		return c.Render(http.StatusBadRequest, "reset-password.html", map[string]interface{}{
-			"Token": token,
-			"Error": "Passwords do not match.",
-		})
+		view.SetFlashError(c, "Passwords do not match.")
+		return c.Redirect(http.StatusSeeOther, "/auth/reset-password?token="+token)
 	}
 
 	if len(password) < 8 {
-		return c.Render(http.StatusBadRequest, "reset-password.html", map[string]interface{}{
-			"Token": token,
-			"Error": "Password must be at least 8 characters long.",
-		})
+		view.SetFlashError(c, "Password must be at least 8 characters long.")
+		return c.Redirect(http.StatusSeeOther, "/auth/reset-password?token="+token)
 	}
 
 	user, err := h.userStore.ResetPassword(c.Request().Context(), token, password)
 	if err != nil {
 		slog.Warn("Error resetting password", "error", err)
-		return c.Render(http.StatusUnauthorized, "reset-password.html", map[string]interface{}{"Error": "Invalid or expired reset link."})
+		view.SetFlashError(c, "Invalid or expired reset link.")
+		return c.Redirect(http.StatusSeeOther, "/auth/forgot-password")
 	}
 
 	// Automatically sign the user in after a successful password reset.
@@ -210,11 +207,13 @@ func (h *AuthHandler) ResetPasswordPost(c echo.Context) error {
 		// This is unlikely, but we should handle it. If sign-in fails,
 		// redirect to the login page with a success message as a fallback.
 		slog.Error("Failed to sign in user after password reset", "error", err, "user_id", user.ID)
-		return c.Redirect(http.StatusSeeOther, "/auth/login?reset=success")
+		view.SetFlashSuccess(c, "Your password has been reset. Please log in.")
+		return c.Redirect(http.StatusSeeOther, "/auth/login")
 	}
 
 	setAuthCookie(c, sessionToken)
 
+	view.SetFlashSuccess(c, "Your password has been reset successfully!")
 	return c.Redirect(http.StatusSeeOther, "/")
 }
 

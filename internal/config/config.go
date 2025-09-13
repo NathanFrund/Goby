@@ -21,6 +21,7 @@ type Config struct {
 	EmailAPIKey   string
 	EmailSender   string
 	AppBaseURL    string
+	SessionSecret string
 }
 
 // New loads configuration from environment variables.
@@ -40,6 +41,7 @@ func New() *Config {
 		EmailAPIKey:   os.Getenv("EMAIL_API_KEY"),
 		EmailSender:   os.Getenv("EMAIL_SENDER"),
 		AppBaseURL:    os.Getenv("APP_BASE_URL"),
+		SessionSecret: os.Getenv("SESSION_SECRET"),
 	}
 
 	if cfg.ServerAddr == "" {
@@ -48,6 +50,10 @@ func New() *Config {
 
 	if cfg.DBUrl == "" || cfg.DBNs == "" || cfg.DBDb == "" {
 		log.Fatal("Required environment variables SURREAL_URL, SURREAL_NS, or SURREAL_DB are not set.")
+	}
+
+	if cfg.SessionSecret == "" {
+		log.Fatal("Required environment variable SESSION_SECRET is not set.")
 	}
 
 	// Set sensible defaults for development

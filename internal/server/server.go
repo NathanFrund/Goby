@@ -5,7 +5,9 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/gorilla/sessions"
 	"github.com/joho/godotenv"
+	"github.com/labstack/echo-contrib/session"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/nfrund/goby/internal/config"
@@ -61,6 +63,15 @@ func New() *Server {
 	e := echo.New()
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
+
+	// Configure and use session middleware
+	store := sessions.NewCookieStore([]byte(cfg.SessionSecret))
+	store.Options = &sessions.Options{
+		Path:     "/",
+		MaxAge:   86400 * 7, // 7 days
+		HttpOnly: true,
+	}
+	e.Use(session.Middleware(store))
 
 	// Serve static files from the "web/static" directory.
 	e.Static("/static", "web/static")
