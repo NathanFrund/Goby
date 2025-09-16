@@ -9,7 +9,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/nfrund/goby/internal/models"
+	"github.com/nfrund/goby/internal/domain"
 	"github.com/surrealdb/surrealdb.go"
 )
 
@@ -26,7 +26,7 @@ func NewSurrealUserStore(db *surrealdb.DB, ns, dbName string) *SurrealUserStore 
 }
 
 // FindUserByEmail queries for a single user by their email address.
-func (s *SurrealUserStore) FindUserByEmail(ctx context.Context, email string) (*models.User, error) {
+func (s *SurrealUserStore) FindUserByEmail(ctx context.Context, email string) (*domain.User, error) {
 	// Ensure the correct namespace and database are selected for this operation.
 	if err := s.db.Use(ctx, s.ns, s.dbName); err != nil {
 		return nil, fmt.Errorf("failed to set database scope: %w", err)
@@ -36,7 +36,7 @@ func (s *SurrealUserStore) FindUserByEmail(ctx context.Context, email string) (*
 	params := map[string]any{"email": email}
 
 	// Use the QueryOne helper which handles all the result processing
-	user, err := QueryOne[models.User](ctx, s.db, query, params)
+	user, err := QueryOne[domain.User](ctx, s.db, query, params)
 	if err != nil {
 		return nil, fmt.Errorf("database query failed: %w", err)
 	}
@@ -44,7 +44,7 @@ func (s *SurrealUserStore) FindUserByEmail(ctx context.Context, email string) (*
 	return user, nil
 }
 
-func (s *SurrealUserStore) SignUp(ctx context.Context, user *models.User, password string) (string, error) {
+func (s *SurrealUserStore) SignUp(ctx context.Context, user *domain.User, password string) (string, error) {
 	// Format matches the JavaScript SDK's implementation
 	token, err := s.db.SignUp(ctx, map[string]interface{}{
 		"ns":       s.ns,      // lowercase 'ns' to match JS SDK
@@ -65,7 +65,7 @@ func (s *SurrealUserStore) SignUp(ctx context.Context, user *models.User, passwo
 	return token, err
 }
 
-func (s *SurrealUserStore) SignIn(ctx context.Context, user *models.User, password string) (string, error) {
+func (s *SurrealUserStore) SignIn(ctx context.Context, user *domain.User, password string) (string, error) {
 	// Format matches the JavaScript SDK's implementation
 	token, err := s.db.SignIn(ctx, map[string]interface{}{
 		"ns":       s.ns,      // lowercase 'ns' to match JS SDK
@@ -87,7 +87,7 @@ func (s *SurrealUserStore) SignIn(ctx context.Context, user *models.User, passwo
 }
 
 // Authenticate validates a session token and returns the associated user.
-func (s *SurrealUserStore) Authenticate(ctx context.Context, token string) (*models.User, error) {
+func (s *SurrealUserStore) Authenticate(ctx context.Context, token string) (*domain.User, error) {
 	// First, ensure we're using the correct namespace and database.
 	if err := s.db.Use(ctx, s.ns, s.dbName); err != nil {
 		return nil, fmt.Errorf("failed to set namespace/database: %w", err)
@@ -103,7 +103,7 @@ func (s *SurrealUserStore) Authenticate(ctx context.Context, token string) (*mod
 
 	// After successful authentication, get the current user's information
 	// using a direct query to get the current user
-	users, err := Query[models.User](ctx, s.db, "SELECT * FROM $auth", nil)
+	users, err := Query[domain.User](ctx, s.db, "SELECT * FROM $auth", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get authenticated user: %w", err)
 	}
@@ -186,7 +186,7 @@ func (s *SurrealUserStore) GenerateResetToken(ctx context.Context, email string)
 // GetUserByResetToken finds and validates a reset token.
 // It returns the user if the token is valid and not expired.
 // The token is automatically invalidated after this call to prevent reuse.
-func (s *SurrealUserStore) GetUserByResetToken(ctx context.Context, token string) (*models.User, error) {
+func (s *SurrealUserStore) GetUserByResetToken(ctx context.Context, token string) (*domain.User, error) {
 	if token == "" {
 		return nil, errors.New("reset token cannot be empty")
 	}
@@ -206,7 +206,7 @@ func (s *SurrealUserStore) GetUserByResetToken(ctx context.Context, token string
 		"reset_token": token,
 	}
 
-	user, err := QueryOne[models.User](ctx, s.db, query, params)
+	user, err := QueryOne[domain.User](ctx, s.db, query, params)
 	if err != nil {
 		slog.Debug("Error finding user by reset token", "error", err)
 		return nil, fmt.Errorf("error finding user by reset token: %w", err)
@@ -264,7 +264,7 @@ func (s *SurrealUserStore) GetUserByResetToken(ctx context.Context, token string
 
 // ResetPassword updates a user's password using a valid reset token
 // The token is automatically invalidated as part of GetUserByResetToken
-func (s *SurrealUserStore) ResetPassword(ctx context.Context, token, newPassword string) (*models.User, error) {
+func (s *SurrealUserStore) ResetPassword(ctx context.Context, token, newPassword string) (*domain.User, error) {
 	if token == "" {
 		return nil, errors.New("reset token cannot be empty")
 	}

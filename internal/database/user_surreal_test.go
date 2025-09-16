@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nfrund/goby/internal/models"
+	"github.com/nfrund/goby/internal/domain"
 	"github.com/nfrund/goby/internal/testutils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -28,7 +28,7 @@ func TestFindUserByEmail(t *testing.T) {
 
 	// Test data
 	testUserName := "Test User"
-	testUser := &models.User{
+	testUser := &domain.User{
 		Email: "test@example.com",
 		Name:  &testUserName,
 	}
@@ -48,7 +48,7 @@ func TestFindUserByEmail(t *testing.T) {
 		}
 
 		// Execute the query
-		results, err := surrealdb.Query[[]models.User](ctx, db, query, params)
+		results, err := surrealdb.Query[[]domain.User](ctx, db, query, params)
 		require.NoError(t, err, "failed to create test user")
 		require.NotEmpty(t, results, "expected results from create query")
 		require.NotEmpty(t, *results, "expected at least one result set")
@@ -110,7 +110,7 @@ func TestSignIn(t *testing.T) {
 	t.Run("success - signs in with correct credentials", func(t *testing.T) {
 		// Test data
 		signInUserName := "Test SignIn User"
-		testUser := &models.User{
+		testUser := &domain.User{
 			Name:  &signInUserName,
 			Email: "signin-test@example.com",
 		}
@@ -140,7 +140,7 @@ func TestSignIn(t *testing.T) {
 
 		// Create a user first using SignUp
 		signInFailName := "Test SignIn Fail"
-		_, err := store.SignUp(ctx, &models.User{
+		_, err := store.SignUp(ctx, &domain.User{
 			Email: testEmail,
 			Name:  &signInFailName,
 		}, testPassword)
@@ -152,7 +152,7 @@ func TestSignIn(t *testing.T) {
 		})
 
 		// Test SignIn with wrong password
-		token, err := store.SignIn(ctx, &models.User{
+		token, err := store.SignIn(ctx, &domain.User{
 			Email: testEmail,
 		}, "wrongpassword")
 
@@ -163,7 +163,7 @@ func TestSignIn(t *testing.T) {
 
 	t.Run("error - non-existent user", func(t *testing.T) {
 		nonExistentEmail := "nonexistent@example.com"
-		token, err := store.SignIn(ctx, &models.User{
+		token, err := store.SignIn(ctx, &domain.User{
 			Email: nonExistentEmail,
 		}, "somepassword")
 
@@ -198,7 +198,7 @@ func TestSignUp(t *testing.T) {
 		})
 
 		// Create user using SignUp
-		token, err := store.SignUp(ctx, &models.User{
+		token, err := store.SignUp(ctx, &domain.User{
 			Email: testEmail,
 			Name:  &testName,
 		}, testPassword)
@@ -221,7 +221,7 @@ func TestSignUp(t *testing.T) {
 
 		// Create a user first
 		firstUserName := "First User"
-		_, err := store.SignUp(ctx, &models.User{
+		_, err := store.SignUp(ctx, &domain.User{
 			Email: testEmail,
 			Name:  &firstUserName,
 		}, testPassword)
@@ -229,7 +229,7 @@ func TestSignUp(t *testing.T) {
 
 		// Try to create another user with the same email
 		duplicateUserName := "Duplicate User"
-		_, err = store.SignUp(ctx, &models.User{
+		_, err = store.SignUp(ctx, &domain.User{
 			Email: testEmail,
 			Name:  &duplicateUserName,
 		}, "anotherpassword")
@@ -260,7 +260,7 @@ func TestPasswordResetFlow(t *testing.T) {
 		testName := "Reset Test User"
 
 		// 1. Create a user to test with
-		_, err := store.SignUp(ctx, &models.User{
+		_, err := store.SignUp(ctx, &domain.User{
 			Email: testEmail,
 			Name:  &testName,
 		}, initialPassword)
@@ -289,12 +289,12 @@ func TestPasswordResetFlow(t *testing.T) {
 		require.NoError(t, err, "ResetPassword should not return an error with a valid token")
 
 		// 4. Verify the password was changed by signing in with the new password
-		token, err := store.SignIn(ctx, &models.User{Email: testEmail}, newPassword)
+		token, err := store.SignIn(ctx, &domain.User{Email: testEmail}, newPassword)
 		require.NoError(t, err, "SignIn with new password should succeed")
 		assert.NotEmpty(t, token, "Should receive a token after signing in with the new password")
 
 		// 5. Verify the old password no longer works
-		_, err = store.SignIn(ctx, &models.User{Email: testEmail}, initialPassword)
+		_, err = store.SignIn(ctx, &domain.User{Email: testEmail}, initialPassword)
 		assert.Error(t, err, "SignIn with old password should fail")
 	})
 
@@ -306,7 +306,7 @@ func TestPasswordResetFlow(t *testing.T) {
 		testName := "Expired Token Test User"
 
 		// 1. Create user
-		_, err := store.SignUp(ctx, &models.User{Email: testEmail, Name: &testName}, initialPassword)
+		_, err := store.SignUp(ctx, &domain.User{Email: testEmail, Name: &testName}, initialPassword)
 		require.NoError(t, err)
 		t.Cleanup(func() {
 			_, _ = surrealdb.Query[any](ctx, db, "DELETE user WHERE email = $email", map[string]any{"email": testEmail})
@@ -337,11 +337,11 @@ func TestPasswordResetFlow(t *testing.T) {
 
 		// 5. Verify the password was NOT changed
 		// Sign in with new password should fail
-		_, err = store.SignIn(ctx, &models.User{Email: testEmail}, newPassword)
+		_, err = store.SignIn(ctx, &domain.User{Email: testEmail}, newPassword)
 		assert.Error(t, err, "SignIn with new password should fail")
 
 		// Sign in with old password should succeed
-		token, err := store.SignIn(ctx, &models.User{Email: testEmail}, initialPassword)
+		token, err := store.SignIn(ctx, &domain.User{Email: testEmail}, initialPassword)
 		assert.NoError(t, err, "SignIn with original password should still succeed")
 		assert.NotEmpty(t, token, "Should receive a token when signing in with original password")
 	})
@@ -354,7 +354,7 @@ func TestPasswordResetFlow(t *testing.T) {
 		testName := "Invalid Token Test User"
 
 		// 1. Create user
-		_, err := store.SignUp(ctx, &models.User{Email: testEmail, Name: &testName}, initialPassword)
+		_, err := store.SignUp(ctx, &domain.User{Email: testEmail, Name: &testName}, initialPassword)
 		require.NoError(t, err)
 		t.Cleanup(func() {
 			_, _ = surrealdb.Query[any](ctx, db, "DELETE user WHERE email = $email", map[string]any{"email": testEmail})
@@ -368,11 +368,11 @@ func TestPasswordResetFlow(t *testing.T) {
 
 		// 3. Verify the password was NOT changed
 		// Sign in with new password should fail
-		_, err = store.SignIn(ctx, &models.User{Email: testEmail}, newPassword)
+		_, err = store.SignIn(ctx, &domain.User{Email: testEmail}, newPassword)
 		assert.Error(t, err, "SignIn with new password should fail")
 
 		// Sign in with old password should succeed
-		token, err := store.SignIn(ctx, &models.User{Email: testEmail}, initialPassword)
+		token, err := store.SignIn(ctx, &domain.User{Email: testEmail}, initialPassword)
 		assert.NoError(t, err, "SignIn with original password should still succeed")
 		assert.NotEmpty(t, token, "Should receive a token when signing in with original password")
 	})
@@ -386,7 +386,7 @@ func TestPasswordResetFlow(t *testing.T) {
 		testName := "Token Reuse Test User"
 
 		// 1. Create user
-		_, err := store.SignUp(ctx, &models.User{Email: testEmail, Name: &testName}, initialPassword)
+		_, err := store.SignUp(ctx, &domain.User{Email: testEmail, Name: &testName}, initialPassword)
 		require.NoError(t, err)
 		t.Cleanup(func() {
 			_, _ = surrealdb.Query[any](ctx, db, "DELETE user WHERE email = $email", map[string]any{"email": testEmail})
@@ -402,7 +402,7 @@ func TestPasswordResetFlow(t *testing.T) {
 		require.NoError(t, err, "first password reset should succeed")
 
 		// Verify the new password works
-		_, err = store.SignIn(ctx, &models.User{Email: testEmail}, firstNewPassword)
+		_, err = store.SignIn(ctx, &domain.User{Email: testEmail}, firstNewPassword)
 		require.NoError(t, err, "sign in with the new password should work")
 
 		// 4. Attempt to reuse the same token
@@ -410,7 +410,7 @@ func TestPasswordResetFlow(t *testing.T) {
 		require.Error(t, err, "ResetPassword should fail on token reuse")
 
 		// 5. Verify the password was NOT changed by the second attempt
-		_, err = store.SignIn(ctx, &models.User{Email: testEmail}, secondNewPassword)
+		_, err = store.SignIn(ctx, &domain.User{Email: testEmail}, secondNewPassword)
 		assert.Error(t, err, "SignIn with the second new password should fail")
 	})
 }
@@ -434,10 +434,10 @@ func TestAuthenticate(t *testing.T) {
 		testName := "Auth Test User"
 
 		// 1. Create a user and sign them in to get a valid token
-		_, err := store.SignUp(ctx, &models.User{Email: testEmail, Name: &testName}, testPassword)
+		_, err := store.SignUp(ctx, &domain.User{Email: testEmail, Name: &testName}, testPassword)
 		require.NoError(t, err, "failed to sign up user for auth test")
 
-		token, err := store.SignIn(ctx, &models.User{Email: testEmail}, testPassword)
+		token, err := store.SignIn(ctx, &domain.User{Email: testEmail}, testPassword)
 		require.NoError(t, err, "failed to sign in user for auth test")
 		require.NotEmpty(t, token, "sign in should return a token")
 
