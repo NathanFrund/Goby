@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"context"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -9,28 +8,21 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/nfrund/goby/internal/database"
 	"github.com/nfrund/goby/internal/email"
 	"github.com/nfrund/goby/internal/models"
 	"github.com/nfrund/goby/internal/view"
 )
 
-// UserStorer defines the interface for user storage operations.
-type UserStorer interface {
-	SignUp(ctx context.Context, user *models.User, password string) (string, error)
-	SignIn(ctx context.Context, user *models.User, password string) (string, error)
-	GenerateResetToken(ctx context.Context, email string) (string, error)
-	ResetPassword(ctx context.Context, token, password string) (*models.User, error)
-}
-
 // AuthHandler handles authentication-related requests.
 type AuthHandler struct {
-	userStore UserStorer
+	userStore database.UserStore
 	emailer   email.EmailSender
 	baseURL   string
 }
 
 // NewAuthHandler creates a new AuthHandler.
-func NewAuthHandler(userStore UserStorer, emailer email.EmailSender, baseURL string) *AuthHandler {
+func NewAuthHandler(userStore database.UserStore, emailer email.EmailSender, baseURL string) *AuthHandler {
 	return &AuthHandler{
 		userStore: userStore,
 		emailer:   emailer,

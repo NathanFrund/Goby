@@ -15,22 +15,6 @@ import (
 	"github.com/surrealdb/surrealdb.go"
 )
 
-// setupTestDB is a helper function that sets up a test database and returns it along with a cleanup function.
-func setupTestDB(t *testing.T) (*surrealdb.DB, func()) {
-	t.Helper()
-
-	cfg := testutils.ConfigForTests(t)
-	ctx := context.Background()
-	db, err := database.NewDB(ctx, cfg)
-	require.NoError(t, err, "failed to connect to test database")
-
-	// Return connection and a cleanup function to be deferred by the caller.
-	return db, func() {
-		_, _ = surrealdb.Query[any](context.Background(), db, "DELETE user", nil)
-		db.Close(context.Background())
-	}
-}
-
 func TestAuthMiddleware(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping integration test in short mode")
@@ -38,11 +22,17 @@ func TestAuthMiddleware(t *testing.T) {
 
 	// Setup
 	ctx := context.Background()
-	db, cleanup := setupTestDB(t)
+	cfg := testutils.ConfigForTests(t)
+	db, err := database.NewDB(ctx, cfg)
+	require.NoError(t, err, "failed to connect to test database")
+
+	cleanup := func() {
+		_, _ = surrealdb.Query[any](context.Background(), db, "DELETE user", nil)
+		db.Close(context.Background())
+	}
 	defer cleanup()
 
-	cfg := testutils.ConfigForTests(t)
-	userStore := database.NewUserStore(db, cfg.GetDBNs(), cfg.GetDBDb())
+	userStore := database.NewSurrealUserStore(db, cfg.GetDBNs(), cfg.GetDBDb())
 	authMiddleware := Auth(userStore)
 
 	// Create Echo instance for testing

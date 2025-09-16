@@ -26,7 +26,7 @@ type Server struct {
 	DB               *surrealdb.DB
 	Cfg              config.Provider
 	Emailer          email.EmailSender
-	userStore        *database.UserStore
+	userStore        database.UserStore
 	homeHandler      *handlers.HomeHandler
 	authHandler      *handlers.AuthHandler
 	dashboardHandler *handlers.DashboardHandler
@@ -56,7 +56,7 @@ func New() *Server {
 	}
 
 	// Create stores and handlers, making them dependencies of the server.
-	userStore := database.NewUserStore(db, cfg.GetDBNs(), cfg.GetDBDb())
+	userStore := database.NewSurrealUserStore(db, cfg.GetDBNs(), cfg.GetDBDb())
 	homeHandler := handlers.NewHomeHandler()
 	authHandler := handlers.NewAuthHandler(userStore, emailer, cfg.GetAppBaseURL())
 	dashboardHandler := handlers.NewDashboardHandler()

@@ -46,6 +46,18 @@ func (m *MockUserStore) ResetPassword(ctx context.Context, token, password strin
 	return &models.User{ID: &recordID, Email: "test@example.com"}, nil
 }
 
+func (m *MockUserStore) Authenticate(ctx context.Context, token string) (*models.User, error) {
+	// In a real mock, you might check the token and return different users.
+	// For this test, a simple successful authentication is sufficient.
+	return &models.User{Email: "test@example.com"}, nil
+}
+
+func (m *MockUserStore) FindUserByEmail(ctx context.Context, email string) (*models.User, error) {
+	// This mock can assume the user is found for handler tests.
+	// Error cases can be tested at the store level.
+	return &models.User{Email: email}, nil
+}
+
 // mockConfigProvider is a simple mock for the config.Provider interface.
 type mockConfigProvider struct {
 	config.Provider

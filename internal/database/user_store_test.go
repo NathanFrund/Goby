@@ -24,7 +24,7 @@ func TestFindUserByEmail(t *testing.T) {
 	cfg := testutils.ConfigForTests(t)
 
 	// Create the store we are testing
-	store := NewUserStore(db, cfg.GetDBNs(), cfg.GetDBDb())
+	store := NewSurrealUserStore(db, cfg.GetDBNs(), cfg.GetDBDb())
 
 	// Test data
 	testUserName := "Test User"
@@ -105,7 +105,7 @@ func TestSignIn(t *testing.T) {
 	cfg := testutils.ConfigForTests(t)
 
 	// Create the store we are testing
-	store := NewUserStore(db, cfg.GetDBNs(), cfg.GetDBDb())
+	store := NewSurrealUserStore(db, cfg.GetDBNs(), cfg.GetDBDb())
 
 	t.Run("success - signs in with correct credentials", func(t *testing.T) {
 		// Test data
@@ -184,7 +184,7 @@ func TestSignUp(t *testing.T) {
 	cfg := testutils.ConfigForTests(t)
 
 	// Create the store we are testing
-	store := NewUserStore(db, cfg.GetDBNs(), cfg.GetDBDb())
+	store := NewSurrealUserStore(db, cfg.GetDBNs(), cfg.GetDBDb())
 
 	t.Run("success - creates and signs up a new user", func(t *testing.T) {
 		// Test data
@@ -250,7 +250,7 @@ func TestPasswordResetFlow(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 	cfg := testutils.ConfigForTests(t)
-	store := NewUserStore(db, cfg.GetDBNs(), cfg.GetDBDb())
+	store := NewSurrealUserStore(db, cfg.GetDBNs(), cfg.GetDBDb())
 
 	t.Run("success - full password reset flow", func(t *testing.T) {
 		// Test data
@@ -425,7 +425,7 @@ func TestAuthenticate(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 	cfg := testutils.ConfigForTests(t)
-	store := NewUserStore(db, cfg.GetDBNs(), cfg.GetDBDb())
+	store := NewSurrealUserStore(db, cfg.GetDBNs(), cfg.GetDBDb())
 
 	t.Run("success - authenticates with a valid token", func(t *testing.T) {
 		// Test data
