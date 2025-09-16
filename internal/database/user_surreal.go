@@ -297,3 +297,39 @@ func (s *SurrealUserStore) ResetPassword(ctx context.Context, token, newPassword
 
 	return user, nil
 }
+
+// WithTransaction creates a new transaction and executes the given function within it.
+// If the function returns an error, the transaction is rolled back. Otherwise, it's committed.
+// This implementation is specific to the surrealdb.go driver, which uses queries
+// to manage transactions.
+func (s *SurrealUserStore) WithTransaction(ctx context.Context, fn func(repo domain.UserRepository) error) error {
+	// Begin a new transaction from the main DB connection.
+	if _, err := surrealdb.Query[any](ctx, s.db, "BEGIN TRANSACTION;", nil); err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+
+	// Use a deferred function with a flag to ensure rollback on any failure.
+	var committed bool
+	defer func() {
+		if !committed {
+			slog.WarnContext(ctx, "Rolling back transaction due to error or panic")
+			if _, err := surrealdb.Query[any](ctx, s.db, "CANCEL TRANSACTION;", nil); err != nil {
+				slog.ErrorContext(ctx, "CRITICAL: failed to cancel (rollback) transaction", "error", err)
+			}
+		}
+	}()
+
+	// Execute the provided function. We pass the same store `s` because its
+	// underlying connection is now in a transactional state.
+	if err := fn(s); err != nil {
+		return err // The defer will handle the rollback.
+	}
+
+	// If the function succeeds, commit the transaction.
+	if _, err := surrealdb.Query[any](ctx, s.db, "COMMIT TRANSACTION;", nil); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	committed = true
+	return nil
+}
