@@ -46,12 +46,24 @@ func (m *MockUserStore) ResetPassword(ctx context.Context, token, password strin
 	return &models.User{ID: &recordID, Email: "test@example.com"}, nil
 }
 
+// mockConfigProvider is a simple mock for the config.Provider interface.
+type mockConfigProvider struct {
+	config.Provider
+	baseURL string
+}
+
+func (m *mockConfigProvider) GetAppBaseURL() string { return m.baseURL }
+
 func setupAuthTest() (*echo.Echo, *handlers.AuthHandler) {
 	e := echo.New()
-	cfg := &config.Config{AppBaseURL: "http://localhost:8080"}
+	// Use a mock config provider for tests
+	mockCfg := &mockConfigProvider{baseURL: "http://localhost:8080"}
 	mockStore := &MockUserStore{}
-	mockEmailer, _ := email.NewEmailService(&config.Config{EmailProvider: "log"})
-	authHandler := handlers.NewAuthHandler(mockStore, mockEmailer, cfg.AppBaseURL)
+	// For unit tests, it's better to create the mock emailer directly
+	// instead of relying on the factory and a real config struct.
+	mockEmailer := &email.LogSender{}
+	// The handler now correctly depends only on interfaces and primitives.
+	authHandler := handlers.NewAuthHandler(mockStore, mockEmailer, mockCfg.GetAppBaseURL())
 
 	// Setup session middleware
 	cookieStore := sessions.NewCookieStore([]byte(testSessionSecret))
@@ -61,13 +73,13 @@ func setupAuthTest() (*echo.Echo, *handlers.AuthHandler) {
 }
 
 // assertFlashMessage is a test helper to check for a specific flash message in the session.
-func assertFlashMessage(t *testing.T, rec *httptest.ResponseRecorder, key, expectedMessage string) {
+func assertFlashMessage(t *testing.T, req *http.Request, key, expectedMessage string) {
 	t.Helper() // Marks this function as a test helper.
 
 	// To check the session, we need to read the cookie set in the response.
 	// We can then use the session store to decode it.
 	cookieStore := sessions.NewCookieStore([]byte(testSessionSecret))
-	sess, _ := cookieStore.Get(rec.Result().Request, "flash-session")
+	sess, _ := cookieStore.Get(req, "flash-session")
 
 	flashes := sess.Flashes(key)
 	assert.NotEmpty(t, flashes, "expected flash message but found none for key: %s", key)
@@ -76,6 +88,7 @@ func assertFlashMessage(t *testing.T, rec *httptest.ResponseRecorder, key, expec
 
 func TestRegisterPost_FlashMessages(t *testing.T) {
 	e, authHandler := setupAuthTest()
+	e.POST("/auth/register", authHandler.RegisterPost)
 
 	t.Run("sets success flash on successful registration", func(t *testing.T) {
 		form := url.Values{}
@@ -86,16 +99,13 @@ func TestRegisterPost_FlashMessages(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/auth/register", strings.NewReader(form.Encode()))
 		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
 		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		err := authHandler.RegisterPost(c)
-		assert.NoError(t, err)
+		e.ServeHTTP(rec, req)
 
 		// Check for redirect
 		assert.Equal(t, http.StatusSeeOther, rec.Code)
 
 		// Check session for flash message
-		assertFlashMessage(t, rec, "success", "Account created successfully!")
+		assertFlashMessage(t, req, "success", "Account created successfully!")
 	})
 
 	t.Run("sets error flash on password mismatch", func(t *testing.T) {
@@ -107,15 +117,12 @@ func TestRegisterPost_FlashMessages(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/auth/register", strings.NewReader(form.Encode()))
 		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
 		rec := httptest.NewRecorder()
-		c := e.NewContext(req, rec)
-
-		err := authHandler.RegisterPost(c)
-		assert.NoError(t, err)
+		e.ServeHTTP(rec, req)
 
 		// Check for redirect
 		assert.Equal(t, http.StatusSeeOther, rec.Code)
 
 		// Check session for flash message
-		assertFlashMessage(t, rec, "error", "Passwords do not match.")
+		assertFlashMessage(t, req, "error", "Passwords do not match.")
 	})
 }

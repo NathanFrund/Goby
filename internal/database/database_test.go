@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/nfrund/goby/internal/config"
+	"github.com/nfrund/goby/internal/testutils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -15,35 +16,37 @@ func TestNewDB(t *testing.T) {
 	}
 
 	// Load configuration using the application's standard mechanism.
-	baseCfg := config.New()
+	baseCfg := testutils.ConfigForTests(t)
 
-	tests := []struct {
+	tests := []struct { //nolint:govet
 		name    string
-		prepare func() *config.Config
+		prepare func() config.Provider
 		wantErr bool
 	}{
 		{
 			name: "success - valid configuration",
-			prepare: func() *config.Config {
+			prepare: func() config.Provider {
 				return baseCfg
 			},
 			wantErr: false,
 		},
 		{
 			name: "error - invalid URL",
-			prepare: func() *config.Config {
-				invalidCfg := *baseCfg
-				invalidCfg.DBUrl = "invalid://url"
-				return &invalidCfg
+			prepare: func() config.Provider {
+				// Copy the valid config and change only what's needed for the test.
+				cfg := *(baseCfg.(*config.Config))
+				cfg.DBUrl = "invalid://url"
+				return &cfg
 			},
 			wantErr: true,
 		},
 		{
 			name: "error - invalid credentials",
-			prepare: func() *config.Config {
-				invalidCfg := *baseCfg
-				invalidCfg.DBPass = "wrongpassword"
-				return &invalidCfg
+			prepare: func() config.Provider {
+				// Copy the valid config and change only what's needed for the test.
+				cfg := *(baseCfg.(*config.Config))
+				cfg.DBPass = "wrongpassword"
+				return &cfg
 			},
 			wantErr: true,
 		},
@@ -83,7 +86,7 @@ func TestNewDB_ContextCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	cfg := config.New()
+	cfg := testutils.ConfigForTests(t)
 
 	db, err := NewDB(ctx, cfg)
 	assert.Error(t, err, "should return error with cancelled context")

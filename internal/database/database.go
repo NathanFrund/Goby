@@ -10,15 +10,15 @@ import (
 )
 
 // NewDB creates and configures a new SurrealDB connection.
-func NewDB(ctx context.Context, cfg *config.Config) (*surrealdb.DB, error) {
-	db, err := surrealdb.FromEndpointURLString(ctx, cfg.DBUrl)
+func NewDB(ctx context.Context, cfg config.Provider) (*surrealdb.DB, error) {
+	db, err := surrealdb.FromEndpointURLString(ctx, cfg.GetDBUrl())
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to surrealdb: %w", err)
 	}
 
 	authData := &surrealdb.Auth{
-		Username: cfg.DBUser,
-		Password: cfg.DBPass,
+		Username: cfg.GetDBUser(),
+		Password: cfg.GetDBPass(),
 	}
 
 	if _, err = db.SignIn(ctx, authData); err != nil {
@@ -26,7 +26,7 @@ func NewDB(ctx context.Context, cfg *config.Config) (*surrealdb.DB, error) {
 		return nil, fmt.Errorf("failed to sign in: %w", err)
 	}
 
-	if err = db.Use(ctx, cfg.DBNs, cfg.DBDb); err != nil {
+	if err = db.Use(ctx, cfg.GetDBNs(), cfg.GetDBDb()); err != nil {
 		db.Close(ctx)
 		return nil, fmt.Errorf("failed to use namespace/db: %w", err)
 	}

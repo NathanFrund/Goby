@@ -1,5 +1,9 @@
 # Goby
 
+<p align="center">
+  <img src="web/static/img/logo.svg" alt="Goby Mascot" width="200">
+</p>
+
 Goby is a project template for building web applications with Go and Tailwind CSS, featuring live-reloading for a great developer experience.
 
 ## Prerequisites
@@ -87,3 +91,11 @@ The application is configured using environment variables. For local development
 - `EMAIL_PROVIDER`: The email service to use. Defaults to `log` (which prints emails to the console). Set to `resend` to use the Resend API.
 - `EMAIL_API_KEY`: Your API key for the chosen email provider (e.g., your Resend API key).
 - `EMAIL_SENDER`: The "from" address for outgoing emails (e.g., `you@yourdomain.com`). For Resend, this can be omitted to use the default `onboarding@resend.dev`.
+
+### Testing
+
+Integration tests require a running test database. Configuration for tests is managed in a separate `.env.test` file in the project root. You can copy your `.env` file to get started:
+
+```sh
+cp .env .env.test
+```

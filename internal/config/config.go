@@ -5,9 +5,23 @@ import (
 	"net"
 	"os"
 	"strings"
-
-	"github.com/joho/godotenv"
 )
+
+// Provider defines the interface for accessing configuration values.
+// This allows for dependency injection and easier testing.
+type Provider interface {
+	GetServerAddr() string
+	GetDBUrl() string
+	GetDBNs() string
+	GetDBDb() string
+	GetDBUser() string
+	GetDBPass() string
+	GetEmailProvider() string
+	GetEmailAPIKey() string
+	GetEmailSender() string
+	GetAppBaseURL() string
+	GetSessionSecret() string
+}
 
 // Config holds all configuration for the application.
 type Config struct {
@@ -25,11 +39,7 @@ type Config struct {
 }
 
 // New loads configuration from environment variables.
-func New() *Config {
-	if err := godotenv.Load(); err != nil {
-		log.Println("No .env file found, relying on environment variables")
-	}
-
+func New() Provider {
 	cfg := &Config{
 		ServerAddr:    os.Getenv("SERVER_ADDR"),
 		DBUrl:         os.Getenv("SURREAL_URL"),
@@ -49,11 +59,13 @@ func New() *Config {
 	}
 
 	if cfg.DBUrl == "" || cfg.DBNs == "" || cfg.DBDb == "" {
-		log.Fatal("Required environment variables SURREAL_URL, SURREAL_NS, or SURREAL_DB are not set.")
+		// It's better for the application's entry point (main.go) to handle this.
+		log.Println("WARNING: One or more required database environment variables are not set (SURREAL_URL, SURREAL_NS, SURREAL_DB).")
 	}
 
 	if cfg.SessionSecret == "" {
-		log.Fatal("Required environment variable SESSION_SECRET is not set.")
+		// Same as above, let the caller decide if this is a fatal error.
+		log.Println("WARNING: Required environment variable SESSION_SECRET is not set.")
 	}
 
 	// Set sensible defaults for development
@@ -80,4 +92,59 @@ func New() *Config {
 	}
 
 	return cfg
+}
+
+// GetServerAddr returns the server address.
+func (c *Config) GetServerAddr() string {
+	return c.ServerAddr
+}
+
+// GetDBUrl returns the database URL.
+func (c *Config) GetDBUrl() string {
+	return c.DBUrl
+}
+
+// GetDBNs returns the database namespace.
+func (c *Config) GetDBNs() string {
+	return c.DBNs
+}
+
+// GetDBDb returns the database name.
+func (c *Config) GetDBDb() string {
+	return c.DBDb
+}
+
+// GetDBUser returns the database user.
+func (c *Config) GetDBUser() string {
+	return c.DBUser
+}
+
+// GetDBPass returns the database password.
+func (c *Config) GetDBPass() string {
+	return c.DBPass
+}
+
+// GetEmailProvider returns the email provider.
+func (c *Config) GetEmailProvider() string {
+	return c.EmailProvider
+}
+
+// GetEmailAPIKey returns the email API key.
+func (c *Config) GetEmailAPIKey() string {
+	return c.EmailAPIKey
+}
+
+// GetEmailSender returns the email sender address.
+func (c *Config) GetEmailSender() string {
+	return c.EmailSender
+}
+
+// GetAppBaseURL returns the application's base URL.
+func (c *Config) GetAppBaseURL() string {
+	return c.AppBaseURL
+}
+
+// GetSessionSecret returns the session secret key.
+func (c *Config) GetSessionSecret() string {
+	return c.SessionSecret
 }

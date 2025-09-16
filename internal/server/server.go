@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"log"
 	"log/slog"
 	"os"
 
@@ -23,7 +24,7 @@ import (
 type Server struct {
 	E                *echo.Echo
 	DB               *surrealdb.DB
-	Cfg              *config.Config
+	Cfg              config.Provider
 	Emailer          email.EmailSender
 	userStore        *database.UserStore
 	homeHandler      *handlers.HomeHandler
@@ -33,11 +34,11 @@ type Server struct {
 
 // New creates a new Server instance.
 func New() *Server {
-	// Load environment variables from .env file if it exists.
+	// Load environment variables from .env file if it exists
 	if err := godotenv.Load(); err != nil {
 		// We don't have slog configured yet, so we use the standard logger here.
 		// This is acceptable as it's only for the initial setup.
-		slog.Info("No .env file found, relying on environment variables.")
+		log.Println("No .env file found, relying on environment variables")
 	}
 
 	logging.New() // Initialize the structured logger
@@ -55,9 +56,9 @@ func New() *Server {
 	}
 
 	// Create stores and handlers, making them dependencies of the server.
-	userStore := database.NewUserStore(db, cfg.DBNs, cfg.DBDb)
+	userStore := database.NewUserStore(db, cfg.GetDBNs(), cfg.GetDBDb())
 	homeHandler := handlers.NewHomeHandler()
-	authHandler := handlers.NewAuthHandler(userStore, emailer, cfg.AppBaseURL)
+	authHandler := handlers.NewAuthHandler(userStore, emailer, cfg.GetAppBaseURL())
 	dashboardHandler := handlers.NewDashboardHandler()
 
 	e := echo.New()
@@ -65,7 +66,7 @@ func New() *Server {
 	e.Use(middleware.Recover())
 
 	// Configure and use session middleware
-	store := sessions.NewCookieStore([]byte(cfg.SessionSecret))
+	store := sessions.NewCookieStore([]byte(cfg.GetSessionSecret()))
 	store.Options = &sessions.Options{
 		Path:     "/",
 		MaxAge:   86400 * 7, // 7 days

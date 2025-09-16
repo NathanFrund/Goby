@@ -6,12 +6,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/joho/godotenv"
 	"github.com/labstack/echo/v4"
-	"github.com/nfrund/goby/internal/config"
 	"github.com/nfrund/goby/internal/database"
-	"github.com/nfrund/goby/internal/logging"
 	"github.com/nfrund/goby/internal/models"
+	"github.com/nfrund/goby/internal/testutils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/surrealdb/surrealdb.go"
@@ -21,13 +19,7 @@ import (
 func setupTestDB(t *testing.T) (*surrealdb.DB, func()) {
 	t.Helper()
 
-	// Load test environment variables
-	if err := godotenv.Load("../../.env.test"); err != nil {
-		t.Log("No .env.test file found, relying on environment variables.")
-	}
-	logging.New()
-
-	cfg := config.New()
+	cfg := testutils.ConfigForTests(t)
 	ctx := context.Background()
 	db, err := database.NewDB(ctx, cfg)
 	require.NoError(t, err, "failed to connect to test database")
@@ -49,8 +41,8 @@ func TestAuthMiddleware(t *testing.T) {
 	db, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	cfg := config.New()
-	userStore := database.NewUserStore(db, cfg.DBNs, cfg.DBDb)
+	cfg := testutils.ConfigForTests(t)
+	userStore := database.NewUserStore(db, cfg.GetDBNs(), cfg.GetDBDb())
 	authMiddleware := Auth(userStore)
 
 	// Create Echo instance for testing
