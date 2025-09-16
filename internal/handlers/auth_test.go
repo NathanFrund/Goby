@@ -17,6 +17,7 @@ import (
 	"github.com/nfrund/goby/internal/email"
 	"github.com/nfrund/goby/internal/handlers"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
 )
 
@@ -105,6 +106,79 @@ func assertFlashMessage(t *testing.T, req *http.Request, key, expectedMessage st
 	flashes := sess.Flashes(key)
 	assert.NotEmpty(t, flashes, "expected flash message but found none for key: %s", key)
 	assert.Equal(t, expectedMessage, flashes[0])
+}
+
+// --- Pure Unit Tests ---
+// These tests focus on the handler's logic in isolation, using mocks
+// to simulate dependencies. They do not require a database or network connection.
+
+// unitTestEmailSender is a mock that implements domain.EmailSender for unit tests.
+type unitTestEmailSender struct {
+	SendCalled bool
+	LastTo     string
+	LastSub    string
+	LastBody   string
+}
+
+func (m *unitTestEmailSender) Send(to, subject, htmlBody string) error {
+	m.SendCalled = true
+	m.LastTo = to
+	m.LastSub = subject
+	m.LastBody = htmlBody
+	return nil
+}
+
+// unitTestUserRepo is a mock that implements domain.UserRepository for unit tests.
+type unitTestUserRepo struct {
+	// Make all interface methods no-ops by default
+	domain.UserRepository
+	GenerateResetTokenFunc func(ctx context.Context, email string) (string, error)
+}
+
+func (m *unitTestUserRepo) GenerateResetToken(ctx context.Context, email string) (string, error) {
+	if m.GenerateResetTokenFunc != nil {
+		return m.GenerateResetTokenFunc(ctx, email)
+	}
+	return "unit-test-token", nil
+}
+
+// newUnitTextContext creates a minimal echo.Context for unit testing handlers.
+// It includes an initialized session, which is required by handlers that use flash messages.
+func newUnitTextContext(req *http.Request) (echo.Context, *httptest.ResponseRecorder) {
+	e := echo.New()
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	// Manually apply session middleware to the context for this unit test.
+	// This ensures `session.Get` will work inside the handler.
+	_ = session.Middleware(sessions.NewCookieStore([]byte(testSessionSecret)))(func(c echo.Context) error { return nil })(c)
+	return c, rec
+}
+
+func TestAuthHandler_ForgotPasswordPost_Unit(t *testing.T) {
+	// 1. Setup: Create mocks and instantiate the handler directly.
+	mockRepo := &unitTestUserRepo{}
+	mockEmailer := &unitTestEmailSender{}
+	authHandler := handlers.NewAuthHandler(mockRepo, mockEmailer, "http://test.local")
+
+	// 2. Create a minimal Echo context, no server needed.
+	form := url.Values{}
+	form.Set("email", "user@example.com")
+	req := httptest.NewRequest(http.MethodPost, "/auth/forgot-password", strings.NewReader(form.Encode()))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
+	c, rec := newUnitTextContext(req)
+
+	// 3. Act: Call the handler method directly.
+	err := authHandler.ForgotPasswordPost(c)
+
+	// 4. Assert: Verify the behavior.
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusSeeOther, rec.Code, "should redirect on success")
+
+	// Assert that the handler interacted with its dependencies correctly.
+	assert.True(t, mockEmailer.SendCalled, "expected EmailSender.Send to be called")
+	assert.Equal(t, "user@example.com", mockEmailer.LastTo, "email should be sent to the correct user")
+	assert.Contains(t, mockEmailer.LastBody, "http://test.local/auth/reset-password?token=unit-test-token", "email body should contain the correct reset link")
 }
 
 func TestRegisterPost_FlashMessages(t *testing.T) {
