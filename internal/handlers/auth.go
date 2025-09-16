@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/labstack/echo-contrib/session"
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/domain"
 	"github.com/nfrund/goby/internal/view"
@@ -85,8 +86,21 @@ func (h *AuthHandler) RegisterPost(c echo.Context) error {
 
 // LoginGet handles the request to show the login page.
 func (h *AuthHandler) LoginGet(c echo.Context) error {
-	// This handler's only job is to render the login page template.
-	return c.Render(http.StatusOK, "login.html", nil)
+	// Check for form data from a previous failed attempt in the flash session.
+	sess, _ := session.Get("flash-session", c)
+	var email string
+	if flashes := sess.Flashes("form_email"); len(flashes) > 0 {
+		// Ensure we can assert the type safely.
+		if val, ok := flashes[0].(string); ok {
+			email = val
+		}
+	}
+	// Flashes are deleted after being read, so we must save the session.
+	_ = sess.Save(c.Request(), c.Response())
+
+	return c.Render(http.StatusOK, "login.html", map[string]interface{}{
+		"Email": email,
+	})
 }
 
 // LoginPost handles the form submission for logging in a user.
@@ -102,6 +116,14 @@ func (h *AuthHandler) LoginPost(c echo.Context) error {
 		// The SignIn method will fail if credentials are invalid.
 		slog.Warn("Failed login attempt", "email", email, "error", err)
 		view.SetFlashError(c, "Invalid email or password.")
+
+		// Preserve the submitted email address for the next render of the login form.
+		sess, _ := session.Get("flash-session", c)
+		sess.AddFlash(email, "form_email")
+		if err := sess.Save(c.Request(), c.Response()); err != nil {
+			slog.Error("Failed to save session", "error", err)
+		}
+
 		return c.Redirect(http.StatusSeeOther, "/auth/login")
 	}
 

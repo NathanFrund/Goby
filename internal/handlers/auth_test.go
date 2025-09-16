@@ -2,6 +2,7 @@ package handlers_test
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -22,13 +23,22 @@ import (
 const testSessionSecret = "a-very-secret-key-for-testing-!"
 
 // MockUserStore provides a mock implementation of the UserStore for testing.
-type MockUserStore struct{}
+type MockUserStore struct {
+	SignInShouldError bool
+	SignUpShouldError bool
+}
 
 func (m *MockUserStore) SignUp(ctx context.Context, user *domain.User, password string) (string, error) {
+	if m.SignUpShouldError {
+		return "", fmt.Errorf("mock sign up error")
+	}
 	return "test-token", nil
 }
 
 func (m *MockUserStore) SignIn(ctx context.Context, user *domain.User, password string) (string, error) {
+	if m.SignInShouldError {
+		return "", fmt.Errorf("mock sign in error")
+	}
 	return "test-token", nil
 }
 
@@ -66,16 +76,15 @@ type mockConfigProvider struct {
 
 func (m *mockConfigProvider) GetAppBaseURL() string { return m.baseURL }
 
-func setupAuthTest() (*echo.Echo, *handlers.AuthHandler) {
+func setupAuthTest(store domain.UserRepository) (*echo.Echo, *handlers.AuthHandler) {
 	e := echo.New()
 	// Use a mock config provider for tests, though it's not strictly needed here.
 	mockCfg := &mockConfigProvider{baseURL: "http://localhost:8080"}
-	mockStore := &MockUserStore{}
 	// For unit tests, it's better to create the mock emailer directly
 	// instead of relying on the factory and a real config struct.
 	mockEmailer := &email.LogSender{}
 	// The handler now correctly depends only on interfaces and primitives.
-	authHandler := handlers.NewAuthHandler(mockStore, mockEmailer, mockCfg.GetAppBaseURL())
+	authHandler := handlers.NewAuthHandler(store, mockEmailer, mockCfg.GetAppBaseURL())
 
 	// Setup session middleware
 	cookieStore := sessions.NewCookieStore([]byte(testSessionSecret))
@@ -99,7 +108,8 @@ func assertFlashMessage(t *testing.T, req *http.Request, key, expectedMessage st
 }
 
 func TestRegisterPost_FlashMessages(t *testing.T) {
-	e, authHandler := setupAuthTest()
+	// Use the setup helper with a standard, non-erroring mock store.
+	e, authHandler := setupAuthTest(&MockUserStore{})
 	e.POST("/auth/register", authHandler.RegisterPost)
 
 	t.Run("sets success flash on successful registration", func(t *testing.T) {
@@ -137,4 +147,34 @@ func TestRegisterPost_FlashMessages(t *testing.T) {
 		// Check session for flash message
 		assertFlashMessage(t, req, "error", "Passwords do not match.")
 	})
+}
+
+func TestLoginPost_RepopulatesEmailOnError(t *testing.T) {
+	// Create a mock store configured to return an error on SignIn
+	mockStore := &MockUserStore{SignInShouldError: true}
+	// Use the setup helper, passing in our configured mock store.
+	e, authHandler := setupAuthTest(mockStore)
+	e.POST("/auth/login", authHandler.LoginPost)
+
+	// --- Test ---
+	form := url.Values{}
+	submittedEmail := "test@example.com"
+	form.Set("email", submittedEmail)
+	form.Set("password", "wrongpassword")
+
+	req := httptest.NewRequest(http.MethodPost, "/auth/login", strings.NewReader(form.Encode()))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	// --- Assertions ---
+	// Assert it redirects back to the login page
+	assert.Equal(t, http.StatusSeeOther, rec.Code)
+	assert.Equal(t, "/auth/login", rec.Header().Get("Location"))
+
+	// Assert that the error flash message is set
+	assertFlashMessage(t, req, "error", "Invalid email or password.")
+
+	// Assert that the submitted email was also flashed to the session
+	assertFlashMessage(t, req, "form_email", submittedEmail)
 }
