@@ -206,25 +206,28 @@ func (h *AuthHandler) ResetPasswordPost(c echo.Context) error {
 		return c.Redirect(http.StatusSeeOther, "/auth/reset-password?token="+token)
 	}
 
-	user, err := h.userStore.ResetPassword(c.Request().Context(), token, password)
-	if err != nil {
-		slog.Warn("Error resetting password", "error", err)
-		view.SetFlashError(c, "Invalid or expired reset link.")
-		return c.Redirect(http.StatusSeeOther, "/auth/forgot-password")
-	}
+	var sessionToken string
+	err := h.userStore.WithTransaction(c.Request().Context(), func(repo domain.UserRepository) error {
+		// 1. Reset the password within the transaction.
+		user, err := repo.ResetPassword(c.Request().Context(), token, password)
+		if err != nil {
+			slog.Warn("Error resetting password within transaction", "error", err)
+			// Return a user-friendly error to be displayed.
+			return fmt.Errorf("invalid or expired reset link")
+		}
 
-	// Automatically sign the user in after a successful password reset.
-	sessionToken, err := h.userStore.SignIn(c.Request().Context(), user, password)
+		// 2. Sign the user in within the same transaction.
+		var signInErr error
+		sessionToken, signInErr = repo.SignIn(c.Request().Context(), user, password)
+		return signInErr
+	})
+
 	if err != nil {
-		// This is unlikely, but we should handle it. If sign-in fails,
-		// redirect to the login page with a success message as a fallback.
-		slog.Error("Failed to sign in user after password reset", "error", err, "user_id", user.ID)
-		view.SetFlashSuccess(c, "Your password has been reset. Please log in.")
-		return c.Redirect(http.StatusSeeOther, "/auth/login")
+		view.SetFlashError(c, err.Error())
+		return c.Redirect(http.StatusSeeOther, "/auth/reset-password?token="+token)
 	}
 
 	setAuthCookie(c, sessionToken)
-
 	view.SetFlashSuccess(c, "Your password has been reset successfully!")
 	return c.Redirect(http.StatusSeeOther, "/")
 }

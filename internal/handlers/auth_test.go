@@ -69,6 +69,11 @@ func (m *MockUserStore) FindUserByEmail(ctx context.Context, email string) (*dom
 	return &domain.User{Email: email}, nil
 }
 
+func (m *MockUserStore) WithTransaction(ctx context.Context, fn func(repo domain.UserRepository) error) error {
+	// For the mock, we just execute the function directly, passing the mock itself.
+	return fn(m)
+}
+
 // mockConfigProvider is a simple mock for the config.Provider interface.
 type mockConfigProvider struct {
 	config.Provider
