@@ -1,10 +1,10 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/labstack/echo-contrib/session"
@@ -66,8 +66,8 @@ func (h *AuthHandler) RegisterPost(c echo.Context) error {
 	// Use the SignUp method, which is the correct high-level function for registration.
 	token, err := h.userStore.SignUp(c.Request().Context(), newUser, password)
 	if err != nil {
-		// The SignUp method will fail if the user already exists. The underlying error
-		if strings.Contains(err.Error(), "already exists") {
+		// Check for the specific domain error for a duplicate user.
+		if errors.Is(err, domain.ErrUserAlreadyExists) {
 			view.SetFlashError(c, "A user with this email already exists.")
 		} else {
 			slog.Error("Error creating user", "error", err)

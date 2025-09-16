@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/nfrund/goby/internal/domain"
@@ -53,6 +54,11 @@ func (s *SurrealUserStore) SignUp(ctx context.Context, user *domain.User, passwo
 		"email":    user.Email,
 		"password": password,
 	})
+
+	// Check for a specific duplicate user error from the database driver.
+	if err != nil && strings.Contains(err.Error(), "already exists") {
+		return "", domain.ErrUserAlreadyExists
+	}
 
 	if err == nil && token != "" {
 		slog.Info(

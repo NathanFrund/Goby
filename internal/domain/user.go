@@ -2,6 +2,7 @@ package domain
 
 import (
 	"context"
+	"errors"
 
 	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
 )
@@ -15,6 +16,9 @@ type User struct {
 	ResetToken        *string                 `json:"resetToken,omitempty"`
 	ResetTokenExpires *string                 `json:"resetTokenExpires,omitempty"`
 }
+
+// ErrUserAlreadyExists is returned when trying to create a user that already exists.
+var ErrUserAlreadyExists = errors.New("user with this email already exists")
 
 // UserRepository defines the contract for user data storage operations.
 // It lives in the domain because it's a requirement OF the domain, not
