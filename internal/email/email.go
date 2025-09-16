@@ -8,12 +8,6 @@ import (
 	"net/http"
 )
 
-// EmailSender defines the interface for sending emails. This allows for
-// different implementations (e.g., for logging, Resend, Mailgun).
-type EmailSender interface {
-	Send(to, subject, htmlBody string) error
-}
-
 // --- LogSender (for development) ---
 
 // LogSender prints emails to the console instead of sending them.

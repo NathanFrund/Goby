@@ -8,21 +8,19 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
-	"github.com/nfrund/goby/internal/database"
-	"github.com/nfrund/goby/internal/email"
-	"github.com/nfrund/goby/internal/models"
+	"github.com/nfrund/goby/internal/domain"
 	"github.com/nfrund/goby/internal/view"
 )
 
 // AuthHandler handles authentication-related requests.
 type AuthHandler struct {
-	userStore database.UserStore
-	emailer   email.EmailSender
+	userStore domain.UserRepository
+	emailer   domain.EmailSender
 	baseURL   string
 }
 
 // NewAuthHandler creates a new AuthHandler.
-func NewAuthHandler(userStore database.UserStore, emailer email.EmailSender, baseURL string) *AuthHandler {
+func NewAuthHandler(userStore domain.UserRepository, emailer domain.EmailSender, baseURL string) *AuthHandler {
 	return &AuthHandler{
 		userStore: userStore,
 		emailer:   emailer,
@@ -59,7 +57,7 @@ func (h *AuthHandler) RegisterPost(c echo.Context) error {
 	// Use the UserStore to create the user. This method handles hashing and
 	// checking for duplicates, aligning with the successful test cases.
 	// The user's name is not collected on the form, so we pass nil.
-	newUser := &models.User{
+	newUser := &domain.User{
 		Email: email,
 		Name:  nil,
 	}
@@ -98,7 +96,7 @@ func (h *AuthHandler) LoginPost(c echo.Context) error {
 
 	// --- Database Interaction ---
 	// The user model is only used to pass the email to the SignIn method.
-	user := &models.User{Email: email}
+	user := &domain.User{Email: email}
 	token, err := h.userStore.SignIn(c.Request().Context(), user, password)
 	if err != nil {
 		// The SignIn method will fail if credentials are invalid.

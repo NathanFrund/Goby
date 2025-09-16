@@ -13,6 +13,7 @@ import (
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/nfrund/goby/internal/config"
 	"github.com/nfrund/goby/internal/database"
+	"github.com/nfrund/goby/internal/domain"
 	"github.com/nfrund/goby/internal/email"
 	"github.com/nfrund/goby/internal/handlers"
 	"github.com/nfrund/goby/internal/logging"
@@ -25,8 +26,8 @@ type Server struct {
 	E                *echo.Echo
 	DB               *surrealdb.DB
 	Cfg              config.Provider
-	Emailer          email.EmailSender
-	userStore        database.UserStore
+	Emailer          domain.EmailSender
+	userStore        domain.UserRepository
 	homeHandler      *handlers.HomeHandler
 	authHandler      *handlers.AuthHandler
 	dashboardHandler *handlers.DashboardHandler

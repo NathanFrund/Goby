@@ -8,7 +8,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/database"
-	"github.com/nfrund/goby/internal/models"
+	"github.com/nfrund/goby/internal/domain"
 	"github.com/nfrund/goby/internal/testutils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -43,7 +43,7 @@ func TestAuthMiddleware(t *testing.T) {
 	// A simple test handler that runs after the middleware.
 	// It checks if the user was correctly placed in the context.
 	testDashboardHandler := func(c echo.Context) error {
-		user := c.Get(UserContextKey).(*models.User)
+		user := c.Get(UserContextKey).(*domain.User)
 		return c.String(http.StatusOK, "Welcome "+user.Email)
 	}
 	e.GET("/app/dashboard", testDashboardHandler, authMiddleware)
@@ -68,10 +68,10 @@ func TestAuthMiddleware(t *testing.T) {
 		testPassword := "password123"
 		testName := "Auth Middleware User"
 
-		_, err := userStore.SignUp(ctx, &models.User{Email: testEmail, Name: &testName}, testPassword)
+		_, err := userStore.SignUp(ctx, &domain.User{Email: testEmail, Name: &testName}, testPassword)
 		require.NoError(t, err, "failed to sign up user for auth test")
 
-		token, err := userStore.SignIn(ctx, &models.User{Email: testEmail}, testPassword)
+		token, err := userStore.SignIn(ctx, &domain.User{Email: testEmail}, testPassword)
 		require.NoError(t, err, "failed to sign in user for auth test")
 		require.NotEmpty(t, token, "sign in should return a token")
 

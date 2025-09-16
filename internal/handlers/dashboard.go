@@ -4,8 +4,8 @@ import (
 	"net/http"
 
 	"github.com/labstack/echo/v4"
+	"github.com/nfrund/goby/internal/domain"
 	"github.com/nfrund/goby/internal/middleware"
-	"github.com/nfrund/goby/internal/models"
 )
 
 // DashboardHandler handles requests for the user dashboard.
@@ -20,7 +20,7 @@ func NewDashboardHandler() *DashboardHandler {
 func (h *DashboardHandler) DashboardGet(c echo.Context) error {
 	// The Auth middleware has already run and placed the user in the context.
 	// We can safely retrieve it.
-	user := c.Get(middleware.UserContextKey).(*models.User)
+	user := c.Get(middleware.UserContextKey).(*domain.User)
 
 	return c.Render(http.StatusOK, "dashboard.html", map[string]interface{}{
 		"Page": "Dashboard",

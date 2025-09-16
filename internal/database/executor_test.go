@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nfrund/goby/internal/models"
+	"github.com/nfrund/goby/internal/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	surreal "github.com/surrealdb/surrealdb.go"
@@ -14,7 +14,7 @@ import (
 // TestUser is a local test struct that embeds models.User
 // and adds a Password field for testing purposes
 type TestUser struct {
-	models.User
+	domain.User
 	Password *string `json:"password,omitempty"`
 }
 

@@ -4,13 +4,13 @@ import (
 	"net/http"
 
 	"github.com/labstack/echo/v4"
-	"github.com/nfrund/goby/internal/database"
+	"github.com/nfrund/goby/internal/domain"
 )
 
 const UserContextKey = "user"
 
 // Auth creates a middleware that protects routes that require authentication.
-func Auth(store database.UserStore) echo.MiddlewareFunc {
+func Auth(store domain.UserRepository) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			// 1. Get the token from the cookie.

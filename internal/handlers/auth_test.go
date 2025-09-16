@@ -12,9 +12,9 @@ import (
 	"github.com/labstack/echo-contrib/session"
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/config"
+	"github.com/nfrund/goby/internal/domain"
 	"github.com/nfrund/goby/internal/email"
 	"github.com/nfrund/goby/internal/handlers"
-	"github.com/nfrund/goby/internal/models"
 	"github.com/stretchr/testify/assert"
 	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
 )
@@ -24,11 +24,11 @@ const testSessionSecret = "a-very-secret-key-for-testing-!"
 // MockUserStore provides a mock implementation of the UserStore for testing.
 type MockUserStore struct{}
 
-func (m *MockUserStore) SignUp(ctx context.Context, user *models.User, password string) (string, error) {
+func (m *MockUserStore) SignUp(ctx context.Context, user *domain.User, password string) (string, error) {
 	return "test-token", nil
 }
 
-func (m *MockUserStore) SignIn(ctx context.Context, user *models.User, password string) (string, error) {
+func (m *MockUserStore) SignIn(ctx context.Context, user *domain.User, password string) (string, error) {
 	return "test-token", nil
 }
 
@@ -36,26 +36,26 @@ func (m *MockUserStore) GenerateResetToken(ctx context.Context, email string) (s
 	return "reset-token", nil
 }
 
-func (m *MockUserStore) ResetPassword(ctx context.Context, token, password string) (*models.User, error) {
+func (m *MockUserStore) ResetPassword(ctx context.Context, token, password string) (*domain.User, error) {
 	// Create a valid RecordID for the mock user.
 	// In a real scenario, this would come from the database.
 	parts := strings.Split("user:1", ":")
 	table, id := parts[0], parts[1]
 	recordID := surrealmodels.NewRecordID(table, id)
 
-	return &models.User{ID: &recordID, Email: "test@example.com"}, nil
+	return &domain.User{ID: &recordID, Email: "test@example.com"}, nil
 }
 
-func (m *MockUserStore) Authenticate(ctx context.Context, token string) (*models.User, error) {
+func (m *MockUserStore) Authenticate(ctx context.Context, token string) (*domain.User, error) {
 	// In a real mock, you might check the token and return different users.
 	// For this test, a simple successful authentication is sufficient.
-	return &models.User{Email: "test@example.com"}, nil
+	return &domain.User{Email: "test@example.com"}, nil
 }
 
-func (m *MockUserStore) FindUserByEmail(ctx context.Context, email string) (*models.User, error) {
+func (m *MockUserStore) FindUserByEmail(ctx context.Context, email string) (*domain.User, error) {
 	// This mock can assume the user is found for handler tests.
 	// Error cases can be tested at the store level.
-	return &models.User{Email: email}, nil
+	return &domain.User{Email: email}, nil
 }
 
 // mockConfigProvider is a simple mock for the config.Provider interface.
@@ -68,7 +68,7 @@ func (m *mockConfigProvider) GetAppBaseURL() string { return m.baseURL }
 
 func setupAuthTest() (*echo.Echo, *handlers.AuthHandler) {
 	e := echo.New()
-	// Use a mock config provider for tests
+	// Use a mock config provider for tests, though it's not strictly needed here.
 	mockCfg := &mockConfigProvider{baseURL: "http://localhost:8080"}
 	mockStore := &MockUserStore{}
 	// For unit tests, it's better to create the mock emailer directly
