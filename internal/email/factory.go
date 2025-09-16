@@ -4,10 +4,11 @@ import (
 	"fmt"
 
 	"github.com/nfrund/goby/internal/config"
+	"github.com/nfrund/goby/internal/domain"
 )
 
 // NewEmailService creates and returns an email sender based on the configuration.
-func NewEmailService(cfg config.Provider) (EmailSender, error) {
+func NewEmailService(cfg config.Provider) (domain.EmailSender, error) {
 	switch cfg.GetEmailProvider() {
 	case "log":
 		return &LogSender{senderAddress: cfg.GetEmailSender()}, nil

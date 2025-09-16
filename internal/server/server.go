@@ -26,7 +26,7 @@ type Server struct {
 	E                *echo.Echo
 	DB               *surrealdb.DB
 	Cfg              config.Provider
-	Emailer          email.EmailSender
+	Emailer          domain.EmailSender
 	userStore        domain.UserRepository
 	homeHandler      *handlers.HomeHandler
 	authHandler      *handlers.AuthHandler

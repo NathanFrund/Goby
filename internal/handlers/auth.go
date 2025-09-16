@@ -9,19 +9,18 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/domain"
-	"github.com/nfrund/goby/internal/email"
 	"github.com/nfrund/goby/internal/view"
 )
 
 // AuthHandler handles authentication-related requests.
 type AuthHandler struct {
 	userStore domain.UserRepository
-	emailer   email.EmailSender
+	emailer   domain.EmailSender
 	baseURL   string
 }
 
 // NewAuthHandler creates a new AuthHandler.
-func NewAuthHandler(userStore domain.UserRepository, emailer email.EmailSender, baseURL string) *AuthHandler {
+func NewAuthHandler(userStore domain.UserRepository, emailer domain.EmailSender, baseURL string) *AuthHandler {
 	return &AuthHandler{
 		userStore: userStore,
 		emailer:   emailer,
