@@ -1295,6 +1295,9 @@
   .mt-10 {
     margin-top: calc(var(--spacing) * 10);
   }
+  .mb-2 {
+    margin-bottom: calc(var(--spacing) * 2);
+  }
   .mb-4 {
     margin-bottom: calc(var(--spacing) * 4);
   }
@@ -1544,8 +1547,14 @@
   .items-baseline {
     align-items: baseline;
   }
+  .items-center {
+    align-items: center;
+  }
   .items-end {
     align-items: flex-end;
+  }
+  .justify-between {
+    justify-content: space-between;
   }
   .gap-2 {
     gap: calc(var(--spacing) * 2);
@@ -1719,9 +1728,18 @@
       }
     }
   }
+  .btn-xs {
+    --fontsize: 0.6875rem;
+    --btn-p: 0.5rem;
+    --size: calc(var(--size-field, 0.25rem) * 6);
+  }
   .btn-primary {
     --btn-color: var(--color-primary);
     --btn-fg: var(--color-primary-content);
+  }
+  .btn-warning {
+    --btn-color: var(--color-warning);
+    --btn-fg: var(--color-warning-content);
   }
   .hover\:bg-gray-100 {
     &:hover {

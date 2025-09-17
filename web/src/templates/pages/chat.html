@@ -33,7 +33,16 @@
 
   <!-- A simple display for our game state, updated by the data WebSocket -->
   <div class="mt-4 p-2 border rounded bg-gray-800 text-white font-mono text-sm">
-    <h3 class="font-bold">Game State Monitor</h3>
+    <div class="flex justify-between items-center mb-2">
+      <h3 class="font-bold">Game State Monitor</h3>
+      <button
+        class="btn btn-xs btn-warning"
+        hx-get="/app/debug/hit"
+        hx-swap="none"
+      >
+        Trigger Hit Event
+      </button>
+    </div>
     <div id="game-state-display">-- Waiting for data from /app/ws/data --</div>
   </div>
 
@@ -44,6 +53,17 @@
       .addEventListener("htmx:wsAfterSend", function (evt) {
         document.querySelector('input[name="content"]').value = "";
       });
+
+    // --- Auto-scrolling for the chat container ---
+    const chatContainer = document.getElementById("chat-messages");
+    // Listen for the htmx event that fires after an out-of-band swap.
+    document.body.addEventListener("htmx:oobAfterSwap", function (evt) {
+      // Check if the swap target was our chat messages container.
+      if (evt.detail.target.id === "chat-messages") {
+        // If so, scroll the container to the bottom to show the new message.
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+      }
+    });
 
     // --- JavaScript Island for the Data WebSocket ---
     const gameStateDisplay = document.getElementById("game-state-display");
@@ -64,8 +84,8 @@
         const data = JSON.parse(event.data);
         console.log("Received data:", data);
 
-        // Check if it's a game state update for our squad
-        if (data.eventType === "damage" && data.unitId === "alpha-squad") {
+        // Check if it's a damage event and update the display for any unit.
+        if (data.eventType === "damage") {
           gameStateDisplay.textContent = `Unit '${data.unitId}' took ${data.damageTaken} damage. New Health: ${data.newHealth}`;
         }
       } catch (e) {
