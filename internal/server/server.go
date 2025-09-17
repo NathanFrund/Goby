@@ -121,3 +121,13 @@ func New() *Server {
 		wargameEngine:    wargameEngine,
 	}
 }
+
+// UserStore is a getter for the server's user store, useful for testing.
+func (s *Server) UserStore() domain.UserRepository {
+	return s.userStore
+}
+
+// WargameEngine is a getter for the server's wargame engine, useful for testing.
+func (s *Server) WargameEngine() *wargame.Engine {
+	return s.wargameEngine
+}
