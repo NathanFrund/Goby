@@ -131,3 +131,33 @@ Imagine a tabletop game engine running on the server. When one unit damages anot
 4.  All connected clients receive the fragment, and htmx appends it to the element with the ID `#game-log`.
 
 This architecture decouples the game engine from the complexities of WebSocket and client management, allowing for clean, modular, and highly scalable real-time features.
+
+### Direct Messaging to Specific Users
+
+In addition to broadcasting to all clients, the hub supports sending direct messages to a specific user, even if they have multiple connections (e.g., on a desktop and a phone).
+
+This is achieved by sending a `hub.DirectMessage` struct to the `hub.Direct` channel.
+
+#### The Flow for Direct Messages
+
+1.  **Event Occurs:** A backend service determines that a specific user needs to receive a private notification.
+2.  **Render Fragment:** The service renders the appropriate HTML fragment for the notification.
+3.  **Create Direct Message:** The service creates a `hub.DirectMessage` struct, populating the `UserID` of the recipient and the `Payload` with the rendered HTML.
+4.  **Publish to Direct Channel:** The message is sent to the `hub.Direct` channel.
+5.  **Hub Routes Message:** The hub looks up all active connections for the specified `UserID` and sends the payload only to them.
+
+#### Example: Private Notification
+
+If a player's unit is hit, the wargame engine can send them a private alert that appears at the top of their screen.
+
+1.  The engine identifies the `UserID` of the player whose unit was hit.
+2.  It renders a `wargame-hit-notification.html` component.
+3.  It creates and sends the `DirectMessage`:
+    ```go
+    directMessage := &hub.DirectMessage{
+        UserID:  "user:some_user_id",
+        Payload: renderedHTML,
+    }
+    engine.hub.Direct <- directMessage
+    ```
+4.  Only the user with the ID `user:some_user_id` will receive the notification.

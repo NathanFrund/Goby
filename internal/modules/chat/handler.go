@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"bytes"
 	"log/slog"
 	"net/http"
 
@@ -49,9 +50,35 @@ func (h *Handler) ServeWS(c echo.Context) error {
 		return c.String(http.StatusUnauthorized, "User not authenticated")
 	}
 
-	sub := &hub.Subscriber{Send: make(chan []byte, 256)}
+	sub := &hub.Subscriber{
+		UserID: user.ID.String(),
+		Send:   make(chan []byte, 256),
+	}
 	client := &Client{conn: conn, hub: h.hub, subscriber: sub, User: user, renderer: h.renderer}
 	h.hub.Register <- client.subscriber
+
+	// --- Send a welcome message directly to the new user ---
+	go func() {
+		// We run this in a goroutine to avoid blocking the WebSocket upgrade process.
+		welcomeData := struct {
+			Content string
+		}{
+			Content: "Welcome to the chat, " + user.Email + "!",
+		}
+
+		var buf bytes.Buffer
+		err := h.renderer.Render(&buf, "welcome-message.html", welcomeData, nil)
+		if err != nil {
+			slog.Error("Failed to render welcome message", "error", err)
+			return
+		}
+
+		directMessage := &hub.DirectMessage{
+			UserID:  user.ID.String(),
+			Payload: buf.Bytes(),
+		}
+		h.hub.Direct <- directMessage
+	}()
 
 	go client.writePump()
 	go client.readPump()
