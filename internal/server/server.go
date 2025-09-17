@@ -31,7 +31,7 @@ type Server struct {
 	DB               *surrealdb.DB
 	Cfg              config.Provider
 	Emailer          domain.EmailSender
-	userStore        domain.UserRepository
+	UserStore        domain.UserRepository
 	homeHandler      *handlers.HomeHandler
 	authHandler      *handlers.AuthHandler
 	dashboardHandler *handlers.DashboardHandler
@@ -39,7 +39,7 @@ type Server struct {
 	dataHub          *hub.Hub
 	chatHandler      *chat.Handler
 	dataHandler      *data.Handler
-	wargameEngine    *wargame.Engine
+	WargameEngine    *wargame.Engine
 }
 
 // New creates a new Server instance.
@@ -110,7 +110,7 @@ func New() *Server {
 		DB:               db,
 		Cfg:              cfg,
 		Emailer:          emailer,
-		userStore:        userStore,
+		UserStore:        userStore,
 		homeHandler:      homeHandler,
 		authHandler:      authHandler,
 		dashboardHandler: dashboardHandler,
@@ -118,16 +118,6 @@ func New() *Server {
 		dataHub:          dataHub,
 		chatHandler:      chatHandler,
 		dataHandler:      dataHandler,
-		wargameEngine:    wargameEngine,
+		WargameEngine:    wargameEngine,
 	}
-}
-
-// UserStore is a getter for the server's user store, useful for testing.
-func (s *Server) UserStore() domain.UserRepository {
-	return s.userStore
-}
-
-// WargameEngine is a getter for the server's wargame engine, useful for testing.
-func (s *Server) WargameEngine() *wargame.Engine {
-	return s.wargameEngine
 }

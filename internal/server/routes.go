@@ -12,7 +12,7 @@ func (s *Server) RegisterRoutes() {
 	// Create instances of all application middleware.
 	rateLimiter := middleware.RateLimiter()
 	// The auth middleware needs the userStore, which is now a dependency of the server.
-	authMiddleware := middleware.Auth(s.userStore)
+	authMiddleware := middleware.Auth(s.UserStore)
 
 	// Public routes
 	public := s.E.Group("")
@@ -47,7 +47,7 @@ func (s *Server) RegisterRoutes() {
 
 	// A debug route to trigger a wargame event.
 	protected.GET("/debug/hit", func(c echo.Context) error {
-		go s.wargameEngine.SimulateHit()
+		go s.WargameEngine.SimulateHit()
 		return c.String(http.StatusOK, "Wargame hit event triggered.")
 	})
 }

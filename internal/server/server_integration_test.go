@@ -60,7 +60,7 @@ func TestTwoChannelArchitecture_Integration(t *testing.T) {
 	testEmail := fmt.Sprintf("testuser-%d@example.com", time.Now().UnixNano())
 	testPassword := "password123"
 	// Use the SignUp method, which is the correct way to create a user via the interface.
-	_, err = s.UserStore().SignUp(context.Background(), &domain.User{Email: testEmail}, testPassword)
+	_, err = s.UserStore.SignUp(context.Background(), &domain.User{Email: testEmail}, testPassword)
 	require.NoError(t, err)
 
 	// --- Simulate Login to Get Session Cookie ---
@@ -146,7 +146,7 @@ func TestTwoChannelArchitecture_Integration(t *testing.T) {
 	// --- Trigger the Event ---
 	// We wait a moment to ensure the connections are fully registered in the hubs
 	time.Sleep(100 * time.Millisecond)
-	s.WargameEngine().SimulateHit()
+	s.WargameEngine.SimulateHit()
 
 	// --- Wait for Listeners and Assert Results ---
 	wg.Wait()
