@@ -39,6 +39,9 @@ func (s *Server) RegisterRoutes() {
 	protected.GET("/dashboard", s.dashboardHandler.DashboardGet)
 	protected.GET("/chat", s.chatHandler.ChatGet)
 
-	// WebSocket for the chat module
-	protected.GET("/ws/chat", s.chatHandler.ServeWS)
+	// WebSocket endpoint for broadcasting HTML fragments to htmx clients.
+	protected.GET("/ws/html", s.chatHandler.ServeWS)
+
+	// WebSocket endpoint for broadcasting raw data (JSON) to other clients.
+	protected.GET("/ws/data", s.dataHandler.ServeWS)
 }
