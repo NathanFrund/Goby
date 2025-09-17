@@ -44,4 +44,10 @@ func (s *Server) RegisterRoutes() {
 
 	// WebSocket endpoint for broadcasting raw data (JSON) to other clients.
 	protected.GET("/ws/data", s.dataHandler.ServeWS)
+
+	// A debug route to trigger a wargame event.
+	protected.GET("/debug/hit", func(c echo.Context) error {
+		go s.wargameEngine.SimulateHit()
+		return c.String(http.StatusOK, "Wargame hit event triggered.")
+	})
 }

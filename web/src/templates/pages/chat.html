@@ -31,6 +31,12 @@
     <button type="submit" class="btn btn-primary">Send</button>
   </form>
 
+  <!-- A simple display for our game state, updated by the data WebSocket -->
+  <div class="mt-4 p-2 border rounded bg-gray-800 text-white font-mono text-sm">
+    <h3 class="font-bold">Game State Monitor</h3>
+    <div id="game-state-display">-- Waiting for data from /app/ws/data --</div>
+  </div>
+
   <script>
     // A little bit of JS to clear the input after a message is sent via WebSocket
     document
@@ -38,6 +44,40 @@
       .addEventListener("htmx:wsAfterSend", function (evt) {
         document.querySelector('input[name="content"]').value = "";
       });
+
+    // --- JavaScript Island for the Data WebSocket ---
+    const gameStateDisplay = document.getElementById("game-state-display");
+    // Determine the correct WebSocket protocol (ws or wss) based on the page's protocol.
+    const wsProtocol = window.location.protocol === "https:" ? "wss" : "ws";
+    const dataSocket = new WebSocket(
+      `${wsProtocol}://${window.location.host}/app/ws/data`
+    );
+
+    dataSocket.onopen = function (event) {
+      console.log("Data WebSocket connection established.");
+      gameStateDisplay.textContent =
+        "Connection to /app/ws/data established. Waiting for events...";
+    };
+
+    dataSocket.onmessage = function (event) {
+      try {
+        const data = JSON.parse(event.data);
+        console.log("Received data:", data);
+
+        // Check if it's a game state update for our squad
+        if (data.eventType === "damage" && data.unitId === "alpha-squad") {
+          gameStateDisplay.textContent = `Unit '${data.unitId}' took ${data.damageTaken} damage. New Health: ${data.newHealth}`;
+        }
+      } catch (e) {
+        console.error("Failed to parse incoming data message:", e);
+        gameStateDisplay.textContent = "Error processing data from server.";
+      }
+    };
+
+    dataSocket.onclose = function (event) {
+      console.log("Data WebSocket connection closed.");
+      gameStateDisplay.textContent = "Connection to /app/ws/data closed.";
+    };
   </script>
 </div>
 {{end}}
