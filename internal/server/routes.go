@@ -37,4 +37,8 @@ func (s *Server) RegisterRoutes() {
 	protected := s.E.Group("/app")
 	protected.Use(authMiddleware)
 	protected.GET("/dashboard", s.dashboardHandler.DashboardGet)
+	protected.GET("/chat", s.chatHandler.ChatGet)
+
+	// WebSocket for the chat module
+	protected.GET("/ws/chat", s.chatHandler.ServeWS)
 }

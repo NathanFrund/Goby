@@ -1,13 +1,16 @@
+{{define "base.html"}}
 <!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>{{template "title" .}} - Goby</title>
+    <title>{{block "title" .}}Goby{{end}} - Goby</title>
     <link rel="stylesheet" href="/static/css/style.css" />
-    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.7/dist/htmx.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/htmx-ext-ws@2.0.2"></script>
   </head>
   <body>
-    {{template "content" .}}
+    {{block "content" .}}{{end}}
   </body>
 </html>
+{{end}}
