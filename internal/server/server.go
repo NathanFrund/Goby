@@ -19,6 +19,8 @@ import (
 	"github.com/nfrund/goby/internal/hub"
 	"github.com/nfrund/goby/internal/logging"
 	"github.com/nfrund/goby/internal/modules/chat"
+	"github.com/nfrund/goby/internal/modules/data"
+	"github.com/nfrund/goby/internal/modules/wargame"
 	"github.com/nfrund/goby/internal/templates"
 	"github.com/surrealdb/surrealdb.go"
 )
@@ -29,12 +31,15 @@ type Server struct {
 	DB               *surrealdb.DB
 	Cfg              config.Provider
 	Emailer          domain.EmailSender
-	userStore        domain.UserRepository
+	UserStore        domain.UserRepository
 	homeHandler      *handlers.HomeHandler
 	authHandler      *handlers.AuthHandler
 	dashboardHandler *handlers.DashboardHandler
-	hub              *hub.Hub
+	htmlHub          *hub.Hub
+	dataHub          *hub.Hub
 	chatHandler      *chat.Handler
+	dataHandler      *data.Handler
+	WargameEngine    *wargame.Engine
 }
 
 // New creates a new Server instance.
@@ -60,13 +65,17 @@ func New() *Server {
 		os.Exit(1)
 	}
 
-	// Create and run the application-wide event hub in a background goroutine.
-	appHub := hub.NewHub()
-	go appHub.Run()
+	// Create and run two separate hubs for our two channels.
+	htmlHub := hub.NewHub()
+	go htmlHub.Run()
+
+	dataHub := hub.NewHub()
+	go dataHub.Run()
 
 	// Create stores and handlers, making them dependencies of the server.
 	userStore := database.NewSurrealUserStore(db, cfg.GetDBNs(), cfg.GetDBDb())
 	homeHandler := handlers.NewHomeHandler()
+	dataHandler := data.NewHandler(dataHub)
 	authHandler := handlers.NewAuthHandler(userStore, emailer, cfg.GetAppBaseURL())
 	dashboardHandler := handlers.NewDashboardHandler()
 
@@ -90,19 +99,25 @@ func New() *Server {
 	renderer := templates.NewRenderer("web/src/templates")
 	e.Renderer = renderer
 
-	// Create the handler for our chat module, injecting the hub and renderer.
-	chatHandler := chat.NewHandler(appHub, renderer)
+	// Create the handler for our chat module, injecting the HTML hub and renderer.
+	chatHandler := chat.NewHandler(htmlHub, renderer)
+
+	// Create the wargame engine, injecting both hubs and the renderer.
+	wargameEngine := wargame.NewEngine(htmlHub, dataHub, renderer)
 
 	return &Server{
 		E:                e,
 		DB:               db,
 		Cfg:              cfg,
 		Emailer:          emailer,
-		userStore:        userStore,
+		UserStore:        userStore,
 		homeHandler:      homeHandler,
 		authHandler:      authHandler,
 		dashboardHandler: dashboardHandler,
-		hub:              appHub,
+		htmlHub:          htmlHub,
+		dataHub:          dataHub,
 		chatHandler:      chatHandler,
+		dataHandler:      dataHandler,
+		WargameEngine:    wargameEngine,
 	}
 }

@@ -132,6 +132,8 @@ Imagine a tabletop game engine running on the server. When one unit damages anot
 
 This architecture decouples the game engine from the complexities of WebSocket and client management, allowing for clean, modular, and highly scalable real-time features.
 
+This project includes a live, interactive demonstration of this feature. Once logged in, navigate to the **Chat** page. You will find a "Game State Monitor" with a button to trigger a random wargame event. Clicking it will publish an HTML fragment to the chat log and a JSON data object to the monitor, showcasing both real-time channels in action.
+
 ### Direct Messaging to Specific Users
 
 In addition to broadcasting to all clients, the hub supports sending direct messages to a specific user, even if they have multiple connections (e.g., on a desktop and a phone).

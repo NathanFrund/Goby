@@ -2,8 +2,7 @@
 <div
   class="container mx-auto p-4 h-screen flex flex-col"
   hx-ext="ws"
-  hx-ws="connect:/app/ws/chat"
-  ws-connect="/app/ws/chat"
+  ws-connect="/app/ws/html"
 >
   <h1 class="text-2xl font-bold mb-4">Real-time Chat</h1>
 
@@ -32,6 +31,21 @@
     <button type="submit" class="btn btn-primary">Send</button>
   </form>
 
+  <!-- A simple display for our game state, updated by the data WebSocket -->
+  <div class="mt-4 p-2 border rounded bg-gray-800 text-white font-mono text-sm">
+    <div class="flex justify-between items-center mb-2">
+      <h3 class="font-bold">Game State Monitor</h3>
+      <button
+        class="btn btn-xs btn-warning"
+        hx-get="/app/debug/hit"
+        hx-swap="none"
+      >
+        Trigger Hit Event
+      </button>
+    </div>
+    <div id="game-state-display">-- Waiting for data from /app/ws/data --</div>
+  </div>
+
   <script>
     // A little bit of JS to clear the input after a message is sent via WebSocket
     document
@@ -39,6 +53,51 @@
       .addEventListener("htmx:wsAfterSend", function (evt) {
         document.querySelector('input[name="content"]').value = "";
       });
+
+    // --- Auto-scrolling for the chat container ---
+    const chatContainer = document.getElementById("chat-messages");
+    // Listen for the htmx event that fires after an out-of-band swap.
+    document.body.addEventListener("htmx:oobAfterSwap", function (evt) {
+      // Check if the swap target was our chat messages container.
+      if (evt.detail.target.id === "chat-messages") {
+        // If so, scroll the container to the bottom to show the new message.
+        chatContainer.scrollTop = chatContainer.scrollHeight;
+      }
+    });
+
+    // --- JavaScript Island for the Data WebSocket ---
+    const gameStateDisplay = document.getElementById("game-state-display");
+    // Determine the correct WebSocket protocol (ws or wss) based on the page's protocol.
+    const wsProtocol = window.location.protocol === "https:" ? "wss" : "ws";
+    const dataSocket = new WebSocket(
+      `${wsProtocol}://${window.location.host}/app/ws/data`
+    );
+
+    dataSocket.onopen = function (event) {
+      console.log("Data WebSocket connection established.");
+      gameStateDisplay.textContent =
+        "Connection to /app/ws/data established. Waiting for events...";
+    };
+
+    dataSocket.onmessage = function (event) {
+      try {
+        const data = JSON.parse(event.data);
+        console.log("Received data:", data);
+
+        // Check if it's a damage event and update the display for any unit.
+        if (data.eventType === "damage") {
+          gameStateDisplay.textContent = `Unit '${data.unitId}' took ${data.damageTaken} damage. New Health: ${data.newHealth}`;
+        }
+      } catch (e) {
+        console.error("Failed to parse incoming data message:", e);
+        gameStateDisplay.textContent = "Error processing data from server.";
+      }
+    };
+
+    dataSocket.onclose = function (event) {
+      console.log("Data WebSocket connection closed.");
+      gameStateDisplay.textContent = "Connection to /app/ws/data closed.";
+    };
   </script>
 </div>
 {{end}}

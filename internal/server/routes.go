@@ -12,7 +12,7 @@ func (s *Server) RegisterRoutes() {
 	// Create instances of all application middleware.
 	rateLimiter := middleware.RateLimiter()
 	// The auth middleware needs the userStore, which is now a dependency of the server.
-	authMiddleware := middleware.Auth(s.userStore)
+	authMiddleware := middleware.Auth(s.UserStore)
 
 	// Public routes
 	public := s.E.Group("")
@@ -39,6 +39,15 @@ func (s *Server) RegisterRoutes() {
 	protected.GET("/dashboard", s.dashboardHandler.DashboardGet)
 	protected.GET("/chat", s.chatHandler.ChatGet)
 
-	// WebSocket for the chat module
-	protected.GET("/ws/chat", s.chatHandler.ServeWS)
+	// WebSocket endpoint for broadcasting HTML fragments to htmx clients.
+	protected.GET("/ws/html", s.chatHandler.ServeWS)
+
+	// WebSocket endpoint for broadcasting raw data (JSON) to other clients.
+	protected.GET("/ws/data", s.dataHandler.ServeWS)
+
+	// A debug route to trigger a wargame event.
+	protected.GET("/debug/hit", func(c echo.Context) error {
+		go s.WargameEngine.SimulateHit()
+		return c.String(http.StatusOK, "Wargame hit event triggered.")
+	})
 }
