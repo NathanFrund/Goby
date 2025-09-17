@@ -49,7 +49,7 @@ func (h *Handler) ServeWS(c echo.Context) error {
 		return c.String(http.StatusUnauthorized, "User not authenticated")
 	}
 
-	sub := &hub.Subscriber{Send: make(chan any, 256)}
+	sub := &hub.Subscriber{Send: make(chan []byte, 256)}
 	client := &Client{conn: conn, hub: h.hub, subscriber: sub, User: user, renderer: h.renderer}
 	h.hub.Register <- client.subscriber
 

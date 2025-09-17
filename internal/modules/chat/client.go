@@ -90,8 +90,20 @@ func (c *Client) readPump() {
 			Content:  incoming.Content,
 			SentAt:   time.Now(),
 		}
-		slog.Info("readPump: Broadcasting message to hub", "message", chatMessage)
-		c.hub.Broadcast <- chatMessage
+
+		// --- Render the message to an HTML fragment ---
+		var buf bytes.Buffer
+		err = c.renderer.Render(&buf, "chat-message.html", chatMessage, nil)
+		if err != nil {
+			slog.Error("readPump: Error rendering chat message template", "error", err)
+			continue
+		}
+
+		renderedHTML := buf.Bytes()
+
+		// --- Broadcast the rendered HTML fragment to the hub ---
+		slog.Info("readPump: Broadcasting rendered HTML to hub", "html_bytes", len(renderedHTML))
+		c.hub.Broadcast <- renderedHTML
 	}
 }
 
@@ -108,26 +120,10 @@ func (c *Client) writePump() {
 	for message := range c.subscriber.Send {
 		slog.Debug("writePump: Received message from hub to send to client")
 
-		// Type assert the message back to a chat.Message.
-		// This is crucial because the hub is generic (chan any).
-		chatMessage, ok := message.(Message)
-		if !ok {
-			slog.Warn("Received a message of an unexpected type from the hub")
-			continue
-		}
-
-		slog.Info("writePump: Rendering message to HTML", "message", chatMessage)
-		// We received a message from the hub. Render it as an HTML fragment.
-		var buf bytes.Buffer
-		err := c.renderer.Render(&buf, "chat-message.html", chatMessage, nil)
-		if err != nil {
-			slog.Error("Error rendering chat message template", "error", err)
-			continue
-		}
-
-		slog.Info("writePump: Writing HTML fragment to WebSocket", "html_bytes", len(buf.Bytes()), "html_content", buf.String())
+		// The message is already a pre-rendered HTML fragment ([]byte).
+		slog.Info("writePump: Writing HTML fragment to WebSocket", "html_bytes", len(message))
 		// Write the HTML fragment to the WebSocket.
-		if err := c.conn.Write(context.Background(), websocket.MessageText, buf.Bytes()); err != nil {
+		if err := c.conn.Write(context.Background(), websocket.MessageText, message); err != nil {
 			slog.Error("writePump error", "error", err)
 			return
 		}

@@ -2,12 +2,12 @@ package hub
 
 import "log/slog"
 
-// Subscriber represents a single client that can subscribe to messages from the Hub.
-// It contains the channel through which the Hub sends messages to the client.
+// Subscriber represents a single client that can subscribe to rendered HTML fragments from the Hub.
+// It contains the channel through which the Hub sends byte slices to the client.
 type Subscriber struct {
 	// Send is a buffered channel of outbound messages. The Hub sends messages
 	// to this channel, and the client is responsible for reading from it.
-	Send chan any
+	Send chan []byte
 }
 
 // Hub is a generic, concurrent event bus. It maintains the set of active
@@ -19,7 +19,7 @@ type Hub struct {
 	// Broadcast is the channel for inbound messages from any client.
 	// Any component can send a message to this channel to have it broadcast
 	// to all subscribers.
-	Broadcast chan any
+	Broadcast chan []byte
 
 	// Register is a channel for new subscribers to register with the hub.
 	Register chan *Subscriber
@@ -31,7 +31,7 @@ type Hub struct {
 // NewHub creates and returns a new Hub instance.
 func NewHub() *Hub {
 	return &Hub{
-		Broadcast:   make(chan any),
+		Broadcast:   make(chan []byte),
 		Register:    make(chan *Subscriber),
 		Unregister:  make(chan *Subscriber),
 		subscribers: make(map[*Subscriber]bool),
