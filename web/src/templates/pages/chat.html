@@ -1,0 +1,44 @@
+{{define "title"}}Chat{{end}} {{define "content"}}
+<div
+  class="container mx-auto p-4 h-screen flex flex-col"
+  hx-ext="ws"
+  hx-ws="connect:/app/ws/chat"
+  ws-connect="/app/ws/chat"
+>
+  <h1 class="text-2xl font-bold mb-4">Real-time Chat</h1>
+
+  <!-- Chat messages will be appended here by WebSocket events -->
+  <div
+    id="chat-messages"
+    class="flex-grow overflow-y-auto border rounded p-4 mb-4 bg-white space-y-2"
+  >
+    <!-- Initial message or placeholder -->
+    <div class="text-gray-500 italic">
+      Welcome to the chat! Messages will appear here.
+    </div>
+  </div>
+
+  <!-- Form for sending messages -->
+  <form id="chat-form" hx-ws="send" class="flex gap-2">
+    <input
+      type="text"
+      name="content"
+      class="input input-bordered flex-grow"
+      placeholder="Type a message..."
+      autofocus
+      autocomplete="off"
+      required
+    />
+    <button type="submit" class="btn btn-primary">Send</button>
+  </form>
+
+  <script>
+    // A little bit of JS to clear the input after a message is sent via WebSocket
+    document
+      .getElementById("chat-form")
+      .addEventListener("htmx:wsAfterSend", function (evt) {
+        document.querySelector('input[name="content"]').value = "";
+      });
+  </script>
+</div>
+{{end}}

@@ -3,6 +3,7 @@ module github.com/nfrund/goby
 go 1.23.0
 
 require (
+	github.com/coder/websocket v1.8.14
 	github.com/gorilla/sessions v1.3.0
 	github.com/joho/godotenv v1.5.1
 	github.com/labstack/echo-contrib v0.17.1

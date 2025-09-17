@@ -1,0 +1,9 @@
+<!-- This outer div is what htmx will swap. It's a simple block element. -->
+<div hx-swap-oob="beforeend:#chat-messages">
+  <!-- This inner div handles the styling for a single message row. -->
+  <div class="flex items-baseline gap-2 p-2 rounded hover:bg-gray-100">
+    <span class="font-bold text-sm">{{.Username}}:</span>
+    <span class="flex-grow">{{.Content}}</span>
+    <span class="text-xs text-gray-500">{{.SentAt.Format "3:04 PM"}}</span>
+  </div>
+</div>

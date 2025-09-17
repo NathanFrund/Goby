@@ -16,7 +16,9 @@ import (
 	"github.com/nfrund/goby/internal/domain"
 	"github.com/nfrund/goby/internal/email"
 	"github.com/nfrund/goby/internal/handlers"
+	"github.com/nfrund/goby/internal/hub"
 	"github.com/nfrund/goby/internal/logging"
+	"github.com/nfrund/goby/internal/modules/chat"
 	"github.com/nfrund/goby/internal/templates"
 	"github.com/surrealdb/surrealdb.go"
 )
@@ -31,6 +33,8 @@ type Server struct {
 	homeHandler      *handlers.HomeHandler
 	authHandler      *handlers.AuthHandler
 	dashboardHandler *handlers.DashboardHandler
+	hub              *hub.Hub
+	chatHandler      *chat.Handler
 }
 
 // New creates a new Server instance.
@@ -56,6 +60,10 @@ func New() *Server {
 		os.Exit(1)
 	}
 
+	// Create and run the application-wide event hub in a background goroutine.
+	appHub := hub.NewHub()
+	go appHub.Run()
+
 	// Create stores and handlers, making them dependencies of the server.
 	userStore := database.NewSurrealUserStore(db, cfg.GetDBNs(), cfg.GetDBDb())
 	homeHandler := handlers.NewHomeHandler()
@@ -79,7 +87,11 @@ func New() *Server {
 	e.Static("/static", "web/static")
 
 	// Setup template renderer
-	e.Renderer = templates.NewRenderer("web/src/templates")
+	renderer := templates.NewRenderer("web/src/templates")
+	e.Renderer = renderer
+
+	// Create the handler for our chat module, injecting the hub and renderer.
+	chatHandler := chat.NewHandler(appHub, renderer)
 
 	return &Server{
 		E:                e,
@@ -90,5 +102,7 @@ func New() *Server {
 		homeHandler:      homeHandler,
 		authHandler:      authHandler,
 		dashboardHandler: dashboardHandler,
+		hub:              appHub,
+		chatHandler:      chatHandler,
 	}
 }

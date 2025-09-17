@@ -12,6 +12,10 @@ const assets = [
     source: "node_modules/alpinejs/dist/cdn.min.js",
     destination: "web/static/js/alpine.min.js",
   },
+  {
+    source: "node_modules/htmx.org/dist/ext/ws.js",
+    destination: "web/static/js/ws.js",
+  },
 ];
 
 console.log("Copying frontend assets...");
