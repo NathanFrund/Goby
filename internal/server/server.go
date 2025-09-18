@@ -1,7 +1,6 @@
 package server
 
 import (
-	"bytes"
 	"context"
 	"log"
 	"log/slog"
@@ -22,7 +21,6 @@ import (
 	"github.com/nfrund/goby/internal/logging"
 	"github.com/nfrund/goby/internal/modules/chat"
 	"github.com/nfrund/goby/internal/modules/data"
-	"github.com/nfrund/goby/internal/modules/wargame"
 	"github.com/nfrund/goby/internal/templates"
 	"github.com/surrealdb/surrealdb.go"
 )
@@ -100,7 +98,8 @@ func New() *Server {
 	renderer := templates.NewRenderer("web/src/templates")
 
 	// Register embedded templates for modules first (prod-friendly, can be overridden by disk in dev)
-	wargame.RegisterTemplates(renderer)
+	// This call will execute all template registration functions from modules that have self-registered.
+	templates.ApplyRegistrars(renderer)
 
 	// Auto-discover modules under internal/modules and register their templates with namespace = module name.
 	registerModuleTemplates := func(r *templates.Renderer) {
@@ -144,20 +143,10 @@ func New() *Server {
 	}
 	registerModuleTemplates(renderer)
 
-	// Sanity-check a couple of critical templates and log if missing
-	dryRender := func(name string) {
-		var sink bytes.Buffer
-		if err := renderer.Render(&sink, name, nil, nil); err != nil {
-			slog.Error("Template sanity check failed", "name", name, "error", err)
-		}
-	}
-	dryRender("welcome-message.html")
-	dryRender("wargame/wargame-damage.html")
-
-	e.Renderer = renderer
-
 	// Create the handler for our chat module, injecting the HTML hub and renderer.
 	chatHandler := chat.NewHandler(htmlHub, renderer)
+
+	e.Renderer = renderer
 
 	return &Server{
 		E:                e,

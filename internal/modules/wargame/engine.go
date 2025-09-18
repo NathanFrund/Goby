@@ -52,6 +52,11 @@ func NewEngine(htmlHub, dataHub *hub.Hub, r echo.Renderer) *Engine {
 	return &Engine{htmlHub: htmlHub, dataHub: dataHub, renderer: r}
 }
 
+func init() {
+	// Self-register the template registration function.
+	templates.Register(RegisterTemplates)
+}
+
 //go:embed templates/components/*.html
 var templatesFS embed.FS
 

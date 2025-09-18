@@ -101,11 +101,141 @@ This setup achieves the same result, with your Go application running on `http:/
 
 ## Module System
 
+Goby is built around a modular architecture where features are encapsulated in self-contained packages under `internal/modules`. This approach promotes separation of concerns and makes the application easier to extend. A module can contain its own business logic, HTTP routes, and templates.
+
+### How to Create a New Module
+
+This guide walks through creating a new `greeter` module that provides a service, an HTTP endpoint, and a template.
+
+#### 1. Create the Directory Structure
+
+Create a directory for your module under `internal/modules/`. The conventional structure for a module with routes and templates is:
+
+```sh
+internal/modules/
+└── greeter/
+    ├── greeter.go
+    ├── templates.go
+    └── http/
+        └── routes/
+            └── routes.go
+    └── templates/
+        └── components/
+            └── greeting.html
+```
+
+#### 2. Implement the Module Logic
+
+In `greeter.go`, define the core logic or service for your module. This service will be instantiated once and shared with your route handlers.
+
+```go
+// in internal/modules/greeter/greeter.go
+package greeter
+
+import "fmt"
+
+type Service struct{}
+
+func NewService() *Service {
+	return &Service{}
+}
+
+func (s *Service) Greet(name string) string {
+	return fmt.Sprintf("Hello, %s!", name)
+}
+```
+
+#### 3. Add HTTP Routes
+
+In `routes.go`, define your HTTP handlers. The routes are automatically discovered and registered using an `init()` function. This function registers a closure that retrieves the module's service from the central registry and wires it to the handlers.
+
+```go
+// in internal/modules/greeter/http/routes/routes.go
+package routes
+
+import (
+	"net/http"
+
+	"github.com/labstack/echo/v4"
+	"github.com/nfrund/goby/internal/modules/greeter"
+	"github.com/nfrund/goby/internal/registry"
+)
+
+func init() {
+	registry.Register(func(g *echo.Group, sl registry.ServiceLocator) {
+		// Retrieve the greeter service from the service locator.
+		service, ok := sl.Get("greeter.service").(*greeter.Service)
+		if !ok {
+			// If the service isn't found, the routes won't be registered.
+			return
+		}
+		// Wire the routes with the retrieved service.
+		g.GET("/greet/:name", handleGreet(service))
+	})
+}
+
+func handleGreet(s *greeter.Service) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		name := c.Param("name")
+		return c.String(http.StatusOK, s.Greet(name))
+	}
+}
+```
+
+### Best Practices
+
+1. **Keep Modules Focused**: Each module should have a single responsibility
+2. **Explicit Dependencies**: All dependencies should be clearly declared
+3. **Documentation**: Document your module's purpose and requirements
+4. **Testing**: Test modules in isolation using mock dependencies
+5. **Error Handling**: Handle errors at the module level when possible
+
+### Example: Wargame Module
+
+The Wargame module demonstrates a complete implementation:
+
+1. **Module Definition** (`internal/modules/wargame/module.go`):
+
+   ```go
+   package wargame
+
+   type Engine struct {
+       // Module dependencies and state
+   }
+
+   func NewEngine(htmlHub, dataHub *hub.Hub, renderer *templates.Renderer) *Engine {
+       return &Engine{
+           // Initialize engine
+       }
+   }
+   ```
+
+2. **Route Registration** (`internal/modules/wargame/http/routes.go`):
+
+   ```go
+   package wargame
+
+   func (e *Engine) RegisterRoutes(router *echo.Group) {
+       router.GET("/game", e.handleGame)
+       // Other routes...
+   }
+   ```
+
+3. **Template Registration**:
+   ```go
+   func (e *Engine) RegisterTemplates(r *templates.Renderer) {
+       // Register templates from embedded filesystem
+   }
+   ```
+
+This structure ensures that modules remain decoupled and maintainable while providing a clear pattern for adding new features to the application.
+
 ### Route Generation
 
 Routes are automatically generated for all modules in the `internal/modules` directory. The generator looks for route packages in the pattern `internal/modules/*/http/routes`.
 
 To regenerate routes:
+
 ```sh
 make generate-routes  # Generate routes only
 make dev             # Or start the dev server (regenerates routes if needed)
@@ -134,6 +264,7 @@ registry.Apply(protected, deps{
 Dependencies are made available to modules through the service locator pattern. When registering a module, you provide a map of named dependencies that modules can request.
 
 Best practices:
+
 - Use a consistent naming convention for service keys (e.g., `module_name.component`)
 - Document the required dependencies in your module's documentation
 - Keep the service locator interface minimal and focused on cross-cutting concerns
@@ -425,3 +556,5 @@ Integration tests require a running test database. Configuration for tests is ma
 
 ```sh
 cp .env .env.test
+
+```
