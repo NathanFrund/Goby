@@ -1,4 +1,4 @@
-.PHONY: dev build clean tidy test generate-routes
+.PHONY: dev build clean tidy test test-unit test-generator generate-routes
 
 # ==============================================================================
 # DEVELOPMENT
@@ -42,5 +42,12 @@ tidy:
 # ==============================================================================
 
 # Run all tests
-test:
+test: test-unit test-generator
+
+# Run unit tests
+test-unit:
 	go test ./... -v
+
+# Test the route generator
+test-generator:
+	cd internal/tools/genroutes && go test -v
