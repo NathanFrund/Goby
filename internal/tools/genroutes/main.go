@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -16,16 +17,20 @@ import (
 func main() {
 	var (
 		rootModules = flag.String("modules", "internal/modules", "modules root to scan")
-		modulePath  = flag.String("module", "github.com/nfrund/goby", "go module import path root")
 	)
 	flag.Parse()
+
+	modulePath, err := getModulePath()
+	if err != nil {
+		log.Fatalf("Error determining module path: %v", err)
+	}
 
 	routesDirs, err := findRoutePackages(*rootModules)
 	if err != nil {
 		log.Fatalf("Error finding route packages: %v", err)
 	}
 
-	imports := toImportPaths(routesDirs, *modulePath)
+	imports := toImportPaths(routesDirs, modulePath)
 	sort.Strings(imports)
 
 	code := renderImportsFile(imports)
@@ -41,6 +46,18 @@ func main() {
 	}
 }
 
+func getModulePath() (string, error) {
+	cmd := exec.Command("go", "list", "-m")
+	var out bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("could not determine module path (is this a Go module?): %w\n%s", err, stderr.String())
+	}
+	return strings.TrimSpace(out.String()), nil
+}
+
 func findRoutePackages(root string) ([]string, error) {
 	var dirs []string
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
@@ -51,12 +68,16 @@ func findRoutePackages(root string) ([]string, error) {
 		if d.IsDir() {
 			name := d.Name()
 			if name == ".git" || name == "node_modules" || name == "vendor" || strings.HasPrefix(name, ".") {
-				return nil
+				return filepath.SkipDir
 			}
 			// Look for .../http/routes directory
 			if strings.HasSuffix(filepath.ToSlash(path), "/http/routes") {
 				// Ensure it has at least one non-test .go file
-				entries, _ := os.ReadDir(path)
+				entries, err := os.ReadDir(path)
+				if err != nil {
+					// Propagate the error so the tool fails instead of silently skipping a module.
+					return err
+				}
 				for _, e := range entries {
 					if e.IsDir() {
 						continue

@@ -27,7 +27,7 @@ build: generate-routes
 # Generate route imports file
 generate-routes:
 	@echo "Generating route imports..."
-	@go run internal/tools/genroutes/main.go -modules internal/modules -module github.com/nfrund/goby
+	@go run internal/tools/genroutes/main.go -modules internal/modules
 
 # Remove build artifacts.
 clean:
