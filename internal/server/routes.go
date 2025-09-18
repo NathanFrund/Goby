@@ -7,8 +7,8 @@ import (
 	"github.com/nfrund/goby/internal/middleware"
 	"github.com/nfrund/goby/internal/registry"
 
-	// Blank import module routes to trigger their init() functions for self-registration.
-	_ "github.com/nfrund/goby/internal/modules/wargame/http/routes"
+	// Load generated module route imports (zz_routes_imports.go)
+	_ "github.com/nfrund/goby/internal/modules"
 )
 
 // deps is a simple map-based implementation of the registry.ServiceLocator interface.
@@ -56,8 +56,6 @@ func (s *Server) RegisterRoutes() {
 	protected.GET("/ws/data", s.dataHandler.ServeWS)
 
 	// --- Auto-apply all registered module routes ---
-
-	// Apply all routes that were registered via init() functions.
 	registry.Apply(protected, deps{
 		"wargame.engine": s.WargameEngine,
 	})

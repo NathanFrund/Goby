@@ -1,11 +1,11 @@
-.PHONY: dev build clean tidy test
+.PHONY: dev build clean tidy test generate-routes
 
 # ==============================================================================
 # DEVELOPMENT
 # ==============================================================================
 
 # Run the development server with live-reloading for Go and Tailwind CSS.
-dev:
+dev: generate-routes
 	@overmind start
 
 # ==============================================================================
@@ -13,7 +13,7 @@ dev:
 # ==============================================================================
 
 # Build the Go binary and the production CSS.
-build:
+build: generate-routes
 	@echo "Building Go binary..."
 	@go build -o ./tmp/goby ./cmd/server
 	@echo "Building production assets..."
@@ -23,6 +23,11 @@ build:
 # ==============================================================================
 # HELPERS
 # ==============================================================================
+
+# Generate route imports file
+generate-routes:
+	@echo "Generating route imports..."
+	@go run internal/tools/genroutes/main.go -modules internal/modules -module github.com/nfrund/goby
 
 # Remove build artifacts.
 clean:

@@ -149,15 +149,69 @@ make build-embed  # builds binary with APP_TEMPLATES=embed set at build time
 
 In production, set `APP_TEMPLATES=embed` to force the binary to use embedded templates.
 
-## Module routes
+## Module Registration
 
-Modules can register their own routes. For example, the `wargame` module exposes a `RegisterRoutes` helper under `internal/modules/wargame/http/routes/` which is called from the central router in `internal/server/routes.go`:
+To make a module's routes available in your application, you need to:
+
+1. **Ensure the module is imported** (handled automatically by the route generator)
+2. **Register dependencies** with the service locator in your server setup
+
+### Example: Registering a Module
+
+In your server initialization code (typically in `internal/server/server.go`), register your module's dependencies:
 
 ```go
-wargameroutes.RegisterRoutes(protected, s.WargameEngine)
+// Initialize your module's engine
+wargameEngine := wargame.NewEngine()
+
+// Register routes with dependencies
+registry.Apply(protected, deps{
+    "wargame.engine": wargameEngine,
+    // Add other dependencies as needed
+})
 ```
 
-This keeps module routes self-contained while still mounting them under a common prefix (e.g., `/app`).
+### Dependencies
+
+Dependencies are made available to modules through the service locator pattern. When registering a module, you provide a map of named dependencies that modules can request.
+
+Best practices:
+- Use a consistent naming convention for service keys (e.g., `module_name.component`)
+- Document the required dependencies in your module's documentation
+- Keep the service locator interface minimal and focused on cross-cutting concerns
+
+## Module Routes
+
+Modules can automatically register their own routes through the registry system. The framework will automatically discover and register routes from any module that follows these conventions:
+
+1. Place route handlers in `internal/modules/[module]/http/routes/routes.go`
+2. Implement an `init()` function that registers routes using the registry package
+3. Dependencies are injected through the service locator
+
+Example module routes implementation (`internal/modules/example/http/routes/routes.go`):
+
+```go
+package routes
+
+import (
+    "github.com/labstack/echo/v4"
+    "github.com/nfrund/goby/internal/registry"
+)
+
+func init() {
+    registry.Register(func(g *echo.Group, sl registry.ServiceLocator) {
+        // Retrieve dependencies from service locator
+        engine := sl.Get("example.engine").(*example.Engine)
+        
+        // Register routes
+        g.GET("/example", func(c echo.Context) error {
+            return c.String(200, "Example route")
+        })
+    })
+}
+```
+
+Routes are automatically mounted under the protected `/app` route group in the main router.
 
 ## Production Deployment
 
