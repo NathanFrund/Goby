@@ -5,6 +5,7 @@ import (
 	"log"
 	"log/slog"
 	"os"
+	"path/filepath"
 
 	"github.com/gorilla/sessions"
 	"github.com/joho/godotenv"
@@ -20,7 +21,6 @@ import (
 	"github.com/nfrund/goby/internal/logging"
 	"github.com/nfrund/goby/internal/modules/chat"
 	"github.com/nfrund/goby/internal/modules/data"
-	"github.com/nfrund/goby/internal/modules/wargame"
 	"github.com/nfrund/goby/internal/templates"
 	"github.com/surrealdb/surrealdb.go"
 )
@@ -39,7 +39,6 @@ type Server struct {
 	dataHub          *hub.Hub
 	chatHandler      *chat.Handler
 	dataHandler      *data.Handler
-	WargameEngine    *wargame.Engine
 }
 
 // New creates a new Server instance.
@@ -95,15 +94,59 @@ func New() *Server {
 	// Serve static files from the "web/static" directory.
 	e.Static("/static", "web/static")
 
-	// Setup template renderer
+	// Setup template renderer (base shared templates from disk)
 	renderer := templates.NewRenderer("web/src/templates")
-	e.Renderer = renderer
+
+	// Register embedded templates for modules first (prod-friendly, can be overridden by disk in dev)
+	// This call will execute all template registration functions from modules that have self-registered.
+	templates.ApplyRegistrars(renderer)
+
+	// Auto-discover modules under internal/modules and register their templates with namespace = module name.
+	registerModuleTemplates := func(r *templates.Renderer) {
+		modulesRoot := "internal/modules"
+		entries, err := os.ReadDir(modulesRoot)
+		if err != nil {
+			slog.Warn("Could not read modules directory", "path", modulesRoot, "error", err)
+			return
+		}
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			moduleName := e.Name()
+			moduleTemplatesRoot := filepath.Join(modulesRoot, moduleName, "templates")
+
+			// Register module components
+			componentsDir := filepath.Join(moduleTemplatesRoot, "components")
+			if fi, err := os.Stat(componentsDir); err == nil && fi.IsDir() {
+				if err := r.AddStandaloneFrom(componentsDir, moduleName); err != nil {
+					slog.Error("Failed to register module components", "module", moduleName, "error", err)
+				}
+			}
+
+			// Register module partials (also standalone)
+			partialsDir := filepath.Join(moduleTemplatesRoot, "partials")
+			if fi, err := os.Stat(partialsDir); err == nil && fi.IsDir() {
+				if err := r.AddStandaloneFrom(partialsDir, moduleName); err != nil {
+					slog.Error("Failed to register module partials", "module", moduleName, "error", err)
+				}
+			}
+
+			// Register module pages (optional)
+			pagesDir := filepath.Join(moduleTemplatesRoot, "pages")
+			if fi, err := os.Stat(pagesDir); err == nil && fi.IsDir() {
+				if err := r.AddPagesFrom(moduleTemplatesRoot, moduleName); err != nil {
+					slog.Error("Failed to register module pages", "module", moduleName, "error", err)
+				}
+			}
+		}
+	}
+	registerModuleTemplates(renderer)
 
 	// Create the handler for our chat module, injecting the HTML hub and renderer.
 	chatHandler := chat.NewHandler(htmlHub, renderer)
 
-	// Create the wargame engine, injecting both hubs and the renderer.
-	wargameEngine := wargame.NewEngine(htmlHub, dataHub, renderer)
+	e.Renderer = renderer
 
 	return &Server{
 		E:                e,
@@ -118,6 +161,5 @@ func New() *Server {
 		dataHub:          dataHub,
 		chatHandler:      chatHandler,
 		dataHandler:      dataHandler,
-		WargameEngine:    wargameEngine,
 	}
 }

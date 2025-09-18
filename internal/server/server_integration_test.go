@@ -144,9 +144,13 @@ func TestTwoChannelArchitecture_Integration(t *testing.T) {
 	}()
 
 	// --- Trigger the Event ---
-	// We wait a moment to ensure the connections are fully registered in the hubs
-	time.Sleep(100 * time.Millisecond)
-	s.WargameEngine.SimulateHit()
+	// Instead of calling the engine directly, we trigger the event via its debug HTTP endpoint.
+	// This treats the server as a black box, which is better for an integration test.
+	hitReq := httptest.NewRequest(http.MethodGet, "/app/debug/hit", nil)
+	hitReq.AddCookie(authTokenCookie)
+	hitRec := httptest.NewRecorder()
+	s.E.ServeHTTP(hitRec, hitReq)
+	require.Equal(t, http.StatusOK, hitRec.Code, "Triggering the hit event should succeed")
 
 	// --- Wait for Listeners and Assert Results ---
 	wg.Wait()

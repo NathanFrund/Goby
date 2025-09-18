@@ -5,7 +5,18 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/middleware"
+	"github.com/nfrund/goby/internal/registry"
+	"github.com/nfrund/goby/internal/templates"
+
+	// Load generated module route imports (zz_routes_imports.go)
+	_ "github.com/nfrund/goby/internal/modules"
 )
+
+// deps is a simple map-based implementation of the registry.ServiceLocator interface.
+type deps map[string]any
+
+// Get retrieves a dependency by its key.
+func (d deps) Get(k string) any { return d[k] }
 
 // RegisterRoutes sets up all the application routes.
 func (s *Server) RegisterRoutes() {
@@ -45,9 +56,7 @@ func (s *Server) RegisterRoutes() {
 	// WebSocket endpoint for broadcasting raw data (JSON) to other clients.
 	protected.GET("/ws/data", s.dataHandler.ServeWS)
 
-	// A debug route to trigger a wargame event.
-	protected.GET("/debug/hit", func(c echo.Context) error {
-		go s.WargameEngine.SimulateHit()
-		return c.String(http.StatusOK, "Wargame hit event triggered.")
-	})
+	// --- Auto-apply all registered module routes ---
+	moduleDependencies := registerModules(s.htmlHub, s.dataHub, s.E.Renderer.(*templates.Renderer))
+	registry.Apply(protected, deps(moduleDependencies))
 }
