@@ -1,10 +1,12 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"log"
 	"log/slog"
 	"os"
+	"path/filepath"
 
 	"github.com/gorilla/sessions"
 	"github.com/joho/godotenv"
@@ -95,8 +97,64 @@ func New() *Server {
 	// Serve static files from the "web/static" directory.
 	e.Static("/static", "web/static")
 
-	// Setup template renderer
+	// Setup template renderer (base shared templates from disk)
 	renderer := templates.NewRenderer("web/src/templates")
+
+	// Register embedded templates for modules first (prod-friendly, can be overridden by disk in dev)
+	wargame.RegisterTemplates(renderer)
+
+	// Auto-discover modules under internal/modules and register their templates with namespace = module name.
+	registerModuleTemplates := func(r *templates.Renderer) {
+		modulesRoot := "internal/modules"
+		entries, err := os.ReadDir(modulesRoot)
+		if err != nil {
+			slog.Warn("Could not read modules directory", "path", modulesRoot, "error", err)
+			return
+		}
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			moduleName := e.Name()
+			moduleTemplatesRoot := filepath.Join(modulesRoot, moduleName, "templates")
+
+			// Register module components
+			componentsDir := filepath.Join(moduleTemplatesRoot, "components")
+			if fi, err := os.Stat(componentsDir); err == nil && fi.IsDir() {
+				if err := r.AddStandaloneFrom(componentsDir, moduleName); err != nil {
+					slog.Error("Failed to register module components", "module", moduleName, "error", err)
+				}
+			}
+
+			// Register module partials (also standalone)
+			partialsDir := filepath.Join(moduleTemplatesRoot, "partials")
+			if fi, err := os.Stat(partialsDir); err == nil && fi.IsDir() {
+				if err := r.AddStandaloneFrom(partialsDir, moduleName); err != nil {
+					slog.Error("Failed to register module partials", "module", moduleName, "error", err)
+				}
+			}
+
+			// Register module pages (optional)
+			pagesDir := filepath.Join(moduleTemplatesRoot, "pages")
+			if fi, err := os.Stat(pagesDir); err == nil && fi.IsDir() {
+				if err := r.AddPagesFrom(moduleTemplatesRoot, moduleName); err != nil {
+					slog.Error("Failed to register module pages", "module", moduleName, "error", err)
+				}
+			}
+		}
+	}
+	registerModuleTemplates(renderer)
+
+	// Sanity-check a couple of critical templates and log if missing
+	dryRender := func(name string) {
+		var sink bytes.Buffer
+		if err := renderer.Render(&sink, name, nil, nil); err != nil {
+			slog.Error("Template sanity check failed", "name", name, "error", err)
+		}
+	}
+	dryRender("welcome-message.html")
+	dryRender("wargame/wargame-damage.html")
+
 	e.Renderer = renderer
 
 	// Create the handler for our chat module, injecting the HTML hub and renderer.

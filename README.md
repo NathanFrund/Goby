@@ -6,6 +6,36 @@
 
 Goby is a project template for building web applications with Go and Tailwind CSS, featuring live-reloading for a great developer experience.
 
+## Quick Start
+
+Get up and running fast.
+
+```sh
+# Install JS deps (first run)
+npm install
+
+# Development with live reload (recommended)
+make dev
+
+# Alternatively, run directly with disk templates
+make run
+
+# Run with embedded templates (production-like)
+make run-embed
+
+# Build production assets and binary (disk templates unless APP_TEMPLATES=embed at runtime)
+make build
+
+# Build production assets and binary preferring embedded templates
+make build-embed
+```
+
+Once the app is running, open `http://localhost:8080`, log in, and navigate to `Chat`.
+
+- Click "Trigger Hit Event" in the Game State Monitor to see:
+  - An HTML fragment injected into the chat via `/app/ws/html`.
+  - A JSON update displayed by the monitor via `/app/ws/data`.
+
 ## Prerequisites
 
 Before you begin, ensure you have the following tools installed:
@@ -69,36 +99,209 @@ If you prefer not to install `overmind` and `tmux`, you can run the Go live-relo
 
 This setup achieves the same result, with your Go application running on `http://localhost:8080` and live-reloading enabled for both backend and frontend changes.
 
-## Configuration
+## Templates, Modules, and Embedding
 
-The application is configured using environment variables. For local development, you can create a `.env` file in the project root to manage these settings.
+Goby supports two template sources to balance fast development and self-contained production builds.
 
-### Database
+- **Shared templates (layouts/components/pages)** live under `web/src/templates/`.
+- **Module templates** live under `internal/modules/<module>/templates/` and are namespaced by the module name.
+  - Example: `internal/modules/wargame/templates/components/wargame-damage.html` is rendered as `wargame/wargame-damage.html`.
 
-- `SURREAL_URL`: The URL of your SurrealDB instance (e.g., `ws://localhost:8000/rpc`).
-- `SURREAL_NS`: The namespace to use in SurrealDB.
-- `SURREAL_DB`: The database to use in SurrealDB.
-- `SURREAL_USER`: The user for authenticating with SurrealDB.
-- `SURREAL_PASS`: The password for authenticating with SurrealDB.
+### How templates are loaded
 
-### Server
+- **Shared templates** are loaded either from disk or from an embedded filesystem, depending on the `APP_TEMPLATES` environment variable.
+  - `APP_TEMPLATES=disk` (default): read from disk via `templates.NewRenderer("web/src/templates")`.
+  - `APP_TEMPLATES=embed`: read from the embedded FS defined in `web/src/templates/embed.go` via `templates.NewRendererFromFS(webtemplates.FS, ".")`.
+- **Module templates** are registered in two ways:
+  - Each module can provide embedded templates (see `internal/modules/wargame/engine.go` and its `RegisterTemplates` function).
+  - At startup, the server auto-discovers `internal/modules/*/templates/` directories and registers any templates found from disk, namespaced by the module folder name. This lets disk templates override embedded ones during development.
 
-- `SERVER_ADDR`: The address and port for the server to listen on. Defaults to `:8080`.
-- `APP_BASE_URL`: The public base URL for the application, used for generating links in emails. Defaults to `http://localhost:8080` for local development.
+### Why namespacing?
 
-### Email
+To avoid collisions between module templates and shared components, module templates are registered under the module name. For example, the `wargame` module registers templates as `wargame/<filename>.html`.
 
-- `EMAIL_PROVIDER`: The email service to use. Defaults to `log` (which prints emails to the console). Set to `resend` to use the Resend API.
-- `EMAIL_API_KEY`: Your API key for the chosen email provider (e.g., your Resend API key).
-- `EMAIL_SENDER`: The "from" address for outgoing emails (e.g., `you@yourdomain.com`). For Resend, this can be omitted to use the default `onboarding@resend.dev`.
+### Running in development (disk templates)
 
-### Testing
-
-Integration tests require a running test database. Configuration for tests is managed in a separate `.env.test` file in the project root. You can copy your `.env` file to get started:
+Use disk-based templates for fast iteration:
 
 ```sh
-cp .env .env.test
+make dev          # recommended (Overmind + live-reload)
+# or
+make run          # simpler: go run with APP_TEMPLATES=disk
 ```
+
+### Running with embedded templates (production-like)
+
+Validate your production path locally using embedded templates:
+
+```sh
+make run-embed    # go run with APP_TEMPLATES=embed
+```
+
+### Building for production
+
+Build the Go binary and production CSS (disk or embedded):
+
+```sh
+make build        # builds binary (disk templates unless APP_TEMPLATES=embed at runtime)
+make build-embed  # builds binary with APP_TEMPLATES=embed set at build time
+```
+
+In production, set `APP_TEMPLATES=embed` to force the binary to use embedded templates.
+
+## Module routes
+
+Modules can register their own routes. For example, the `wargame` module exposes a `RegisterRoutes` helper under `internal/modules/wargame/http/routes/` which is called from the central router in `internal/server/routes.go`:
+
+```go
+wargameroutes.RegisterRoutes(protected, s.WargameEngine)
+```
+
+This keeps module routes self-contained while still mounting them under a common prefix (e.g., `/app`).
+
+## Production Deployment
+
+This project can produce a self-contained binary that embeds all templates.
+
+- **Static assets** (CSS/JS/images) are served from `web/static/` at runtime and are not embedded. Build them before deploying.
+- **Templates** can be embedded via `APP_TEMPLATES=embed`.
+
+### Build steps
+
+```sh
+# Build minified CSS and the binary (with embedded templates enabled)
+make build-embed
+# Or, explicitly
+APP_TEMPLATES=embed go build -o ./tmp/goby ./cmd/server
+npm run build:js
+npm exec tailwindcss -- --input=./web/src/css/input.css --output=./web/static/css/style.css --minify
+```
+
+### Runtime environment
+
+Set these environment variables in production (via your process manager or unit file):
+
+- `SERVER_ADDR` (e.g., `:8080`)
+- `APP_BASE_URL` (e.g., `https://yourdomain.com`)
+- `SESSION_SECRET` (required)
+- `SURREAL_URL`, `SURREAL_NS`, `SURREAL_DB`, `SURREAL_USER`, `SURREAL_PASS`
+- `EMAIL_PROVIDER` (e.g., `log` or `resend`), `EMAIL_API_KEY`, `EMAIL_SENDER`
+- `APP_TEMPLATES=embed` to ensure the binary uses embedded templates.
+
+Example systemd service snippet:
+
+```ini
+[Service]
+Environment=SERVER_ADDR=:8080
+Environment=APP_BASE_URL=https://yourdomain.com
+Environment=SESSION_SECRET=change-me
+Environment=SURREAL_URL=ws://localhost:8000/rpc
+Environment=SURREAL_NS=app
+Environment=SURREAL_DB=app
+Environment=SURREAL_USER=app
+Environment=SURREAL_PASS=secret
+Environment=EMAIL_PROVIDER=log
+Environment=APP_TEMPLATES=embed
+ExecStart=/opt/goby/goby
+WorkingDirectory=/opt/goby
+# Ensure web/static exists and contains built assets
+```
+
+### Deployable artifacts
+
+- Binary: `./tmp/goby`
+- Static assets directory: `web/static/`
+
+Make sure `web/static/` (including `css/style.css`) is deployed alongside your binary or served via a CDN.
+
+## Module Authoring Guide
+
+Modules are first-class: each module can encapsulate its templates, logic, and routes.
+
+### Folder structure
+
+```
+internal/modules/<module>/
+  engine.go                  # core logic (optional)
+  http/
+    routes/
+      routes.go             # RegisterRoutes
+  templates/
+    components/*.html       # standalone fragments (render directly)
+    partials/*.html         # optional
+    pages/*.html            # optional full pages (render via base layout)
+```
+
+### Templates
+
+- Standalone components (no base layout) are registered via `AddStandaloneFrom`/`AddStandaloneFromFS` and are rendered directly.
+- Pages are composed with the shared `base.html` and are registered via `AddPagesFrom`/`AddPagesFromFS`.
+- All module templates are registered under a namespace equal to the module name. Render them with `"<module>/<file>.html"`.
+
+Example render call:
+
+```go
+if err := renderer.Render(w, "wargame/wargame-damage.html", data, c); err != nil { /* ... */ }
+```
+
+### Embedding module templates
+
+Use `//go:embed` inside your module and expose a registration helper:
+
+```go
+// internal/modules/<module>/embed.go
+package <module>
+
+import (
+  "embed"
+  "github.com/nfrund/goby/internal/templates"
+)
+
+//go:embed templates/components/*.html
+var templatesFS embed.FS
+
+func RegisterTemplates(r *templates.Renderer) {
+  _ = r.AddStandaloneFromFS(templatesFS, "templates/components", "<module>")
+  // Optionally: partials and pages
+}
+```
+
+Then call `RegisterTemplates` from the server startup (before disk auto-discovery), so embedded templates are available in production binaries.
+
+### Routes
+
+Expose a module route helper under `internal/modules/<module>/http/routes/` and call it in the central router:
+
+```go
+// internal/modules/<module>/http/routes/routes.go
+package routes
+
+import (
+  "net/http"
+  "github.com/labstack/echo/v4"
+  "github.com/nfrund/goby/internal/modules/<module>"
+)
+
+func RegisterRoutes(g *echo.Group, engine *<module>.Engine) {
+  g.GET("/debug/hit", func(c echo.Context) error {
+    go engine.SimulateHit()
+    return c.String(http.StatusOK, "Hit event triggered.")
+  })
+}
+```
+
+And in `internal/server/routes.go`:
+
+```go
+modroutes "github.com/nfrund/goby/internal/modules/<module>/http/routes"
+modroutes.RegisterRoutes(protected, s.<Module>Engine)
+```
+
+### Testing tips
+
+- Unit test template rendering by calling `renderer.Render(&buf, name, data, nil)` and asserting on `buf.String()`.
+- For WebSocket flows, test the hub by simulating subscribers and sending payloads to `Hub.Broadcast` and `Hub.Direct`.
+- Use the `.env.test` and integration tests to validate end-to-end flows.
 
 ## Real-time Architecture: The Presentation-Centric Hub
 
@@ -163,3 +366,34 @@ If a player's unit is hit, the wargame engine can send them a private alert that
     engine.hub.Direct <- directMessage
     ```
 4.  Only the user with the ID `user:some_user_id` will receive the notification.
+
+## Configuration
+
+The application is configured using environment variables. For local development, you can create a `.env` file in the project root to manage these settings.
+
+### Database
+
+- `SURREAL_URL`: The URL of your SurrealDB instance (e.g., `ws://localhost:8000/rpc`).
+- `SURREAL_NS`: The namespace to use in SurrealDB.
+- `SURREAL_DB`: The database to use in SurrealDB.
+- `SURREAL_USER`: The user for authenticating with SurrealDB.
+- `SURREAL_PASS`: The password for authenticating with SurrealDB.
+
+### Server
+
+- `SERVER_ADDR`: The address and port for the server to listen on. Defaults to `:8080`.
+- `APP_BASE_URL`: The public base URL for the application, used for generating links in emails. Defaults to `http://localhost:8080` for local development.
+
+### Email
+
+- `EMAIL_PROVIDER`: The email service to use. Defaults to `log` (which prints emails to the console). Set to `resend` to use the Resend API.
+- `EMAIL_API_KEY`: Your API key for the chosen email provider (e.g., your Resend API key).
+- `EMAIL_SENDER`: The "from" address for outgoing emails (e.g., `you@yourdomain.com`). For Resend, this can be omitted to use the default `onboarding@resend.dev`.
+
+### Testing
+
+Integration tests require a running test database. Configuration for tests is managed in a separate `.env.test` file in the project root. You can copy your `.env` file to get started:
+
+```sh
+cp .env .env.test
+```
