@@ -41,7 +41,6 @@ type Server struct {
 	dataHub          *hub.Hub
 	chatHandler      *chat.Handler
 	dataHandler      *data.Handler
-	WargameEngine    *wargame.Engine
 }
 
 // New creates a new Server instance.
@@ -160,9 +159,6 @@ func New() *Server {
 	// Create the handler for our chat module, injecting the HTML hub and renderer.
 	chatHandler := chat.NewHandler(htmlHub, renderer)
 
-	// Create the wargame engine, injecting both hubs and the renderer.
-	wargameEngine := wargame.NewEngine(htmlHub, dataHub, renderer)
-
 	return &Server{
 		E:                e,
 		DB:               db,
@@ -176,6 +172,5 @@ func New() *Server {
 		dataHub:          dataHub,
 		chatHandler:      chatHandler,
 		dataHandler:      dataHandler,
-		WargameEngine:    wargameEngine,
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/middleware"
 	"github.com/nfrund/goby/internal/registry"
+	"github.com/nfrund/goby/internal/templates"
 
 	// Load generated module route imports (zz_routes_imports.go)
 	_ "github.com/nfrund/goby/internal/modules"
@@ -56,7 +57,6 @@ func (s *Server) RegisterRoutes() {
 	protected.GET("/ws/data", s.dataHandler.ServeWS)
 
 	// --- Auto-apply all registered module routes ---
-	registry.Apply(protected, deps{
-		"wargame.engine": s.WargameEngine,
-	})
+	moduleDependencies := registerModules(s.htmlHub, s.dataHub, s.E.Renderer.(*templates.Renderer))
+	registry.Apply(protected, deps(moduleDependencies))
 }
