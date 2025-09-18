@@ -5,8 +5,17 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/middleware"
-	wargameroutes "github.com/nfrund/goby/internal/modules/wargame/http/routes"
+	"github.com/nfrund/goby/internal/registry"
+
+	// Blank import module routes to trigger their init() functions for self-registration.
+	_ "github.com/nfrund/goby/internal/modules/wargame/http/routes"
 )
+
+// deps is a simple map-based implementation of the registry.ServiceLocator interface.
+type deps map[string]any
+
+// Get retrieves a dependency by its key.
+func (d deps) Get(k string) any { return d[k] }
 
 // RegisterRoutes sets up all the application routes.
 func (s *Server) RegisterRoutes() {
@@ -46,6 +55,10 @@ func (s *Server) RegisterRoutes() {
 	// WebSocket endpoint for broadcasting raw data (JSON) to other clients.
 	protected.GET("/ws/data", s.dataHandler.ServeWS)
 
-	// Delegate module routes to the wargame module routes subpackage
-	wargameroutes.RegisterRoutes(protected, s.WargameEngine)
+	// --- Auto-apply all registered module routes ---
+
+	// Apply all routes that were registered via init() functions.
+	registry.Apply(protected, deps{
+		"wargame.engine": s.WargameEngine,
+	})
 }
