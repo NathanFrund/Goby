@@ -12,7 +12,7 @@ import (
 func init() {
 	registry.Register(func(g *echo.Group, sl registry.ServiceLocator) {
 		// Retrieve the wargame engine from the service locator.
-		engine, ok := sl.Get("wargame.engine").(*wargame.Engine)
+		engine, ok := sl.Get(string(registry.WargameEngineKey)).(*wargame.Engine)
 		if !ok || engine == nil {
 			slog.Warn("wargame.engine not found in service locator, skipping route registration")
 			return

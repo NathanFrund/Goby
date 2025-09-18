@@ -246,20 +246,20 @@ make dev             # Or start the dev server (regenerates routes if needed)
 To make a module's routes available in your application:
 
 1. Place your route handlers in `internal/modules/[module]/http/routes/routes.go`
-2. Register your module's dependencies in the server setup:
+2. ```go
+   // in internal/registry/keys.go
+   const (
+       WargameEngineKey ServiceKey = "wargame.engine"
+       // Add your new key here
+   )
+   ```
+3. Register your module's dependencies in `internal/server/modules.go` using the constant.
 
-```go
-// In internal/server/server.go
-wargameEngine := wargame.NewEngine()
-
-// Register routes with dependencies
-registry.Apply(protected, deps{
-    "wargame.engine": wargameEngine,
-    // Add other dependencies as needed
-})
-```
-
-### Dependencies
+````go
+// In internal/server/modules.go
+import "github.com/nfr.
+return map[string]any{
+   t
 
 Dependencies are made available to modules through the service locator pattern. When registering a module, you provide a map of named dependencies that modules can request.
 
@@ -298,7 +298,7 @@ Use disk-based templates for fast iteration:
 make dev          # recommended (Overmind + live-reload)
 # or
 make run          # simpler: go run with APP_TEMPLATES=disk
-```
+````
 
 ### Running with embedded templates (production-like)
 

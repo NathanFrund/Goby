@@ -3,6 +3,7 @@ package server
 import (
 	"github.com/nfrund/goby/internal/hub"
 	"github.com/nfrund/goby/internal/modules/wargame"
+	"github.com/nfrund/goby/internal/registry"
 	"github.com/nfrund/goby/internal/templates"
 )
 
@@ -17,7 +18,7 @@ func registerModules(htmlHub, dataHub *hub.Hub, renderer *templates.Renderer) ma
 	// anotherModuleEngine := anothermodule.NewEngine(...)
 
 	return map[string]any{
-		"wargame.engine": wargameEngine,
+		string(registry.WargameEngineKey): wargameEngine,
 		// "anothermodule.engine": anotherModuleEngine,
 	}
 }
