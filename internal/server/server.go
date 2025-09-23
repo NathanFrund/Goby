@@ -21,6 +21,8 @@ import (
 	"github.com/nfrund/goby/internal/logging"
 	"github.com/nfrund/goby/internal/modules/chat"
 	"github.com/nfrund/goby/internal/modules/data"
+	"github.com/nfrund/goby/internal/modules/wargame"
+	_ "github.com/nfrund/goby/internal/modules/wargame/http/routes" // Import for side effects (route registration)
 	"github.com/nfrund/goby/internal/templates"
 	"github.com/surrealdb/surrealdb.go"
 )
@@ -32,13 +34,16 @@ type Server struct {
 	Cfg              config.Provider
 	Emailer          domain.EmailSender
 	UserStore        domain.UserRepository
+
 	homeHandler      *handlers.HomeHandler
 	authHandler      *handlers.AuthHandler
 	dashboardHandler *handlers.DashboardHandler
-	htmlHub          *hub.Hub
-	dataHub          *hub.Hub
-	chatHandler      *chat.Handler
-	dataHandler      *data.Handler
+
+	htmlHub       *hub.Hub
+	dataHub       *hub.Hub
+	chatHandler   *chat.Handler
+	dataHandler   *data.Handler
+	wargameEngine *wargame.Engine
 }
 
 // New creates a new Server instance.
