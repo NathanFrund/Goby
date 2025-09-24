@@ -101,222 +101,67 @@ This setup achieves the same result, with your Go application running on `http:/
 
 ## Module System
 
-Goby's modular architecture organizes features into self-contained packages under `internal/modules/`. This promotes separation of concerns and makes the application more maintainable and extensible.
+Goby features a modular architecture inspired by frameworks like Laravel. Features are organized into self-contained packages under `internal/modules/`. Each module implements the `module.Module` interface, allowing it to be registered and booted by the core application. This promotes strong separation of concerns and makes the application highly extensible.
 
 ### Creating a New Module
 
 Follow these steps to create a new module:
 
-1. **Define a Service Key**
-   First, add a new service key in `internal/registry/keys.go`:
-   ```go
-   const (
-       // ... existing keys
-       GreeterServiceKey ServiceKey = "greeter.service"
-   )
-   ```
+1.  **Create the Module Structure**
+    Create a new directory for your module under `internal/modules/`. For a module named `greeter`, the structure would be:
 
-2. **Create the Module Structure**
-   ```
-   internal/modules/
-   └── greeter/
-       ├── greeter.go         # Core service implementation
-       ├── http/
-       │   └── routes/
-       │       └── routes.go  # HTTP route handlers
-       └── templates/         # Module-specific templates
-           └── components/
-               └── greeting.html
-   ```
+    ```
+    internal/modules/
+    └── greeter/
+        ├── module.go          # Module interface implementation
+        ├── greeter.go         # Core service logic and types
+        └── templates/
+            └── components/
+                └── greeting.html
+    ```
 
-3. **Implement the Module Service**
-   ```go
-   // internal/modules/greeter/greeter.go
-   package greeter
+2.  **Implement the `Module` Interface**
+    In `greeter/module.go`, create a struct (e.g., `GreeterModule`) and implement the `module.Module` interface.
 
-   type Service struct {
-       // Dependencies go here
-   }
+    - `Name()`: Return a unique name for the module (e.g., `"greeter"`).
+    - `RegisterTemplates()`: Register any embedded HTML templates with the renderer.
+    - `Register()`: Read configuration and register the module's services (e.g., `greeter.Service`) into the service locator.
+    - `Boot()`: Retrieve services from the service locator and register the module's HTTP routes.
 
-   func NewService(/* dependencies */) *Service {
-       return &Service{
-           // Initialize dependencies
-       }
-   }
-   ```
+```go
+ // internal/modules/greeter/module.go
+ package greeter
 
-4. **Register the Module**
-   In `internal/server/modules.go`:
-   ```go
-   func registerModules(/* ... */) map[registry.ServiceKey]any {
-       // Initialize services
-       greeterSvc := greeter.NewService()
+ type GreeterModule struct{}
 
-       return map[registry.ServiceKey]any{
-           registry.GreeterServiceKey: greeterSvc,
-           // other services...
-       }
-   }
-   ```
+ func (m *GreeterModule) Name() string { return "greeter" }
 
-5. **Add HTTP Routes**
-   ```go
-   // internal/modules/greeter/http/routes/routes.go
-   package routes
+ func (m *GreeterModule) Register(sl registry.ServiceLocator, cfg config.Provider) error {
+     // Create and register your service
+     svc := NewService()
+     sl.Set("greeter.service", svc)
+     return nil
+ }
 
-   import (
-       "net/http"
-       "github.com/labstack/echo/v4"
-       "github.com/your-org/your-app/internal/modules/greeter"
-       "github.com/your-org/your-app/internal/registry"
-   )
-
-   func init() {
-       registry.Register(func(g *echo.Group, sl registry.ServiceLocator) {
-           // Retrieve the service using the service key
-           svc, ok := sl.Get(registry.GreeterServiceKey).(*greeter.Service)
-           if !ok {
-               // Service not found, skip route registration
-               return
-           }
-
-           // Register routes
-           g.GET("/greet", handleGreet(svc))
-       })
-   }
-
-   func handleGreet(svc *greeter.Service) echo.HandlerFunc {
-       return func(c echo.Context) error {
-           // Your handler logic here
-           return c.String(http.StatusOK, "Hello, World!")
-       }
-   }
-   ```
-
-### Best Practices
-
-1. **Service Keys**
-   - Define all service keys in `internal/registry/keys.go`
-   - Use consistent naming: `ModuleNameComponentKey`
-   - Document each key's purpose
-
-2. **Dependency Injection**
-   - Always check if dependencies exist in the service locator
-   - Handle missing dependencies gracefully
-   - Keep constructors simple and focused
-
-3. **Error Handling**
-   - Validate configuration at startup
-   - Provide clear error messages for missing dependencies
-   - Log warnings when optional features are unavailable
-
-4. **Testing**
-   - Use the test service locator for unit tests
-   - Mock external dependencies
-   - Test error conditions
-
-### Example: Complete Module
-
-Here's a complete example of a simple module:
-
-1. **Service Implementation**
-   ```go
-   // internal/modules/counter/counter.go
-   package counter
-
-   import "sync/atomic"
-
-   type Service struct {
-       count int64
-   }
-
-   func New() *Service {
-       return &Service{}
-   }
-
-   func (s *Service) Increment() int64 {
-       return atomic.AddInt64(&s.count, 1)
-   }
-   ```
-
-2. **Route Registration**
-   ```go
-   // internal/modules/counter/http/routes/routes.go
-   package routes
-
-   import (
-       "net/http"
-       "github.com/labstack/echo/v4"
-       "github.com/your-org/your-app/internal/modules/counter"
-       "github.com/your-org/your-app/internal/registry"
-   )
-
-   func init() {
-       registry.Register(func(g *echo.Group, sl registry.ServiceLocator) {
-           svc, ok := sl.Get(registry.CounterServiceKey).(*counter.Service)
-           if !ok {
-               return
-           }
-
-           g.GET("/count", handleGetCount(svc))
-           g.POST("/count/increment", handleIncrement(svc))
-       })
-   }
-   ```
-
-3. **Registration in modules.go**
-   ```go
-   // internal/server/modules.go
-   func registerModules(/* ... */) map[registry.ServiceKey]any {
-       counterSvc := counter.New()
-
-       return map[registry.ServiceKey]any{
-           registry.CounterServiceKey: counterSvc,
-           // other services...
-       }
-   }
-   ```
-
-This structure ensures your modules are well-organized, testable, and maintainable.
-
-### Route Generation
-
-Routes are automatically generated for all modules in the `internal/modules` directory. The generator looks for route packages in the pattern `internal/modules/*/http/routes`.
-
-To regenerate routes:
-
-```sh
-make generate-routes  # Generate routes only
-make dev             # Or start the dev server (regenerates routes if needed)
+ func (m *GreeterModule) Boot(g *echo.Group, sl registry.ServiceLocator) error {
+     // Get your service and register routes
+     svc, _ := sl.Get("greeter.service")
+     handler := NewHandler(svc.(*Service))
+     g.GET("/greet", handler.Greet)
+     return nil
+ }
+ // ... other interface methods
 ```
 
-### Module Registration
-
-To make a module's routes available in your application:
-
-1. Place your route handlers in `internal/modules/[module]/http/routes/routes.go`
-2. ```go
-   // in internal/registry/keys.go
-   const (
-       WargameEngineKey ServiceKey = "wargame.engine"
-       // Add your new key here
-   )
-   ```
-3. Register your module's dependencies in `internal/server/modules.go` using the constant.
-
-````go
-// In internal/server/modules.go
-import "github.com/nfr.
-return map[string]any{
-   t
-
-Dependencies are made available to modules through the service locator pattern. When registering a module, you provide a map of named dependencies that modules can request.
-
-Best practices:
-
-- Use a consistent naming convention for service keys (e.g., `module_name.component`)
-- Document the required dependencies in your module's documentation
-- Keep the service locator interface minimal and focused on cross-cutting concerns
+3.  **Activate the Module**
+    Finally, add your new module to the `AppModules` slice in `internal/server/kernel.go`. This is the single place to enable or disable modules for the entire application.
+    ```go
+    // internal/server/kernel.go
+    var AppModules = []module.Module{
+        &wargame.WargameModule{},
+        &greeter.GreeterModule{}, // Add your new module here
+    }
+    ```
 
 ## Templates, Modules, and Embedding
 
@@ -347,7 +192,7 @@ Use disk-based templates for fast iteration:
 make dev          # recommended (Overmind + live-reload)
 # or
 make run          # simpler: go run with APP_TEMPLATES=disk
-````
+```
 
 ### Running with embedded templates (production-like)
 
@@ -422,95 +267,6 @@ WorkingDirectory=/opt/goby
 - Static assets directory: `web/static/`
 
 Make sure `web/static/` (including `css/style.css`) is deployed alongside your binary or served via a CDN.
-
-## Module Authoring Guide
-
-Modules are first-class: each module can encapsulate its templates, logic, and routes.
-
-### Folder structure
-
-```
-internal/modules/<module>/
-  engine.go                  # core logic (optional)
-  http/
-    routes/
-      routes.go             # RegisterRoutes
-  templates/
-    components/*.html       # standalone fragments (render directly)
-    partials/*.html         # optional
-    pages/*.html            # optional full pages (render via base layout)
-```
-
-### Templates
-
-- Standalone components (no base layout) are registered via `AddStandaloneFrom`/`AddStandaloneFromFS` and are rendered directly.
-- Pages are composed with the shared `base.html` and are registered via `AddPagesFrom`/`AddPagesFromFS`.
-- All module templates are registered under a namespace equal to the module name. Render them with `"<module>/<file>.html"`.
-
-Example render call:
-
-```go
-if err := renderer.Render(w, "wargame/wargame-damage.html", data, c); err != nil { /* ... */ }
-```
-
-### Embedding module templates
-
-Use `//go:embed` inside your module and expose a registration helper:
-
-```go
-// internal/modules/<module>/embed.go
-package <module>
-
-import (
-  "embed"
-  "github.com/nfrund/goby/internal/templates"
-)
-
-//go:embed templates/components/*.html
-var templatesFS embed.FS
-
-func RegisterTemplates(r *templates.Renderer) {
-  _ = r.AddStandaloneFromFS(templatesFS, "templates/components", "<module>")
-  // Optionally: partials and pages
-}
-```
-
-Then call `RegisterTemplates` from the server startup (before disk auto-discovery), so embedded templates are available in production binaries.
-
-### Routes
-
-Expose a module route helper under `internal/modules/<module>/http/routes/` and call it in the central router:
-
-```go
-// internal/modules/<module>/http/routes/routes.go
-package routes
-
-import (
-  "net/http"
-  "github.com/labstack/echo/v4"
-  "github.com/nfrund/goby/internal/modules/<module>"
-)
-
-func RegisterRoutes(g *echo.Group, engine *<module>.Engine) {
-  g.GET("/debug/hit", func(c echo.Context) error {
-    go engine.SimulateHit()
-    return c.String(http.StatusOK, "Hit event triggered.")
-  })
-}
-```
-
-And in `internal/server/routes.go`:
-
-```go
-modroutes "github.com/nfrund/goby/internal/modules/<module>/http/routes"
-modroutes.RegisterRoutes(protected, s.<Module>Engine)
-```
-
-### Testing tips
-
-- Unit test template rendering by calling `renderer.Render(&buf, name, data, nil)` and asserting on `buf.String()`.
-- For WebSocket flows, test the hub by simulating subscribers and sending payloads to `Hub.Broadcast` and `Hub.Direct`.
-- Use the `.env.test` and integration tests to validate end-to-end flows.
 
 ## Real-time Architecture: The Presentation-Centric Hub
 

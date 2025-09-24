@@ -21,29 +21,26 @@ import (
 	"github.com/nfrund/goby/internal/logging"
 	"github.com/nfrund/goby/internal/modules/chat"
 	"github.com/nfrund/goby/internal/modules/data"
-	"github.com/nfrund/goby/internal/modules/wargame"
-	_ "github.com/nfrund/goby/internal/modules/wargame/http/routes" // Import for side effects (route registration)
 	"github.com/nfrund/goby/internal/templates"
 	"github.com/surrealdb/surrealdb.go"
 )
 
 // Server holds the dependencies for the HTTP server.
 type Server struct {
-	E                *echo.Echo
-	DB               *surrealdb.DB
-	Cfg              config.Provider
-	Emailer          domain.EmailSender
-	UserStore        domain.UserRepository
+	E         *echo.Echo
+	DB        *surrealdb.DB
+	Cfg       config.Provider
+	Emailer   domain.EmailSender
+	UserStore domain.UserRepository
 
 	homeHandler      *handlers.HomeHandler
 	authHandler      *handlers.AuthHandler
 	dashboardHandler *handlers.DashboardHandler
 
-	htmlHub       *hub.Hub
-	dataHub       *hub.Hub
-	chatHandler   *chat.Handler
-	dataHandler   *data.Handler
-	wargameEngine *wargame.Engine
+	htmlHub     *hub.Hub
+	dataHub     *hub.Hub
+	chatHandler *chat.Handler
+	dataHandler *data.Handler
 }
 
 // New creates a new Server instance.
@@ -102,9 +99,12 @@ func New() *Server {
 	// Setup template renderer (base shared templates from disk)
 	renderer := templates.NewRenderer("web/src/templates")
 
-	// Register embedded templates for modules first (prod-friendly, can be overridden by disk in dev)
-	// This call will execute all template registration functions from modules that have self-registered.
-	templates.ApplyRegistrars(renderer)
+	// --- Module Template Registration ---
+	// Register embedded templates from all modules. This happens before disk
+	// discovery, allowing disk templates to override embedded ones in development.
+	for _, mod := range AppModules {
+		mod.RegisterTemplates(renderer)
+	}
 
 	// Auto-discover modules under internal/modules and register their templates with namespace = module name.
 	registerModuleTemplates := func(r *templates.Renderer) {

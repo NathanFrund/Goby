@@ -9,7 +9,6 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/hub"
-	"github.com/nfrund/goby/internal/templates"
 )
 
 // DamageEvent represents a damage event in the game for HTML rendering.
@@ -52,20 +51,8 @@ func NewEngine(htmlHub, dataHub *hub.Hub, r echo.Renderer) *Engine {
 	return &Engine{htmlHub: htmlHub, dataHub: dataHub, renderer: r}
 }
 
-func init() {
-	// Self-register the template registration function.
-	templates.Register(RegisterTemplates)
-}
-
 //go:embed templates/components/*.html
 var templatesFS embed.FS
-
-// RegisterTemplates registers embedded templates for the wargame module under the "wargame" namespace.
-func RegisterTemplates(r *templates.Renderer) {
-	if err := r.AddStandaloneFromFS(templatesFS, "templates/components", "wargame"); err != nil {
-		slog.Error("Failed to register wargame embedded components", "error", err)
-	}
-}
 
 // SimulateHit simulates a unit being hit and publishes updates to both channels.
 func (e *Engine) SimulateHit() {
