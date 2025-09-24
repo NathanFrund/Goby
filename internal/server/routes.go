@@ -5,7 +5,7 @@ import (
 	"net/http"
 
 	"github.com/labstack/echo/v4"
-	"github.com/nfrund/goby/internal/middleware"
+	"github.com/nfrund/goby/internal/middleware" // Your custom middleware
 	"github.com/nfrund/goby/internal/registry"
 )
 
@@ -25,6 +25,13 @@ func (s *Server) RegisterRoutes() {
 
 	// Auth routes
 	auth := s.E.Group("/auth")
+	// Redirect both /auth and /auth/ to the login page for convenience.
+	redirectLogin := func(c echo.Context) error {
+		return c.Redirect(http.StatusTemporaryRedirect, "/auth/login")
+	}
+	auth.GET("", redirectLogin)
+	auth.GET("/", redirectLogin)
+
 	auth.GET("/register", s.authHandler.RegisterGet)
 	auth.POST("/register", s.authHandler.RegisterPost, rateLimiter)
 	auth.GET("/login", s.authHandler.LoginGet)

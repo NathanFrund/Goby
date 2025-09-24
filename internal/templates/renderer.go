@@ -6,6 +6,7 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"os"
 	"path/filepath"
 
 	"github.com/labstack/echo/v4"
@@ -22,6 +23,7 @@ type Renderer struct {
 }
 
 // NewRenderer creates a new Renderer instance from disk paths
+// Deprecated: Use NewRendererWithMode instead which supports both disk and embedded modes
 func NewRenderer(path string) *Renderer {
 	templates := make(map[string]*template.Template)
 
@@ -60,6 +62,18 @@ func NewRenderer(path string) *Renderer {
 	}
 
 	return &Renderer{templates: templates, layouts: layouts, standalone: standaloneTemplates}
+}
+
+// NewRendererWithMode creates a new Renderer instance based on the APP_TEMPLATES environment variable.
+// If APP_TEMPLATES=embed, it will use embedded templates, otherwise it will use disk-based templates.
+// The path parameter is only used for disk-based templates.
+// The rootFS and rootPath parameters are only used for embedded templates.
+func NewRendererWithMode(path string, rootFS fs.FS, rootPath string) (*Renderer, error) {
+	templateMode := os.Getenv("APP_TEMPLATES")
+	if templateMode == "embed" {
+		return NewRendererFromFS(rootFS, rootPath), nil
+	}
+	return NewRenderer(path), nil
 }
 
 // NewRendererFromFS creates a new Renderer instance using an embedded filesystem root

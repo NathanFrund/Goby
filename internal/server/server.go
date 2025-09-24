@@ -4,8 +4,10 @@ import (
 	"context"
 	"log"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/gorilla/sessions"
 	"github.com/joho/godotenv"
@@ -22,6 +24,7 @@ import (
 	"github.com/nfrund/goby/internal/modules/chat"
 	"github.com/nfrund/goby/internal/modules/data"
 	"github.com/nfrund/goby/internal/templates"
+	webtemplates "github.com/nfrund/goby/web/src/templates"
 	"github.com/surrealdb/surrealdb.go"
 )
 
@@ -96,8 +99,16 @@ func New() *Server {
 	// Serve static files from the "web/static" directory.
 	e.Static("/static", "web/static")
 
-	// Setup template renderer (base shared templates from disk)
-	renderer := templates.NewRenderer("web/src/templates")
+	// Setup template renderer (from disk or embedded based on APP_TEMPLATES)
+	renderer, err := templates.NewRendererWithMode(
+		"web/src/templates", // disk path (used when APP_TEMPLATES is not "embed")
+		webtemplates.FS,     // embedded filesystem (used when APP_TEMPLATES=embed)
+		"templates",         // root path within the embedded FS
+	)
+	if err != nil {
+		slog.Error("Failed to initialize template renderer", "error", err)
+		os.Exit(1)
+	}
 
 	// --- Module Template Registration ---
 	// Register embedded templates from all modules. This happens before disk
@@ -166,5 +177,35 @@ func New() *Server {
 		dataHub:          dataHub,
 		chatHandler:      chatHandler,
 		dataHandler:      dataHandler,
+	}
+}
+
+// Start runs the HTTP server with graceful shutdown.
+func (s *Server) Start() {
+	addr := s.Cfg.GetServerAddr()
+
+	// Start server in a goroutine so that it doesn't block.
+	go func() {
+		slog.Info("Starting server", "address", addr)
+		if err := s.E.Start(addr); err != nil && err != http.ErrServerClosed {
+			slog.Error("Server failed to start", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+	// Wait for an interrupt signal to gracefully shut down the server.
+	waitForShutdown()
+	slog.Info("Shutting down server...")
+
+	// The context is used to inform the server it has 10 seconds to finish
+	// the requests it is currently handling.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Close the database connection.
+	s.DB.Close(ctx)
+
+	if err := s.E.Shutdown(ctx); err != nil {
+		slog.Error("Server shutdown failed", "error", err)
 	}
 }

@@ -10,5 +10,5 @@ import (
 // The framework will iterate over this slice to register and boot each module.
 var AppModules = []module.Module{
 	&wargame.WargameModule{},
-	// &fullchat.FullChatModule{}, // Skipping for now as requested
+	// &fullchat.FullChatModule{}, //
 }
