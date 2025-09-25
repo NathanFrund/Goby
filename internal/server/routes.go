@@ -56,6 +56,7 @@ func (s *Server) RegisterRoutes() {
 	sl.Set(string(registry.HTMLHubKey), s.htmlHub)
 	sl.Set(string(registry.DataHubKey), s.dataHub)
 	sl.Set(string(registry.TemplateRendererKey), s.E.Renderer)
+	sl.Set(string(registry.AppConfigKey), s.Cfg)
 
 	// 3. Register services from all active modules.
 	// This allows modules to add their services to the container.

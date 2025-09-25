@@ -13,16 +13,16 @@ import (
 
 // messageHandler implements the MessageHandler interface
 type messageHandler struct {
-	service   Service
+	store     *Store
 	clients   map[*websocket.Conn]struct{}
 	broadcast chan *Message
 	mutex     sync.Mutex
 }
 
 // NewMessageHandler creates a new message handler
-func NewMessageHandler(service Service) MessageHandler {
+func NewMessageHandler(store *Store) MessageHandler {
 	h := &messageHandler{
-		service:   service,
+		store:     store,
 		clients:   make(map[*websocket.Conn]struct{}),
 		broadcast: make(chan *Message, 100),
 	}
@@ -33,14 +33,9 @@ func NewMessageHandler(service Service) MessageHandler {
 // ChatUI renders the chat interface
 func (h *messageHandler) ChatUI(c echo.Context) error {
 	// Get recent messages
-	messages, err := h.service.GetMessages(c.Request().Context(), 50) // Get last 50 messages
+	messages, err := h.store.GetMessages(c.Request().Context(), 50) // Get last 50 messages
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to load messages").SetInternal(err)
-	}
-
-	// Reverse the messages to show newest last
-	for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
-		messages[i], messages[j] = messages[j], messages[i]
 	}
 
 	return c.Render(http.StatusOK, "chat.html", map[string]interface{}{
@@ -64,7 +59,7 @@ func (h *messageHandler) WebSocketHandler(c echo.Context) error {
 	h.mutex.Unlock()
 
 	// Send existing messages
-	messages, err := h.service.GetMessages(c.Request().Context(), 50)
+	messages, err := h.store.GetMessages(c.Request().Context(), 50)
 	if err == nil {
 		for _, msg := range messages {
 			if err := ws.Write(c.Request().Context(), websocket.MessageText, []byte(msg.Text)); err != nil {
@@ -81,7 +76,7 @@ func (h *messageHandler) WebSocketHandler(c echo.Context) error {
 		}
 
 		// Save the message
-		msg, err := h.service.SendMessage(c.Request().Context(), string(message))
+		msg, err := h.store.Create(c.Request().Context(), string(message))
 		if err != nil {
 			continue
 		}
@@ -126,7 +121,7 @@ func (h *messageHandler) CreateMessage(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "Invalid request body").SetInternal(err)
 	}
 
-	msg, err := h.service.SendMessage(c.Request().Context(), req.Text)
+	msg, err := h.store.Create(c.Request().Context(), req.Text)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to send message").SetInternal(err)
 	}
@@ -149,7 +144,7 @@ func (h *messageHandler) ListMessages(c echo.Context) error {
 		}
 	}
 
-	messages, err := h.service.GetMessages(c.Request().Context(), limit)
+	messages, err := h.store.GetMessages(c.Request().Context(), limit)
 	if err != nil {
 		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to retrieve messages").SetInternal(err)
 	}

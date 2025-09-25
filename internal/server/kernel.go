@@ -2,7 +2,7 @@ package server
 
 import (
 	"github.com/nfrund/goby/internal/module"
-	// "github.com/nfrund/goby/internal/modules/full-chat"
+	fullchat "github.com/nfrund/goby/internal/modules/full-chat"
 	"github.com/nfrund/goby/internal/modules/wargame"
 )
 
@@ -10,5 +10,5 @@ import (
 // The framework will iterate over this slice to register and boot each module.
 var AppModules = []module.Module{
 	&wargame.WargameModule{},
-	// &fullchat.FullChatModule{}, //
+	&fullchat.FullChatModule{},
 }
