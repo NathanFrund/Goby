@@ -23,10 +23,10 @@ make run
 # Run with embedded templates (production-like)
 make run-embed
 
-# Build production assets and binary (disk templates unless APP_TEMPLATES=embed at runtime)
+# Build binary (uses disk assets unless env vars are set)
 make build
 
-# Build production assets and binary preferring embedded templates
+# Build a self-contained production binary with all assets embedded
 make build-embed
 ```
 
