@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"io/fs"
 	"log"
 	"log/slog"
 	"net/http"
@@ -24,7 +25,7 @@ import (
 	"github.com/nfrund/goby/internal/modules/chat"
 	"github.com/nfrund/goby/internal/modules/data"
 	"github.com/nfrund/goby/internal/templates"
-	webtemplates "github.com/nfrund/goby/web/src/templates"
+	"github.com/nfrund/goby/web"
 	"github.com/surrealdb/surrealdb.go"
 )
 
@@ -96,14 +97,27 @@ func New() *Server {
 	}
 	e.Use(session.Middleware(store))
 
-	// Serve static files from the "web/static" directory.
-	e.Static("/static", "web/static")
+	// Serve static files from disk or embedded FS based on APP_STATIC.
+	if os.Getenv("APP_STATIC") == "embed" {
+		slog.Info("Serving embedded static assets")
+		// Create a sub-filesystem that starts from the "static" directory
+		// within our embedded assets.
+		staticFS, err := fs.Sub(web.FS, "static")
+		if err != nil {
+			slog.Error("Failed to create sub-filesystem for embedded static assets", "error", err)
+			os.Exit(1)
+		}
+		e.GET("/static/*", echo.WrapHandler(http.StripPrefix("/static/", http.FileServer(http.FS(staticFS)))))
+	} else {
+		slog.Info("Serving static assets from disk")
+		e.Static("/static", "web/static")
+	}
 
 	// Setup template renderer (from disk or embedded based on APP_TEMPLATES)
 	renderer, err := templates.NewRendererWithMode(
 		"web/src/templates", // disk path (used when APP_TEMPLATES is not "embed")
-		webtemplates.FS,     // embedded filesystem (used when APP_TEMPLATES=embed)
-		"templates",         // root path within the embedded FS
+		web.FS,              // embedded filesystem (used when APP_TEMPLATES=embed)
+		"src/templates",     // root path within the embedded FS
 	)
 	if err != nil {
 		slog.Error("Failed to initialize template renderer", "error", err)

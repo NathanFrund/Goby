@@ -70,16 +70,32 @@ func NewRenderer(path string) *Renderer {
 // The rootFS and rootPath parameters are only used for embedded templates.
 func NewRendererWithMode(path string, rootFS fs.FS, rootPath string) (*Renderer, error) {
 	templateMode := os.Getenv("APP_TEMPLATES")
+	fmt.Printf("APP_TEMPLATES: %s\n", templateMode) // Add this line
 	if templateMode == "embed" {
+		fmt.Println("Using embedded templates") // Add this line
 		return NewRendererFromFS(rootFS, rootPath), nil
 	}
+	fmt.Println("Using disk-based templates") // Add this line
 	return NewRenderer(path), nil
 }
 
 // NewRendererFromFS creates a new Renderer instance using an embedded filesystem root
 // The root should be the directory that contains "layouts", "partials", "components", and "pages" subdirectories.
+// filepath: internal/templates/renderer.go
 func NewRendererFromFS(root fs.FS, rootPath string) *Renderer {
 	templates := make(map[string]*template.Template)
+
+	// Debug: List files in the embedded file system
+	fmt.Println("Listing files in embedded file system:")
+	fs.WalkDir(root, ".", func(path string, d fs.DirEntry, err error) error { // Changed to "web"
+		if err != nil {
+			fmt.Printf("Error walking %s: %v\n", path, err)
+			return err
+		}
+		fmt.Println(path)
+		return nil
+	})
+	fmt.Println("End of file listing.")
 
 	// Find all base and partial templates
 	layouts, err := fs.Glob(root, filepath.Join(rootPath, "layouts", "*.html"))

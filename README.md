@@ -204,11 +204,11 @@ make run-embed    # go run with APP_TEMPLATES=embed
 
 ### Building for production
 
-Build the Go binary and production CSS (disk or embedded):
+Build the Go binary and production CSS. The `make build-embed` command is the recommended way to create a fully self-contained binary.
 
 ```sh
 make build        # builds binary (disk templates unless APP_TEMPLATES=embed at runtime)
-make build-embed  # builds binary with APP_TEMPLATES=embed set at build time
+make build-embed  # builds binary with APP_TEMPLATES=embed and APP_STATIC=embed set at build time
 ```
 
 In production, set `APP_TEMPLATES=embed` to force the binary to use embedded templates.
