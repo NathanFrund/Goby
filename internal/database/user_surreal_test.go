@@ -186,6 +186,11 @@ func TestSignUp(t *testing.T) {
 	// Create the store we are testing
 	store := NewSurrealUserStore(db, cfg.GetDBNs(), cfg.GetDBDb())
 
+	// Preemptively delete users from previous runs to ensure test idempotency.
+	// This runs before the sub-tests.
+	_, err := surrealdb.Query[any](ctx, db, "DELETE user WHERE email CONTAINS 'signup-test@example.com' OR email CONTAINS 'duplicate-signup@example.com'", nil)
+	require.NoError(t, err, "failed to clean up test users before test")
+
 	t.Run("success - creates and signs up a new user", func(t *testing.T) {
 		// Test data
 		testEmail := "signup-test@example.com"
@@ -219,6 +224,11 @@ func TestSignUp(t *testing.T) {
 		testEmail := "duplicate-signup@example.com"
 		testPassword := "securepassword123"
 
+		// Cleanup after this sub-test to ensure idempotency
+		t.Cleanup(func() {
+			_, _ = surrealdb.Query[any](ctx, db, "DELETE user WHERE email = $email", map[string]any{"email": testEmail})
+		})
+
 		// Create a user first
 		firstUserName := "First User"
 		_, err := store.SignUp(ctx, &domain.User{
@@ -235,8 +245,8 @@ func TestSignUp(t *testing.T) {
 		}, "anotherpassword")
 
 		// Verify error (actual error from SurrealDB)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "The record access signup query failed")
+		require.Error(t, err)
+		assert.ErrorIs(t, err, domain.ErrUserAlreadyExists, "should return a specific user exists error")
 	})
 }
 
