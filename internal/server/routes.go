@@ -52,11 +52,12 @@ func (s *Server) RegisterRoutes() {
 	sl := registry.NewServiceLocator()
 
 	// 2. Register core framework services that modules might need.
-	sl.Set(string(registry.DBConnectionKey), s.DB)
+	sl.Set(string(registry.DBConnectionKey), s.DB) // Use direct SurrealDB client
 	sl.Set(string(registry.HTMLHubKey), s.htmlHub)
 	sl.Set(string(registry.DataHubKey), s.dataHub)
 	sl.Set(string(registry.TemplateRendererKey), s.E.Renderer)
 	sl.Set(string(registry.AppConfigKey), s.Cfg)
+	sl.Set(string(registry.UserStoreKey), s.UserStore)
 
 	// 3. Register services from all active modules.
 	// This allows modules to add their services to the container.
@@ -77,7 +78,5 @@ func (s *Server) RegisterRoutes() {
 
 	// Standard routes
 	protected.GET("/dashboard", s.dashboardHandler.DashboardGet)
-	protected.GET("/chat", s.chatHandler.ChatGet)
-	protected.GET("/ws/html", s.chatHandler.ServeWS)
 	protected.GET("/ws/data", s.dataHandler.ServeWS)
 }

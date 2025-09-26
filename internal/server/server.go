@@ -22,7 +22,6 @@ import (
 	"github.com/nfrund/goby/internal/handlers"
 	"github.com/nfrund/goby/internal/hub"
 	"github.com/nfrund/goby/internal/logging"
-	"github.com/nfrund/goby/internal/modules/chat"
 	"github.com/nfrund/goby/internal/modules/data"
 	"github.com/nfrund/goby/internal/templates"
 	"github.com/nfrund/goby/web"
@@ -43,7 +42,6 @@ type Server struct {
 
 	htmlHub     *hub.Hub
 	dataHub     *hub.Hub
-	chatHandler *chat.Handler
 	dataHandler *data.Handler
 }
 
@@ -56,14 +54,8 @@ func New() *Server {
 		log.Println("No .env file found, relying on environment variables")
 	}
 
-	logging.New() // Initialize the structured logger
 	cfg := config.New()
-	db, err := database.NewDB(context.Background(), cfg)
-	if err != nil {
-		slog.Error("Failed to connect to database", "error", err)
-		os.Exit(1)
-	}
-
+	logging.New() // Initialize the structured logger
 	emailer, err := email.NewEmailService(cfg)
 	if err != nil {
 		slog.Error("Failed to initialize email service", "error", err)
@@ -78,7 +70,13 @@ func New() *Server {
 	go dataHub.Run()
 
 	// Create stores and handlers, making them dependencies of the server.
+	db, err := database.NewDB(context.Background(), cfg)
+	if err != nil {
+		slog.Error("Failed to connect to database", "error", err)
+		os.Exit(1)
+	}
 	userStore := database.NewSurrealUserStore(db, cfg.GetDBNs(), cfg.GetDBDb())
+
 	homeHandler := handlers.NewHomeHandler()
 	dataHandler := data.NewHandler(dataHub)
 	authHandler := handlers.NewAuthHandler(userStore, emailer, cfg.GetAppBaseURL())
@@ -173,12 +171,9 @@ func New() *Server {
 	}
 	registerModuleTemplates(renderer)
 
-	// Create the handler for our chat module, injecting the HTML hub and renderer.
-	chatHandler := chat.NewHandler(htmlHub, renderer)
-
 	e.Renderer = renderer
 
-	return &Server{
+	s := &Server{
 		E:                e,
 		DB:               db,
 		Cfg:              cfg,
@@ -189,9 +184,13 @@ func New() *Server {
 		dashboardHandler: dashboardHandler,
 		htmlHub:          htmlHub,
 		dataHub:          dataHub,
-		chatHandler:      chatHandler,
 		dataHandler:      dataHandler,
 	}
+
+	// Register all application routes, including those from modules.
+	s.RegisterRoutes()
+
+	return s
 }
 
 // Start runs the HTTP server with graceful shutdown.
