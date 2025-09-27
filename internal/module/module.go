@@ -1,10 +1,11 @@
 package module
 
 import (
+	"io/fs"
+
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/config"
 	"github.com/nfrund/goby/internal/registry"
-	"github.com/nfrund/goby/internal/templates"
 )
 
 // Module defines the contract for a self-registering application module.
@@ -20,6 +21,7 @@ type Module interface {
 	// This method is called after all modules have been registered.
 	Boot(g *echo.Group, sl registry.ServiceLocator) error
 
-	// RegisterTemplates allows a module to register its embedded templates.
-	RegisterTemplates(renderer *templates.Renderer)
+	// TemplateFS returns the filesystem containing the module's templates.
+	// Return nil if the module doesn't provide any templates.
+	TemplateFS() fs.FS
 }

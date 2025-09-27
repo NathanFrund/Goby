@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/gorilla/sessions"
@@ -23,7 +22,7 @@ import (
 	"github.com/nfrund/goby/internal/hub"
 	"github.com/nfrund/goby/internal/logging"
 	"github.com/nfrund/goby/internal/modules/data"
-	"github.com/nfrund/goby/internal/templates"
+	"github.com/nfrund/goby/internal/templateregistry"
 	"github.com/nfrund/goby/web"
 	"github.com/surrealdb/surrealdb.go"
 )
@@ -77,13 +76,30 @@ func New() *Server {
 	}
 	userStore := database.NewSurrealUserStore(db, cfg.GetDBNs(), cfg.GetDBDb())
 
+	// --- New Template System Initialization ---
+	// 1. Initialize the template registry. This handles disk vs. embed mode.
+	templateRegistry, err := templateregistry.Initialize("web/src/templates", web.FS)
+	if err != nil {
+		slog.Error("Failed to initialize template registry", "error", err)
+		os.Exit(1)
+	}
+
+	// 2. Explicitly load templates from all registered modules.
+	for _, mod := range AppModules {
+		if templateFS := mod.TemplateFS(); templateFS != nil {
+			slog.Debug("Registering templates for module", "module", mod.Name())
+			if err := templateRegistry.AddModule(mod.Name(), templateFS); err != nil {
+				slog.Error("Failed to add module templates", "module", mod.Name(), "error", err)
+			}
+		}
+	}
+
 	homeHandler := handlers.NewHomeHandler()
 	dataHandler := data.NewHandler(dataHub)
 	authHandler := handlers.NewAuthHandler(userStore, emailer, cfg.GetAppBaseURL())
 	dashboardHandler := handlers.NewDashboardHandler()
 
 	e := echo.New()
-	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
 
 	// Configure and use session middleware
@@ -111,67 +127,8 @@ func New() *Server {
 		e.Static("/static", "web/static")
 	}
 
-	// Setup template renderer (from disk or embedded based on APP_TEMPLATES)
-	renderer, err := templates.NewRendererWithMode(
-		"web/src/templates", // disk path (used when APP_TEMPLATES is not "embed")
-		web.FS,              // embedded filesystem (used when APP_TEMPLATES=embed)
-		"src/templates",     // root path within the embedded FS
-	)
-	if err != nil {
-		slog.Error("Failed to initialize template renderer", "error", err)
-		os.Exit(1)
-	}
-
-	// --- Module Template Registration ---
-	// Register embedded templates from all modules. This happens before disk
-	// discovery, allowing disk templates to override embedded ones in development.
-	for _, mod := range AppModules {
-		mod.RegisterTemplates(renderer)
-	}
-
-	// Auto-discover modules under internal/modules and register their templates with namespace = module name.
-	registerModuleTemplates := func(r *templates.Renderer) {
-		modulesRoot := "internal/modules"
-		entries, err := os.ReadDir(modulesRoot)
-		if err != nil {
-			slog.Warn("Could not read modules directory", "path", modulesRoot, "error", err)
-			return
-		}
-		for _, e := range entries {
-			if !e.IsDir() {
-				continue
-			}
-			moduleName := e.Name()
-			moduleTemplatesRoot := filepath.Join(modulesRoot, moduleName, "templates")
-
-			// Register module components
-			componentsDir := filepath.Join(moduleTemplatesRoot, "components")
-			if fi, err := os.Stat(componentsDir); err == nil && fi.IsDir() {
-				if err := r.AddStandaloneFrom(componentsDir, moduleName); err != nil {
-					slog.Error("Failed to register module components", "module", moduleName, "error", err)
-				}
-			}
-
-			// Register module partials (also standalone)
-			partialsDir := filepath.Join(moduleTemplatesRoot, "partials")
-			if fi, err := os.Stat(partialsDir); err == nil && fi.IsDir() {
-				if err := r.AddStandaloneFrom(partialsDir, moduleName); err != nil {
-					slog.Error("Failed to register module partials", "module", moduleName, "error", err)
-				}
-			}
-
-			// Register module pages (optional)
-			pagesDir := filepath.Join(moduleTemplatesRoot, "pages")
-			if fi, err := os.Stat(pagesDir); err == nil && fi.IsDir() {
-				if err := r.AddPagesFrom(moduleTemplatesRoot, moduleName); err != nil {
-					slog.Error("Failed to register module pages", "module", moduleName, "error", err)
-				}
-			}
-		}
-	}
-	registerModuleTemplates(renderer)
-
-	e.Renderer = renderer
+	// 3. Set the new renderer on the Echo instance.
+	e.Renderer = templateregistry.NewRenderer(templateRegistry)
 
 	s := &Server{
 		E:                e,

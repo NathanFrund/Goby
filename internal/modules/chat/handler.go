@@ -1,7 +1,6 @@
 package chat
 
 import (
-	"bytes"
 	"log/slog"
 	"net/http"
 
@@ -12,74 +11,60 @@ import (
 	"github.com/nfrund/goby/internal/middleware"
 )
 
-// Handler holds dependencies for the chat module's HTTP handlers.
+// Handler handles HTTP requests for the chat2 module.
 type Handler struct {
 	hub      *hub.Hub
 	renderer echo.Renderer
 }
 
-// NewHandler creates a new chat handler with its dependencies.
+// NewHandler creates a new chat2 handler.
 func NewHandler(h *hub.Hub, r echo.Renderer) *Handler {
-	return &Handler{hub: h, renderer: r}
-}
-
-// ChatGet serves the main chat page.
-func (h *Handler) ChatGet(c echo.Context) error {
-	return c.Render(http.StatusOK, "chat.html", nil)
-}
-
-// ServeWS handles WebSocket connection requests for the chat.
-func (h *Handler) ServeWS(c echo.Context) error {
-	slog.Info("ServeWS: Received request to upgrade to WebSocket")
-	conn, err := websocket.Accept(c.Response(), c.Request(), &websocket.AcceptOptions{
-		// In a production environment, you should check the origin to prevent CSRF.
-		// For this template, we'll allow any origin.
-		InsecureSkipVerify: true,
-	})
-	if err != nil {
-		slog.Error("Failed to upgrade WebSocket connection", "error", err)
-		return c.String(http.StatusInternalServerError, "Failed to upgrade to WebSocket")
+	return &Handler{
+		hub:      h,
+		renderer: r,
 	}
+}
 
-	slog.Info("ServeWS: WebSocket connection upgraded successfully. Creating client.")
+// ChatGet handles GET /chat2 requests.
+func (h *Handler) ChatGet(c echo.Context) error {
+	return c.Render(http.StatusOK, "chat2/pages/chat.html", nil)
+}
 
-	// Get the authenticated user from the context.
+// ServeWS handles WebSocket connections for chat.
+func (h *Handler) ServeWS(c echo.Context) error {
+	// Get the authenticated user from context
 	user, ok := c.Get(middleware.UserContextKey).(*domain.User)
 	if !ok {
 		slog.Error("Could not get user from context for WebSocket connection")
 		return c.String(http.StatusUnauthorized, "User not authenticated")
 	}
 
+	// Upgrade to WebSocket
+	conn, err := websocket.Accept(c.Response(), c.Request(), &websocket.AcceptOptions{
+		InsecureSkipVerify: true, // In production, verify origin
+	})
+	if err != nil {
+		slog.Error("Failed to upgrade WebSocket connection", "error", err)
+		return c.String(http.StatusInternalServerError, "Failed to upgrade to WebSocket")
+	}
+
+	// Create and register client
 	sub := &hub.Subscriber{
 		UserID: user.ID.String(),
 		Send:   make(chan []byte, 256),
 	}
-	client := &Client{conn: conn, hub: h.hub, subscriber: sub, User: user, renderer: h.renderer}
+
+	client := &Client{
+		conn:       conn,
+		hub:        h.hub,
+		subscriber: sub,
+		User:       user,
+		renderer:   h.renderer,
+	}
+
 	h.hub.Register <- client.subscriber
 
-	// --- Send a welcome message directly to the new user ---
-	go func() {
-		// We run this in a goroutine to avoid blocking the WebSocket upgrade process.
-		welcomeData := struct {
-			Content string
-		}{
-			Content: "Welcome to the chat, " + user.Email + "!",
-		}
-
-		var buf bytes.Buffer
-		err := h.renderer.Render(&buf, "welcome-message.html", welcomeData, nil)
-		if err != nil {
-			slog.Error("Failed to render welcome message", "error", err)
-			return
-		}
-
-		directMessage := &hub.DirectMessage{
-			UserID:  user.ID.String(),
-			Payload: buf.Bytes(),
-		}
-		h.hub.Direct <- directMessage
-	}()
-
+	// Start client goroutines
 	go client.writePump()
 	go client.readPump()
 

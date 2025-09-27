@@ -93,7 +93,7 @@ func (c *Client) readPump() {
 
 		// --- Render the message to an HTML fragment ---
 		var buf bytes.Buffer
-		err = c.renderer.Render(&buf, "chat-message.html", chatMessage, nil)
+		err = c.renderer.Render(&buf, "chat2/partials/_message.html", chatMessage, nil)
 		if err != nil {
 			slog.Error("readPump: Error rendering chat message template", "error", err)
 			continue

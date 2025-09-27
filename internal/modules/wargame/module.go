@@ -2,6 +2,7 @@ package wargame
 
 import (
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net/http"
 
@@ -9,7 +10,6 @@ import (
 	"github.com/nfrund/goby/internal/config"
 	"github.com/nfrund/goby/internal/hub"
 	"github.com/nfrund/goby/internal/registry"
-	"github.com/nfrund/goby/internal/templates"
 )
 
 // WargameModule implements the module.Module interface.
@@ -20,12 +20,9 @@ func (m *WargameModule) Name() string {
 	return "wargame"
 }
 
-// RegisterTemplates registers the module's embedded templates with the renderer.
-func (m *WargameModule) RegisterTemplates(renderer *templates.Renderer) {
-	// This logic is moved from engine.go's RegisterTemplates function.
-	if err := renderer.AddStandaloneFromFS(templatesFS, "templates/components", m.Name()); err != nil {
-		slog.Error("Failed to register wargame embedded components", "error", err)
-	}
+// TemplateFS returns the embedded filesystem for the module's templates.
+func (m *WargameModule) TemplateFS() fs.FS {
+	return templatesFS
 }
 
 // Register creates the Wargame Engine and registers it in the service locator.

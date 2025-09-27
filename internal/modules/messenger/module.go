@@ -2,14 +2,13 @@ package messenger
 
 import (
 	"fmt"
-	"log/slog"
+	"io/fs"
 
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/config"
 	"github.com/nfrund/goby/internal/domain"
 	"github.com/nfrund/goby/internal/middleware"
 	"github.com/nfrund/goby/internal/registry"
-	"github.com/nfrund/goby/internal/templates"
 )
 
 // MessengerModule implements the module.Module interface
@@ -21,14 +20,9 @@ func (m *MessengerModule) Name() string {
 	return "messenger"
 }
 
-// RegisterTemplates registers the module's templates
-func (m *MessengerModule) RegisterTemplates(renderer *templates.Renderer) {
-	// Register embedded templates.
-	// The "templates" directory is the root within the embedded FS.
-	err := renderer.AddStandaloneFromFS(TemplatesFS, "templates", m.Name())
-	if err != nil {
-		slog.Error("failed to register messenger module templates", "module", m.Name(), "error", err)
-	}
+// TemplateFS returns the embedded filesystem for the module's templates.
+func (m *MessengerModule) TemplateFS() fs.FS {
+	return nil // Stub implementation; this module has no templates for now.
 }
 
 // Register is for binding services into the service container.

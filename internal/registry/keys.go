@@ -15,4 +15,5 @@ const (
 	AppConfigKey        ServiceKey = "config.provider"
 	UserStoreKey        ServiceKey = "user.store"
 	MessengerHandlerKey ServiceKey = "messenger.handler"
+	Chat2HandlerKey     ServiceKey = "chat2.handler"
 )

@@ -3,7 +3,6 @@ package server
 import (
 	"github.com/nfrund/goby/internal/module"
 	"github.com/nfrund/goby/internal/modules/chat"
-	"github.com/nfrund/goby/internal/modules/messenger"
 	"github.com/nfrund/goby/internal/modules/wargame"
 )
 
@@ -12,5 +11,4 @@ import (
 var AppModules = []module.Module{
 	&wargame.WargameModule{},
 	&chat.ChatModule{},
-	&messenger.MessengerModule{},
 }
