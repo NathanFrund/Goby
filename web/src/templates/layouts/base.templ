@@ -1,0 +1,27 @@
+package layouts
+
+import "github.com/nfrund/goby/web/src/templates/partials"
+
+// Base defines the main document structure.
+// It accepts a 'title' string, the 'flashes' data, and a 'children' component (which is the page content).
+templ Base(title string, flashes partials.FlashData, children templ.Component) {
+    <!DOCTYPE html>
+    <html lang="en">
+      <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        
+        <!-- Calls the external Go function defined in helpers.go -->
+        <title>{ CalculateTitle(title) }</title> 
+        
+        <link rel="stylesheet" href="/static/css/style.css" />
+        <script src="https://cdn.jsdelivr.net/npm/htmx.org@2.0.7/dist/htmx.min.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/htmx-ext-ws@2.0.2"></script>
+        <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.10/dist/cdn.min.js"></script>
+      </head>
+      <body>
+        @partials.FlashMessages(flashes)
+        @children
+      </body>
+    </html>
+}

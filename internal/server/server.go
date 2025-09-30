@@ -22,7 +22,6 @@ import (
 	"github.com/nfrund/goby/internal/hub"
 	"github.com/nfrund/goby/internal/logging"
 	"github.com/nfrund/goby/internal/modules/data"
-	"github.com/nfrund/goby/internal/templateregistry"
 	"github.com/nfrund/goby/web"
 	"github.com/surrealdb/surrealdb.go"
 )
@@ -38,6 +37,7 @@ type Server struct {
 	homeHandler      *handlers.HomeHandler
 	authHandler      *handlers.AuthHandler
 	dashboardHandler *handlers.DashboardHandler
+	aboutHandler     *handlers.AboutHandler
 
 	htmlHub     *hub.Hub
 	dataHub     *hub.Hub
@@ -76,28 +76,11 @@ func New() *Server {
 	}
 	userStore := database.NewSurrealUserStore(db, cfg.GetDBNs(), cfg.GetDBDb())
 
-	// --- New Template System Initialization ---
-	// 1. Initialize the template registry. This handles disk vs. embed mode.
-	templateRegistry, err := templateregistry.Initialize("web/src/templates", web.FS)
-	if err != nil {
-		slog.Error("Failed to initialize template registry", "error", err)
-		os.Exit(1)
-	}
-
-	// 2. Explicitly load templates from all registered modules.
-	for _, mod := range AppModules {
-		if templateFS := mod.TemplateFS(); templateFS != nil {
-			slog.Debug("Registering templates for module", "module", mod.Name())
-			if err := templateRegistry.AddModule(mod.Name(), templateFS); err != nil {
-				slog.Error("Failed to add module templates", "module", mod.Name(), "error", err)
-			}
-		}
-	}
-
 	homeHandler := handlers.NewHomeHandler()
 	dataHandler := data.NewHandler(dataHub)
 	authHandler := handlers.NewAuthHandler(userStore, emailer, cfg.GetAppBaseURL())
 	dashboardHandler := handlers.NewDashboardHandler()
+	aboutHandler := &handlers.AboutHandler{}
 
 	e := echo.New()
 	e.Use(middleware.Recover())
@@ -127,9 +110,6 @@ func New() *Server {
 		e.Static("/static", "web/static")
 	}
 
-	// 3. Set the new renderer on the Echo instance.
-	e.Renderer = templateregistry.NewRenderer(templateRegistry)
-
 	s := &Server{
 		E:                e,
 		DB:               db,
@@ -139,6 +119,7 @@ func New() *Server {
 		homeHandler:      homeHandler,
 		authHandler:      authHandler,
 		dashboardHandler: dashboardHandler,
+		aboutHandler:     aboutHandler,
 		htmlHub:          htmlHub,
 		dataHub:          dataHub,
 		dataHandler:      dataHandler,

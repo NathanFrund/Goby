@@ -19,6 +19,7 @@ func (s *Server) RegisterRoutes() {
 	// Public routes
 	public := s.E.Group("")
 	public.GET("/", s.homeHandler.HomeGet)
+	public.GET("/about", s.aboutHandler.HandleGet)
 	public.GET("/health", func(c echo.Context) error {
 		return c.String(http.StatusOK, "OK")
 	})
