@@ -305,37 +305,54 @@ func (s *SurrealUserStore) ResetPassword(ctx context.Context, token, newPassword
 }
 
 // WithTransaction creates a new transaction and executes the given function within it.
-// If the function returns an error, the transaction is rolled back. Otherwise, it's committed.
-// This implementation is specific to the surrealdb.go driver, which uses queries
-// to manage transactions.
-func (s *SurrealUserStore) WithTransaction(ctx context.Context, fn func(repo domain.UserRepository) error) error {
-	// Begin a new transaction from the main DB connection.
-	if _, err := surrealdb.Query[any](ctx, s.db, "BEGIN TRANSACTION;", nil); err != nil {
+// It uses a named return parameter 'err' to correctly manage COMMIT or CANCEL/ROLLBACK.
+func (s *SurrealUserStore) WithTransaction(ctx context.Context, fn func(repo domain.UserRepository) error) (err error) {
+	// 1. Begin a new transaction from the main DB connection.
+	if _, err = surrealdb.Query[any](ctx, s.db, "BEGIN TRANSACTION;", nil); err != nil {
+		slog.ErrorContext(ctx, "Failed to begin transaction", "error", err)
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
+	slog.DebugContext(ctx, "Beginning database transaction")
 
-	// Use a deferred function with a flag to ensure rollback on any failure.
-	var committed bool
+	// 2. Defer a function to handle cleanup (COMMIT or CANCEL/ROLLBACK).
+	// The named return variable 'err' is accessible and modified by this defer block.
 	defer func() {
-		if !committed {
-			slog.WarnContext(ctx, "Rolling back transaction due to error or panic")
-			if _, err := surrealdb.Query[any](ctx, s.db, "CANCEL TRANSACTION;", nil); err != nil {
-				slog.ErrorContext(ctx, "CRITICAL: failed to cancel (rollback) transaction", "error", err)
+		// Handle panic gracefully, ensuring rollback is attempted.
+		if r := recover(); r != nil {
+			err = fmt.Errorf("transaction failed due to panic: %v", r)
+			slog.ErrorContext(ctx, "Panic occurred in transaction function. Attempting rollback.", "panic", r)
+			// Attempt to cancel
+			if _, rollbackErr := surrealdb.Query[any](ctx, s.db, "CANCEL TRANSACTION;", nil); rollbackErr != nil {
+				slog.ErrorContext(ctx, "CRITICAL: failed to cancel (rollback) transaction after panic", "rollback_error", rollbackErr)
+			}
+			// Re-raise the panic.
+			panic(r)
+		}
+
+		// If 'err' is nil, the function succeeded. We must commit.
+		if err == nil {
+			slog.DebugContext(ctx, "Committing transaction")
+			if _, commitErr := surrealdb.Query[any](ctx, s.db, "COMMIT TRANSACTION;", nil); commitErr != nil {
+				// If commit fails, capture the commit error as the final return error.
+				err = fmt.Errorf("failed to commit transaction: %w", commitErr)
+				slog.ErrorContext(ctx, "Commit failed. Attempting cancel.", "commit_error", commitErr)
+				// Attempt a cancel for cleanup.
+				if _, rollbackErr := surrealdb.Query[any](ctx, s.db, "CANCEL TRANSACTION;", nil); rollbackErr != nil {
+					slog.ErrorContext(ctx, "CRITICAL: failed to cancel (rollback) transaction after commit failure", "rollback_error", rollbackErr)
+				}
+			}
+		} else {
+			// 'err' is not nil, meaning fn(s) failed. We must cancel/rollback.
+			slog.WarnContext(ctx, "Rolling back transaction due to error", "error", err)
+			if _, rollbackErr := surrealdb.Query[any](ctx, s.db, "CANCEL TRANSACTION;", nil); rollbackErr != nil {
+				slog.ErrorContext(ctx, "CRITICAL: failed to cancel (rollback) transaction", "rollback_error", rollbackErr)
+				// Note: We return the original error from fn(s), not the rollback error.
 			}
 		}
 	}()
 
-	// Execute the provided function. We pass the same store `s` because its
-	// underlying connection is now in a transactional state.
-	if err := fn(s); err != nil {
-		return err // The defer will handle the rollback.
-	}
+	// 3. Execute the user's function. The result is assigned to the named return 'err'.
+	err = fn(s)
 
-	// If the function succeeds, commit the transaction.
-	if _, err := surrealdb.Query[any](ctx, s.db, "COMMIT TRANSACTION;", nil); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
-	}
-
-	committed = true
-	return nil
+	return err
 }

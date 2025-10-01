@@ -1,0 +1,61 @@
+package pages
+
+import "github.com/nfrund/goby/internal/view/dto/auth"
+
+// Login renders the user login page. It accepts LoginData to pre-populate
+// the email field after a failed attempt.
+templ Login(data auth.LoginData) {
+	<div class="hero min-h-screen bg-base-200">
+		<div class="hero-content flex-col lg:flex-row-reverse">
+			<div class="text-center lg:text-left">
+				<h1 class="text-5xl font-bold">Login now!</h1>
+				<p class="py-6">
+					Welcome back. Please enter your credentials to access your account.
+				</p>
+			</div>
+			<div class="card shrink-0 w-full max-w-sm shadow-2xl bg-base-100">
+				<form class="card-body" method="POST" action="/auth/login">
+					<div class="form-control">
+						<label class="label">
+							<span class="label-text">Email</span>
+						</label>
+						<input
+							type="email"
+							name="email"
+							placeholder="email"
+							autocomplete="email"
+							value={ data.Email }
+							class="input input-bordered"
+							required
+						/>
+					</div>
+					<div class="form-control">
+						<label class="label">
+							<span class="label-text">Password</span>
+						</label>
+						<input
+							type="password"
+							name="password"
+							placeholder="password"
+							autocomplete="current-password"
+							class="input input-bordered"
+							required
+						/>
+						<label class="label">
+							<a
+								href="/auth/forgot-password"
+								class="label-text-alt link link-hover"
+							>Forgot password?</a>
+						</label>
+					</div>
+					<div class="form-control mt-6">
+						<button class="btn btn-primary">Login</button>
+					</div>
+					<label class="label">
+						<a href="/auth/register" class="label-text-alt link link-hover">Don't have an account? Register</a>
+					</label>
+				</form>
+			</div>
+		</div>
+	</div>
+}

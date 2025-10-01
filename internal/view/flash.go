@@ -1,50 +1,96 @@
 package view
 
 import (
-	"github.com/labstack/echo-contrib/session"
 	"github.com/labstack/echo/v4"
+	"github.com/nfrund/goby/web/src/templates/partials"
+
+	// FIX: Import the session package to use the session.Get() helper
+	"github.com/labstack/echo-contrib/session"
 )
 
+// These constants define the keys used to store flash messages in the session.
 const (
-	flashSessionName = "flash-session"
-	flashKeySuccess  = "success"
-	flashKeyError    = "error"
+	// Using a generic name for the session store, assuming middleware setup
+	flashSessionName = "session"
+	flashSuccessKey  = "flash_success"
+	flashErrorKey    = "flash_error"
 )
 
-// setFlash sets a flash message in the session.
-func setFlash(c echo.Context, key, message string) {
-	sess, _ := session.Get(flashSessionName, c)
-	sess.AddFlash(message, key)
-	sess.Save(c.Request(), c.Response())
-}
-
-// SetFlashSuccess sets a success flash message.
-func SetFlashSuccess(c echo.Context, message string) {
-	setFlash(c, flashKeySuccess, message)
-}
-
-// SetFlashError sets an error flash message.
-func SetFlashError(c echo.Context, message string) {
-	setFlash(c, flashKeyError, message)
-}
-
-// GetFlashes retrieves and clears flash messages from the session.
-func GetFlashes(c echo.Context) map[string][]interface{} {
-	// The map we will return.
-	flashes := make(map[string][]interface{})
-
-	sess, _ := session.Get(flashSessionName, c)
-
-	// Get flashes for both success and error keys.
-	// The Flashes() method retrieves and then clears the flashes from the session.
-	successFlashes := sess.Flashes(flashKeySuccess)
-	errorFlashes := sess.Flashes(flashKeyError)
-
-	// If we have flashes, save the session to persist the clearing of flashes.
-	if len(successFlashes) > 0 || len(errorFlashes) > 0 {
-		flashes[flashKeySuccess] = successFlashes
-		flashes[flashKeyError] = errorFlashes
-		_ = sess.Save(c.Request(), c.Response())
+// GetFlashData retrieves success and error messages from the session.
+// It returns a partials.FlashData struct expected by the Base layout component.
+// CRITICAL: This function consumes the flash messages (they are deleted after retrieval).
+func GetFlashData(c echo.Context) partials.FlashData {
+	// 1. FIX: Get the session store using session.Get(name, context)
+	sess, err := session.Get(flashSessionName, c)
+	if err != nil {
+		c.Logger().Errorf("Failed to get session for flash messages: %v", err)
+		return partials.FlashData{}
 	}
-	return flashes
+
+	flash := partials.FlashData{}
+	needsSave := false
+
+	// 2. Retrieve Success messages and cast them to the correct type (string).
+	// sess.Flashes() retrieves the messages and simultaneously clears them from the session map.
+	successVal := sess.Flashes(flashSuccessKey)
+	if len(successVal) > 0 {
+		for _, val := range successVal {
+			if s, ok := val.(string); ok {
+				flash.Success = append(flash.Success, s)
+			}
+		}
+		needsSave = true
+	}
+
+	// 3. Retrieve Error messages and cast them to the correct type (string).
+	errorVal := sess.Flashes(flashErrorKey)
+	if len(errorVal) > 0 {
+		for _, val := range errorVal {
+			if s, ok := val.(string); ok {
+				flash.Error = append(flash.Error, s)
+			}
+		}
+		needsSave = true
+	}
+
+	// 4. Save the session to commit the clearing of flashes.
+	if needsSave {
+		if err := sess.Save(c.Request(), c.Response()); err != nil {
+			c.Logger().Errorf("Failed to save session after consuming flashes: %v", err)
+		}
+	}
+
+	return flash
+}
+
+// SetFlashSuccess adds a success message to the session for the next request.
+func SetFlashSuccess(c echo.Context, message string) {
+	// FIX: Use session.Get()
+	sess, err := session.Get(flashSessionName, c)
+	if err != nil {
+		c.Logger().Errorf("Failed to get session for flash success: %v", err)
+		return
+	}
+
+	sess.AddFlash(message, flashSuccessKey)
+
+	if err := sess.Save(c.Request(), c.Response()); err != nil {
+		c.Logger().Errorf("Failed to save session after setting success flash: %v", err)
+	}
+}
+
+// SetFlashError adds an error message to the session for the next request.
+func SetFlashError(c echo.Context, message string) {
+	// FIX: Use session.Get()
+	sess, err := session.Get(flashSessionName, c)
+	if err != nil {
+		c.Logger().Errorf("Failed to get session for flash error: %v", err)
+		return
+	}
+
+	sess.AddFlash(message, flashErrorKey)
+
+	if err := sess.Save(c.Request(), c.Response()); err != nil {
+		c.Logger().Errorf("Failed to save session after setting error flash: %v", err)
+	}
 }

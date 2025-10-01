@@ -11,6 +11,9 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/domain"
 	"github.com/nfrund/goby/internal/view"
+	"github.com/nfrund/goby/internal/view/dto/auth"
+	"github.com/nfrund/goby/web/src/templates/layouts"
+	"github.com/nfrund/goby/web/src/templates/pages"
 )
 
 // AuthHandler handles authentication-related requests.
@@ -147,7 +150,23 @@ func (h *AuthHandler) Logout(c echo.Context) error {
 
 // ForgotPasswordGet handles rendering the forgot password page.
 func (h *AuthHandler) ForgotPasswordGet(c echo.Context) error {
-	return c.Render(http.StatusOK, "forgot-password.html", nil)
+	// 1. Retrieve flash data (errors/success messages) from the session.
+	flashData := view.GetFlashData(c)
+
+	// 2. Prepare the view data transfer object (DTO).
+	// For a GET request, the email is usually empty unless retrieved from a flash session.
+	authData := auth.ForgotPasswordData{}
+
+	// 3. Define the core page content component.
+	pageContent := pages.ForgotPassword(authData)
+
+	// 4. Wrap the page content in the Base layout, passing the title and flash messages.
+	finalComponent := layouts.Base("Forgot Password", flashData, pageContent)
+
+	// 5. Render the final component directly using Templ's Render method.
+	c.Response().Header().Set(echo.HeaderContentType, "text/html; charset=utf-8")
+	c.Response().WriteHeader(http.StatusOK)
+	return finalComponent.Render(c.Request().Context(), c.Response().Writer)
 }
 
 // ForgotPasswordPost handles the form submission for requesting a password reset.

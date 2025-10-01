@@ -44,6 +44,57 @@ type Server struct {
 	dataHandler *data.Handler
 }
 
+func setupErrorHandling(e *echo.Echo) {
+	// 1. Recover Middleware: CRITICAL for Panics
+	// This catches any panic that occurs during request handling, prevents the Go app
+	// from crashing, and logs the full stack trace to your console.
+	e.Use(middleware.Recover())
+
+	// 2. Custom HTTP Error Handler: CRITICAL for Unhandled Errors
+	// This intercepts errors returned by handlers (e.g., 'return err') or by Echo's internal systems.
+	e.HTTPErrorHandler = func(err error, c echo.Context) {
+		if c.Response().Committed {
+			return // Cannot write headers after the response is committed.
+		}
+
+		// Try to cast the error to a standard Echo HTTPError
+		he, ok := err.(*echo.HTTPError)
+		if !ok {
+			// If it's not an Echo HTTPError, it's an unexpected internal error.
+			slog.Error("Internal Server Error (Unhandled)",
+				"error", err.Error(),
+				"method", c.Request().Method,
+				"path", c.Path(),
+				"remote_ip", c.RealIP(),
+				// Log the Request ID if available (from middleware.RequestID)
+				"request_id", c.Response().Header().Get(echo.HeaderXRequestID),
+			)
+			// Ensure we still return a standard 500 response
+			he = &echo.HTTPError{Code: http.StatusInternalServerError, Message: http.StatusText(http.StatusInternalServerError)}
+		}
+
+		// Log all 5xx errors returned by handlers as errors, and 4xx as warnings.
+		if he.Code >= 500 {
+			slog.Error("HTTP Error",
+				"status", he.Code,
+				"message", he.Message,
+				"path", c.Path(),
+				"method", c.Request().Method,
+			)
+		} else if he.Code >= 400 {
+			slog.Warn("Client Error",
+				"status", he.Code,
+				"message", he.Message,
+				"path", c.Path(),
+				"method", c.Request().Method,
+			)
+		}
+
+		// Respond to the client (we'll just use JSON for errors for simplicity)
+		c.JSON(he.Code, map[string]interface{}{"error": he.Message})
+	}
+}
+
 // New creates a new Server instance.
 func New() *Server {
 	// Load environment variables from .env file if it exists
@@ -83,7 +134,8 @@ func New() *Server {
 	aboutHandler := &handlers.AboutHandler{}
 
 	e := echo.New()
-	e.Use(middleware.Recover())
+	//e.Use(middleware.Recover())
+	setupErrorHandling(e)
 
 	// Configure and use session middleware
 	store := sessions.NewCookieStore([]byte(cfg.GetSessionSecret()))
