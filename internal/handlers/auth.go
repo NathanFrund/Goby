@@ -32,12 +32,40 @@ func NewAuthHandler(userStore domain.UserRepository, emailer domain.EmailSender,
 	}
 }
 
-// RegisterGet handles the request to show the registration page.
-func (h *AuthHandler) RegisterGet(c echo.Context) error {
-	// This handler's only job is to render the registration page template.
-	// The template name "pages/register" corresponds to the file
-	// "web/src/templates/pages/register.html".
-	return c.Render(http.StatusOK, "register.html", nil)
+// RegisterGetHandler renders the registration page (GET /auth/register).
+// It retrieves flash messages and any pre-filled data (e.g., from a failed POST).
+func (h *AuthHandler) RegisterGetHandler(c echo.Context) error {
+	// 1. Retrieve the specific flash value for pre-filling the email.
+	var prefilledEmail string
+	if sess, err := session.Get("flash-session", c); err == nil {
+		if flashes := sess.Flashes("form_email"); len(flashes) > 0 {
+			if val, ok := flashes[0].(string); ok {
+				prefilledEmail = val
+			}
+		}
+		// CRITICAL: We must save the session here to clear the consumed "form_email" flash.
+		_ = sess.Save(c.Request(), c.Response())
+	}
+
+	// 2. Retrieve General Flash Messages (Success/Error)
+	flashes := view.GetFlashData(c)
+
+	// 3. Prepare the View Model (DTO)
+	// We use the retrieved email to populate the auth.RegisterData DTO.
+	data := auth.RegisterData{
+		Email: prefilledEmail,
+	}
+
+	// 4. Render the specific page content (pages.Register) with the DTO.
+	pageContent := pages.Register(data)
+
+	// 5. Wrap the content in the Base layout, passing the flashes.
+	finalComponent := layouts.Base("Register", flashes, pageContent)
+
+	// 6. Render the final HTML response.
+	c.Response().Header().Set(echo.HeaderContentType, "text/html; charset=utf-8")
+	c.Response().WriteHeader(http.StatusOK)
+	return finalComponent.Render(c.Request().Context(), c.Response().Writer)
 }
 
 // RegisterPost handles the form submission for creating a new user.
@@ -87,23 +115,43 @@ func (h *AuthHandler) RegisterPost(c echo.Context) error {
 	return c.Redirect(http.StatusSeeOther, "/")
 }
 
-// LoginGet handles the request to show the login page.
-func (h *AuthHandler) LoginGet(c echo.Context) error {
-	// Check for form data from a previous failed attempt in the flash session.
-	sess, _ := session.Get("flash-session", c)
-	var email string
-	if flashes := sess.Flashes("form_email"); len(flashes) > 0 {
-		// Ensure we can assert the type safely.
-		if val, ok := flashes[0].(string); ok {
-			email = val
+// LoginGetHandler renders the login page (GET /auth/login).
+// It retrieves flash messages and any pre-filled data (e.g., from a failed POST).
+func (h *AuthHandler) LoginGetHandler(c echo.Context) error {
+	// 1. Retrieve the specific flash value for pre-filling the email (as done in the old function).
+	var prefilledEmail string
+	// Use "flash-session" as per your existing code. session.Get returns the session and no error.
+	if sess, err := session.Get("flash-session", c); err == nil {
+		if flashes := sess.Flashes("form_email"); len(flashes) > 0 {
+			// Ensure we can assert the type safely.
+			if val, ok := flashes[0].(string); ok {
+				prefilledEmail = val
+			}
 		}
+		// CRITICAL: We must save the session here to clear the consumed "form_email" flash.
+		_ = sess.Save(c.Request(), c.Response())
 	}
-	// Flashes are deleted after being read, so we must save the session.
-	_ = sess.Save(c.Request(), c.Response())
 
-	return c.Render(http.StatusOK, "login.html", map[string]interface{}{
-		"Email": email,
-	})
+	// 2. Retrieve General Flash Messages (Success/Error)
+	// This utility function also retrieves flashes and saves the session internally.
+	flashes := view.GetFlashData(c)
+
+	// 3. Prepare the View Model (DTO)
+	// We use the retrieved email to populate the DTO.
+	data := auth.LoginData{
+		Email: prefilledEmail,
+	}
+
+	// 4. Render the specific page content (pages.Login) with the DTO.
+	pageContent := pages.Login(data)
+
+	// 5. Wrap the content in the Base layout, passing the flashes.
+	finalComponent := layouts.Base("Login", flashes, pageContent)
+
+	// 6. Render the final HTML response.
+	c.Response().Header().Set(echo.HeaderContentType, "text/html; charset=utf-8")
+	c.Response().WriteHeader(http.StatusOK)
+	return finalComponent.Render(c.Request().Context(), c.Response().Writer)
 }
 
 // LoginPost handles the form submission for logging in a user.
@@ -149,7 +197,7 @@ func (h *AuthHandler) Logout(c echo.Context) error {
 }
 
 // ForgotPasswordGet handles rendering the forgot password page.
-func (h *AuthHandler) ForgotPasswordGet(c echo.Context) error {
+func (h *AuthHandler) ForgotPasswordGetHandler(c echo.Context) error {
 	// 1. Retrieve flash data (errors/success messages) from the session.
 	flashData := view.GetFlashData(c)
 
@@ -196,17 +244,37 @@ func (h *AuthHandler) ForgotPasswordPost(c echo.Context) error {
 	return c.Redirect(http.StatusSeeOther, "/auth/forgot-password")
 }
 
-// ResetPasswordGet handles rendering the password reset page.
-func (h *AuthHandler) ResetPasswordGet(c echo.Context) error {
+// ResetPasswordGetHandler handles rendering the password reset page (GET /auth/reset-password?token=...).
+func (h *AuthHandler) ResetPasswordGetHandler(c echo.Context) error {
+	// 1. Get the token from the query parameter.
 	token := c.QueryParam("token")
 	if token == "" {
 		// If no token is provided, redirect to the forgot password page.
+		// Set a flash error to inform the user why they were redirected.
+		view.SetFlashError(c, "A valid reset token is required to change your password.")
 		return c.Redirect(http.StatusSeeOther, "/auth/forgot-password")
 	}
 
-	return c.Render(http.StatusOK, "reset-password.html", map[string]interface{}{
-		"Token": token,
-	})
+	// 2. Retrieve General Flash Messages (Success/Error)
+	// Note: We don't need to check for form_email flashes here, as this is never a POST redirect target.
+	flashes := view.GetFlashData(c)
+
+	// 3. Prepare the View Model (DTO)
+	// The DTO passes the token back to the template to be included in the hidden form field.
+	data := auth.ResetPasswordData{
+		Token: token,
+	}
+
+	// 4. Render the specific page content (pages.ResetPassword) with the DTO.
+	pageContent := pages.ResetPassword(data)
+
+	// 5. Wrap the content in the Base layout, passing the flashes.
+	finalComponent := layouts.Base("Reset Password", flashes, pageContent)
+
+	// 6. Render the final HTML response.
+	c.Response().Header().Set(echo.HeaderContentType, "text/html; charset=utf-8")
+	c.Response().WriteHeader(http.StatusOK)
+	return finalComponent.Render(c.Request().Context(), c.Response().Writer)
 }
 
 // ResetPasswordPost handles the form submission for setting a new password.

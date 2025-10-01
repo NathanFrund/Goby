@@ -33,14 +33,14 @@ func (s *Server) RegisterRoutes() {
 	auth.GET("", redirectLogin)
 	auth.GET("/", redirectLogin)
 
-	auth.GET("/register", s.authHandler.RegisterGet)
+	auth.GET("/register", s.authHandler.RegisterGetHandler)
 	auth.POST("/register", s.authHandler.RegisterPost, rateLimiter)
-	auth.GET("/login", s.authHandler.LoginGet)
+	auth.GET("/login", s.authHandler.LoginGetHandler)
 	auth.POST("/login", s.authHandler.LoginPost, rateLimiter)
 	auth.GET("/logout", s.authHandler.Logout)
-	auth.GET("/forgot-password", s.authHandler.ForgotPasswordGet)
+	auth.GET("/forgot-password", s.authHandler.ForgotPasswordGetHandler)
 	auth.POST("/forgot-password", s.authHandler.ForgotPasswordPost, rateLimiter)
-	auth.GET("/reset-password", s.authHandler.ResetPasswordGet)
+	auth.GET("/reset-password", s.authHandler.ResetPasswordGetHandler)
 	auth.POST("/reset-password", s.authHandler.ResetPasswordPost)
 
 	// Protected routes (require authentication)
