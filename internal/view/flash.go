@@ -11,7 +11,7 @@ import (
 // These constants define the keys used to store flash messages in the session.
 const (
 	// Using a generic name for the session store, assuming middleware setup
-	flashSessionName = "session"
+	flashSessionName = "flash-session"
 	flashSuccessKey  = "flash_success"
 	flashErrorKey    = "flash_error"
 )

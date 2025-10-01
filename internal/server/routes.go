@@ -41,7 +41,7 @@ func (s *Server) RegisterRoutes() {
 	auth.GET("/forgot-password", s.authHandler.ForgotPasswordGetHandler)
 	auth.POST("/forgot-password", s.authHandler.ForgotPasswordPost, rateLimiter)
 	auth.GET("/reset-password", s.authHandler.ResetPasswordGetHandler)
-	auth.POST("/reset-password", s.authHandler.ResetPasswordPost)
+	auth.POST("/reset-password", s.authHandler.ResetPasswordPostHandler)
 
 	// Protected routes (require authentication)
 	protected := s.E.Group("/app")

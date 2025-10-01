@@ -277,12 +277,13 @@ func (h *AuthHandler) ResetPasswordGetHandler(c echo.Context) error {
 	return finalComponent.Render(c.Request().Context(), c.Response().Writer)
 }
 
-// ResetPasswordPost handles the form submission for setting a new password.
-func (h *AuthHandler) ResetPasswordPost(c echo.Context) error {
+// ResetPasswordPostHandler handles the form submission for setting a new password.
+func (h *AuthHandler) ResetPasswordPostHandler(c echo.Context) error {
 	token := c.FormValue("token")
 	password := c.FormValue("password")
 	passwordConfirm := c.FormValue("password_confirm")
 
+	// --- Input Validation ---
 	if password != passwordConfirm {
 		view.SetFlashError(c, "Passwords do not match.")
 		return c.Redirect(http.StatusSeeOther, "/auth/reset-password?token="+token)
@@ -292,30 +293,36 @@ func (h *AuthHandler) ResetPasswordPost(c echo.Context) error {
 		view.SetFlashError(c, "Password must be at least 8 characters long.")
 		return c.Redirect(http.StatusSeeOther, "/auth/reset-password?token="+token)
 	}
+	// --- End Input Validation ---
 
-	var sessionToken string
-	err := h.userStore.WithTransaction(c.Request().Context(), func(repo domain.UserRepository) error {
-		// 1. Reset the password within the transaction.
-		user, err := repo.ResetPassword(c.Request().Context(), token, password)
-		if err != nil {
-			slog.Warn("Error resetting password within transaction", "error", err)
-			// Return a user-friendly error to be displayed.
-			return fmt.Errorf("invalid or expired reset link")
-		}
+	// STEP 1: Perform the password reset (atomic data change).
+	// This single method handles token validation, password update, and token invalidation.
+	user, err := h.userStore.ResetPassword(c.Request().Context(), token, password)
 
-		// 2. Sign the user in within the same transaction.
-		var signInErr error
-		sessionToken, signInErr = repo.SignIn(c.Request().Context(), user, password)
-		return signInErr
-	})
-
+	// Handle data change failure (e.g., invalid token, database error)
 	if err != nil {
+		slog.Warn("Password reset failed", "error", err)
+		// Return a user-friendly error from the repository.
 		view.SetFlashError(c, err.Error())
 		return c.Redirect(http.StatusSeeOther, "/auth/reset-password?token="+token)
 	}
 
+	// STEP 2: After successful data update, perform the sign-in (auth change).
+	// We use the updated 'user' object returned from ResetPassword.
+	var sessionToken string
+	// NOTE: We pass the raw password here as the user has just entered it.
+	sessionToken, err = h.userStore.SignIn(c.Request().Context(), user, password)
+
+	// Handle sign-in failure (unlikely if Step 1 succeeded, but good practice)
+	if err != nil {
+		slog.Error("Failed to sign in user after successful password reset", "error", err)
+		view.SetFlashError(c, "Password reset successful, but failed to log you in automatically. Please log in manually.")
+		return c.Redirect(http.StatusSeeOther, "/auth/login")
+	}
+
+	// STEP 3: Success
 	setAuthCookie(c, sessionToken)
-	view.SetFlashSuccess(c, "Your password has been reset successfully!")
+	view.SetFlashSuccess(c, "Your password has been reset successfully! You are now logged in.")
 	return c.Redirect(http.StatusSeeOther, "/")
 }
 
