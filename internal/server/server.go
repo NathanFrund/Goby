@@ -3,24 +3,20 @@ package server
 import (
 	"context"
 	"io/fs"
-	"log"
 	"log/slog"
 	"net/http"
 	"os"
 	"time"
 
 	"github.com/gorilla/sessions"
-	"github.com/joho/godotenv"
 	"github.com/labstack/echo-contrib/session"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/nfrund/goby/internal/config"
 	"github.com/nfrund/goby/internal/database"
 	"github.com/nfrund/goby/internal/domain"
-	"github.com/nfrund/goby/internal/email"
 	"github.com/nfrund/goby/internal/handlers"
 	"github.com/nfrund/goby/internal/hub"
-	"github.com/nfrund/goby/internal/logging"
 	"github.com/nfrund/goby/internal/modules/data"
 	"github.com/nfrund/goby/web"
 	"github.com/surrealdb/surrealdb.go"
@@ -95,92 +91,96 @@ func setupErrorHandling(e *echo.Echo) {
 	}
 }
 
-// New creates a new Server instance.
-func New() *Server {
-	// Load environment variables from .env file if it exists
-	if err := godotenv.Load(); err != nil {
-		// We don't have slog configured yet, so we use the standard logger here.
-		// This is acceptable as it's only for the initial setup.
-		log.Println("No .env file found, relying on environment variables")
+// ServerOption is a function that configures a Server.
+type ServerOption func(*Server) error
+
+// WithConfig is an option to set the configuration provider.
+func WithConfig(cfg config.Provider) ServerOption {
+	return func(s *Server) error {
+		s.Cfg = cfg
+		return nil
 	}
+}
 
-	cfg := config.New()
-	logging.New() // Initialize the structured logger
-	emailer, err := email.NewEmailService(cfg)
-	if err != nil {
-		slog.Error("Failed to initialize email service", "error", err)
-		os.Exit(1)
+// WithDB is an option to set the database connection and the UserStore.
+func WithDB(db *surrealdb.DB, ns, dbName string) ServerOption {
+	return func(s *Server) error {
+		s.DB = db
+		s.UserStore = database.NewSurrealUserStore(db, ns, dbName)
+		return nil
 	}
+}
 
-	// Create and run two separate hubs for our two channels.
-	htmlHub := hub.NewHub()
-	go htmlHub.Run()
-
-	dataHub := hub.NewHub()
-	go dataHub.Run()
-
-	// Create stores and handlers, making them dependencies of the server.
-	db, err := database.NewDB(context.Background(), cfg)
-	if err != nil {
-		slog.Error("Failed to connect to database", "error", err)
-		os.Exit(1)
+// WithEmailer is an option to set the email sender.
+func WithEmailer(emailer domain.EmailSender) ServerOption {
+	return func(s *Server) error {
+		s.Emailer = emailer
+		return nil
 	}
-	userStore := database.NewSurrealUserStore(db, cfg.GetDBNs(), cfg.GetDBDb())
+}
 
-	homeHandler := handlers.NewHomeHandler()
-	dataHandler := data.NewHandler(dataHub)
-	authHandler := handlers.NewAuthHandler(userStore, emailer, cfg.GetAppBaseURL())
-	dashboardHandler := handlers.NewDashboardHandler()
-	aboutHandler := &handlers.AboutHandler{}
+// WithHubs is an option to set the WebSocket hubs.
+func WithHubs(htmlHub, dataHub *hub.Hub) ServerOption {
+	return func(s *Server) error {
+		s.htmlHub = htmlHub
+		s.dataHub = dataHub
+		return nil
+	}
+}
 
+// New creates a new Server instance by applying functional options.
+func New(opts ...ServerOption) (*Server, error) {
 	e := echo.New()
-	//e.Use(middleware.Recover())
 	setupErrorHandling(e)
 
+	s := &Server{
+		E: e,
+	}
+
+	// Loop through the provided options and apply them.
+	for _, opt := range opts {
+		if err := opt(s); err != nil {
+			return nil, err
+		}
+	}
+
+	s.initHandlers()
+
 	// Configure and use session middleware
-	store := sessions.NewCookieStore([]byte(cfg.GetSessionSecret()))
+	store := sessions.NewCookieStore([]byte(s.Cfg.GetSessionSecret()))
 	store.Options = &sessions.Options{
 		Path:     "/",
 		MaxAge:   86400 * 7, // 7 days
 		HttpOnly: true,
 	}
-	e.Use(session.Middleware(store))
+	s.E.Use(session.Middleware(store))
 
 	// Serve static files from disk or embedded FS based on APP_STATIC.
 	if os.Getenv("APP_STATIC") == "embed" {
 		slog.Info("Serving embedded static assets")
-		// Create a sub-filesystem that starts from the "static" directory
-		// within our embedded assets.
 		staticFS, err := fs.Sub(web.FS, "static")
 		if err != nil {
-			slog.Error("Failed to create sub-filesystem for embedded static assets", "error", err)
-			os.Exit(1)
+			return nil, err
 		}
-		e.GET("/static/*", echo.WrapHandler(http.StripPrefix("/static/", http.FileServer(http.FS(staticFS)))))
+		s.E.GET("/static/*", echo.WrapHandler(http.StripPrefix("/static/", http.FileServer(http.FS(staticFS)))))
 	} else {
 		slog.Info("Serving static assets from disk")
-		e.Static("/static", "web/static")
-	}
-
-	s := &Server{
-		E:                e,
-		DB:               db,
-		Cfg:              cfg,
-		Emailer:          emailer,
-		UserStore:        userStore,
-		homeHandler:      homeHandler,
-		authHandler:      authHandler,
-		dashboardHandler: dashboardHandler,
-		aboutHandler:     aboutHandler,
-		htmlHub:          htmlHub,
-		dataHub:          dataHub,
-		dataHandler:      dataHandler,
+		s.E.Static("/static", "web/static")
 	}
 
 	// Register all application routes, including those from modules.
 	s.RegisterRoutes()
 
-	return s
+	return s, nil
+}
+
+// initHandlers initializes all handler structs using the Server's dependencies.
+func (s *Server) initHandlers() {
+	s.homeHandler = handlers.NewHomeHandler()
+	s.dataHandler = data.NewHandler(s.dataHub)
+	s.authHandler = handlers.NewAuthHandler(s.UserStore, s.Emailer, s.Cfg.GetAppBaseURL())
+	s.dashboardHandler = handlers.NewDashboardHandler()
+	s.aboutHandler = &handlers.AboutHandler{}
 }
 
 // Start runs the HTTP server with graceful shutdown.
@@ -188,6 +188,10 @@ func (s *Server) Start() {
 	addr := s.Cfg.GetServerAddr()
 
 	// Start server in a goroutine so that it doesn't block.
+	// Also start the hubs, which are background services of the server.
+	go s.htmlHub.Run()
+	go s.dataHub.Run()
+
 	go func() {
 		slog.Info("Starting server", "address", addr)
 		if err := s.E.Start(addr); err != nil && err != http.ErrServerClosed {

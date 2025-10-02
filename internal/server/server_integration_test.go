@@ -17,7 +17,11 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/joho/godotenv"
+	"github.com/nfrund/goby/internal/config"
+	"github.com/nfrund/goby/internal/database"
 	"github.com/nfrund/goby/internal/domain"
+	"github.com/nfrund/goby/internal/email"
+	"github.com/nfrund/goby/internal/hub"
 	"github.com/nfrund/goby/internal/modules/wargame" // Assuming this is used in the test
 	"github.com/nfrund/goby/internal/server"
 	"github.com/stretchr/testify/assert" // Note: Corrected a typo in the original file's import path
@@ -51,9 +55,26 @@ func TestTwoChannelArchitecture_Integration(t *testing.T) {
 		_ = os.Chdir(originalWD)
 	}()
 
-	// Create a new server instance for testing
-	s := server.New()
-	s.RegisterRoutes()
+	// Create dependencies for the server, similar to main.go
+	cfg := config.New()
+	db, err := database.NewDB(context.Background(), cfg)
+	require.NoError(t, err)
+	defer db.Close(context.Background()) // Ensure DB connection is closed after the test
+
+	emailer, err := email.NewEmailService(cfg)
+	require.NoError(t, err)
+
+	htmlHub := hub.NewHub()
+	dataHub := hub.NewHub()
+
+	// Create a new server instance by injecting dependencies
+	s, err := server.New(
+		server.WithConfig(cfg),
+		server.WithDB(db, cfg.GetDBNs(), cfg.GetDBDb()),
+		server.WithEmailer(emailer),
+		server.WithHubs(htmlHub, dataHub),
+	)
+	require.NoError(t, err)
 	testServer := httptest.NewServer(s.E)
 	defer testServer.Close()
 
@@ -191,8 +212,24 @@ func TestServer_EmbeddedAssets_Integration(t *testing.T) {
 
 	// Create a new server instance. It will now use embedded assets
 	// because of the environment variables we set.
-	s := server.New()
-	s.RegisterRoutes()
+	cfg := config.New()
+	db, err := database.NewDB(context.Background(), cfg)
+	require.NoError(t, err)
+	defer db.Close(context.Background())
+
+	emailer, err := email.NewEmailService(cfg)
+	require.NoError(t, err)
+
+	htmlHub := hub.NewHub()
+	dataHub := hub.NewHub()
+
+	s, err := server.New(
+		server.WithConfig(cfg),
+		server.WithDB(db, cfg.GetDBNs(), cfg.GetDBDb()),
+		server.WithEmailer(emailer),
+		server.WithHubs(htmlHub, dataHub),
+	)
+	require.NoError(t, err)
 	testServer := httptest.NewServer(s.E)
 	defer testServer.Close()
 
