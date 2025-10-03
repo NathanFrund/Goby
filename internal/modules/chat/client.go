@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
-	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/domain"
 	"github.com/nfrund/goby/internal/hub"
 	"github.com/nfrund/goby/internal/modules/chat/templates/components"
@@ -29,7 +28,7 @@ type Client struct {
 	User *domain.User
 
 	// A reference to the template renderer.
-	renderer echo.Renderer
+	renderer rendering.Renderer
 }
 
 // readPump pumps messages from the WebSocket connection to the hub.
@@ -93,15 +92,10 @@ func (c *Client) readPump() {
 
 		// --- Render the message to an HTML fragment using the correct background-safe method ---
 		var renderedHTML []byte
-		if r, ok := c.renderer.(*rendering.UniversalRenderer); ok {
-			component := components.ChatMessage(chatMessage.Username, chatMessage.Content, chatMessage.SentAt)
-			renderedHTML, err = r.RenderComponent(context.Background(), component)
-			if err != nil {
-				slog.Error("readPump: Error rendering chat message component", "error", err)
-				continue
-			}
-		} else {
-			slog.Error("readPump: Renderer is not a UniversalRenderer")
+		component := components.ChatMessage(chatMessage.Username, chatMessage.Content, chatMessage.SentAt)
+		renderedHTML, err = c.renderer.RenderComponent(context.Background(), component)
+		if err != nil {
+			slog.Error("readPump: Error rendering chat message component", "error", err)
 			continue
 		}
 

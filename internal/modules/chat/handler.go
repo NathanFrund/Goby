@@ -20,17 +20,17 @@ import (
 // Handler holds dependencies for the chat module's HTTP handlers.
 type Handler struct {
 	hub      *hub.Hub
-	renderer echo.Renderer
+	renderer rendering.Renderer
 }
 
 // NewHandler creates a new chat handler with its dependencies.
-func NewHandler(h *hub.Hub, r echo.Renderer) *Handler {
+func NewHandler(h *hub.Hub, r rendering.Renderer) *Handler {
 	return &Handler{hub: h, renderer: r}
 }
 
 // ChatGet serves the main chat page.
 func (h *Handler) ChatGet(c echo.Context) error {
-	// The renderer is now available on the handler struct.
+	// The renderer is available on the handler struct.
 	// We can use it to render the ChatPage component directly.
 	if r, ok := h.renderer.(*rendering.UniversalRenderer); ok {
 		// Follow the handler-level composition pattern used elsewhere.
@@ -75,16 +75,13 @@ func (h *Handler) ServeWS(c echo.Context) error {
 	h.hub.Register <- client.subscriber
 
 	// --- Send a welcome message directly to the new user ---
-	go func() {
-		// We run this in a goroutine to avoid blocking the WebSocket upgrade process.
-		// Use the UniversalRenderer's RenderComponent method, which is safe for background tasks.
-		if r, ok := h.renderer.(*rendering.UniversalRenderer); ok {
-			welcomeComponent := components.WelcomeMessage("Welcome to the chat, " + user.Email + "!")
-			renderedHTML, err := r.RenderComponent(context.Background(), welcomeComponent)
-			if err != nil {
-				slog.Error("Failed to render welcome message", "error", err)
-				return
-			}
+	go func(renderer rendering.Renderer) {
+		// Pass the renderer into the goroutine to ensure safe concurrent access.
+		welcomeComponent := components.WelcomeMessage("Welcome to the chat, " + user.Email + "!")
+		renderedHTML, err := renderer.RenderComponent(context.Background(), welcomeComponent)
+		if err != nil {
+			slog.Error("Failed to render welcome message", "error", err)
+		} else {
 
 			directMessage := &hub.DirectMessage{
 				UserID:  user.ID.String(),
@@ -92,7 +89,7 @@ func (h *Handler) ServeWS(c echo.Context) error {
 			}
 			h.hub.Direct <- directMessage
 		}
-	}()
+	}(h.renderer)
 
 	go client.writePump()
 	go client.readPump()

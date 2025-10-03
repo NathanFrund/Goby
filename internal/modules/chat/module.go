@@ -8,6 +8,7 @@ import (
 	"github.com/nfrund/goby/internal/config"
 	"github.com/nfrund/goby/internal/hub"
 	"github.com/nfrund/goby/internal/registry"
+	"github.com/nfrund/goby/internal/rendering"
 )
 
 // ChatModule implements the module.Module interface for the chat feature.
@@ -36,7 +37,7 @@ func (m *ChatModule) Register(sl registry.ServiceLocator, cfg config.Provider) e
 	if !ok {
 		return fmt.Errorf("template renderer (Key: %s) not found in service locator", registry.TemplateRendererKey)
 	}
-	r := rendererVal.(echo.Renderer)
+	r := rendererVal.(rendering.Renderer)
 
 	// 3. Instantiate the Handler, injecting its dependencies.
 	handler := NewHandler(h, r)
