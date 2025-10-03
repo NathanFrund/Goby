@@ -2,7 +2,7 @@ package chat
 
 import (
 	"fmt"
-	"io/fs"
+	"log/slog"
 
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/config"
@@ -10,7 +10,7 @@ import (
 	"github.com/nfrund/goby/internal/registry"
 )
 
-// ChatModule implements the module.Module interface for the new chat feature.
+// ChatModule implements the module.Module interface for the chat feature.
 type ChatModule struct{}
 
 // Name returns the module name.
@@ -18,42 +18,45 @@ func (m *ChatModule) Name() string {
 	return "chat"
 }
 
-// TemplateFS returns the embedded filesystem for the module's templates.
-func (m *ChatModule) TemplateFS() fs.FS {
-	return templatesFS
-}
+// TemplateFS is removed: Component libraries (like templ/gomponents) are compiled
+// Go functions, not loaded from an embedded filesystem (fs.FS).
 
-// Register binds the chat2 handler into the service container.
+// Register binds the chat handler into the service container.
 func (m *ChatModule) Register(sl registry.ServiceLocator, cfg config.Provider) error {
+	// 1. Retrieve the real-time communication hub
 	hubVal, ok := sl.Get(string(registry.HTMLHubKey))
 	if !ok {
-		return fmt.Errorf("HTML hub not found in service locator")
+		// Log an error if the hub dependency is not met, as it's critical for this module.
+		return fmt.Errorf("HTML hub (Key: %s) not found in service locator", registry.HTMLHubKey)
 	}
-	hub := hubVal.(*hub.Hub)
+	h := hubVal.(*hub.Hub)
 
+	// 2. Retrieve the template renderer
 	rendererVal, ok := sl.Get(string(registry.TemplateRendererKey))
 	if !ok {
-		return fmt.Errorf("template renderer not found in service locator")
+		return fmt.Errorf("template renderer (Key: %s) not found in service locator", registry.TemplateRendererKey)
 	}
-	renderer := rendererVal.(echo.Renderer)
+	r := rendererVal.(echo.Renderer)
 
-	handler := NewHandler(hub, renderer)
+	// 3. Instantiate the Handler, injecting its dependencies.
+	handler := NewHandler(h, r)
 	sl.Set(string(registry.ChatHandlerKey), handler)
 
 	return nil
 }
 
-// Boot sets up the routes for the chat2 module.
+// Boot sets up the routes for the chat module.
 func (m *ChatModule) Boot(g *echo.Group, sl registry.ServiceLocator) error {
+	slog.Info("Booting ChatModule: Setting up routes")
 	handlerVal, ok := sl.Get(string(registry.ChatHandlerKey))
 	if !ok {
-		return fmt.Errorf("chat handler not found in service locator")
+		return fmt.Errorf("chat handler (Key: %s) not found in service locator", registry.ChatHandlerKey)
 	}
 	handler := handlerVal.(*Handler)
 
 	// Set up routes
 	g.GET("/chat", handler.ChatGet)
-	g.GET("/ws/chat", handler.ServeWS)
+	g.GET("/ws/html", handler.ServeWS)
 
 	return nil
 }

@@ -2,13 +2,12 @@ package server
 
 import (
 	"github.com/nfrund/goby/internal/module"
-	// "github.com/nfrund/goby/internal/modules/chat"
-	// "github.com/nfrund/goby/internal/modules/wargame"
+	"github.com/nfrund/goby/internal/modules/chat"
 )
 
 // AppModules is the central registry of all application modules.
 // The framework will iterate over this slice to register and boot each module.
 var AppModules = []module.Module{
 	// &wargame.WargameModule{},
-	// &chat.ChatModule{},
+	&chat.ChatModule{},
 }

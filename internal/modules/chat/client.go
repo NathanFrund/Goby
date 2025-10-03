@@ -1,7 +1,6 @@
 package chat
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"log/slog"
@@ -11,6 +10,8 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/domain"
 	"github.com/nfrund/goby/internal/hub"
+	"github.com/nfrund/goby/internal/modules/chat/templates/components"
+	"github.com/nfrund/goby/internal/rendering"
 )
 
 // Client is a middleman between the WebSocket connection and the hub.
@@ -85,21 +86,24 @@ func (c *Client) readPump() {
 
 		// Create a full Message object and broadcast it to the hub.
 		chatMessage := Message{
-			UserID:   c.User.ID.String(),
 			Username: username,
 			Content:  incoming.Content,
 			SentAt:   time.Now(),
 		}
 
-		// --- Render the message to an HTML fragment ---
-		var buf bytes.Buffer
-		err = c.renderer.Render(&buf, "chat2/partials/_message.html", chatMessage, nil)
-		if err != nil {
-			slog.Error("readPump: Error rendering chat message template", "error", err)
+		// --- Render the message to an HTML fragment using the correct background-safe method ---
+		var renderedHTML []byte
+		if r, ok := c.renderer.(*rendering.UniversalRenderer); ok {
+			component := components.ChatMessage(chatMessage.Username, chatMessage.Content, chatMessage.SentAt)
+			renderedHTML, err = r.RenderComponent(context.Background(), component)
+			if err != nil {
+				slog.Error("readPump: Error rendering chat message component", "error", err)
+				continue
+			}
+		} else {
+			slog.Error("readPump: Renderer is not a UniversalRenderer")
 			continue
 		}
-
-		renderedHTML := buf.Bytes()
 
 		// --- Broadcast the rendered HTML fragment to the hub ---
 		slog.Info("readPump: Broadcasting rendered HTML to hub", "html_bytes", len(renderedHTML))

@@ -1,8 +1,6 @@
 package module
 
 import (
-	"io/fs"
-
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/config"
 	"github.com/nfrund/goby/internal/registry"
@@ -20,8 +18,4 @@ type Module interface {
 	// Boot is for using services that have been registered, like setting up routes.
 	// This method is called after all modules have been registered.
 	Boot(g *echo.Group, sl registry.ServiceLocator) error
-
-	// TemplateFS returns the filesystem containing the module's templates.
-	// Return nil if the module doesn't provide any templates.
-	TemplateFS() fs.FS
 }

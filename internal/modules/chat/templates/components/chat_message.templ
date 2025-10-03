@@ -1,0 +1,12 @@
+package components
+
+import "time"
+
+// ChatMessage renders a single chat message.
+templ ChatMessage(username, content string, sentAt time.Time) {
+	<div hx-swap-oob="beforeend:#chat-messages">
+		<p class="p-2 rounded-lg bg-gray-100">
+			<strong class="text-blue-600">{ username }</strong>: <span class="text-gray-800">{ content }</span> <span class="text-xs text-gray-400 ml-2">{ sentAt.Format("3:04 PM") }</span>
+		</p>
+	</div>
+}

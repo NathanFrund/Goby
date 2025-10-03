@@ -1,0 +1,9 @@
+package components
+
+// WelcomeMessage renders a component displayed when a user connects.
+// It accepts the text content directly, mirroring the {{.Content}} usage.
+templ WelcomeMessage(content string) {	
+	<div hx-swap-oob="afterbegin:#chat-messages">
+		<div class="text-sm text-blue-600 italic p-2 bg-blue-50 border-l-4 border-blue-400 rounded-r-lg">{ content }</div>
+	</div>	
+}
