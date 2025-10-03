@@ -29,6 +29,7 @@ type Server struct {
 	Cfg       config.Provider
 	Emailer   domain.EmailSender
 	UserStore domain.UserRepository
+	Renderer  echo.Renderer
 
 	homeHandler      *handlers.HomeHandler
 	authHandler      *handlers.AuthHandler
@@ -128,6 +129,14 @@ func WithHubs(htmlHub, dataHub *hub.Hub) ServerOption {
 	}
 }
 
+// WithRenderer is an option to set the component renderer.
+func WithRenderer(renderer echo.Renderer) ServerOption {
+	return func(s *Server) error {
+		s.Renderer = renderer
+		return nil
+	}
+}
+
 // New creates a new Server instance by applying functional options.
 func New(opts ...ServerOption) (*Server, error) {
 	e := echo.New()
@@ -145,6 +154,9 @@ func New(opts ...ServerOption) (*Server, error) {
 	}
 
 	s.initHandlers()
+
+	// Set the renderer on the Echo instance so it can be used for page rendering.
+	s.E.Renderer = s.Renderer
 
 	// Configure and use session middleware
 	store := sessions.NewCookieStore([]byte(s.Cfg.GetSessionSecret()))

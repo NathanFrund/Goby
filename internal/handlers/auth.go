@@ -62,10 +62,8 @@ func (h *AuthHandler) RegisterGetHandler(c echo.Context) error {
 	// 5. Wrap the content in the Base layout, passing the flashes.
 	finalComponent := layouts.Base("Register", flashes, pageContent)
 
-	// 6. Render the final HTML response.
-	c.Response().Header().Set(echo.HeaderContentType, "text/html; charset=utf-8")
-	c.Response().WriteHeader(http.StatusOK)
-	return finalComponent.Render(c.Request().Context(), c.Response().Writer)
+	// 6. Render the final component using the universal renderer via c.Render().
+	return c.Render(http.StatusOK, "", finalComponent)
 }
 
 // RegisterPost handles the form submission for creating a new user.
@@ -148,10 +146,8 @@ func (h *AuthHandler) LoginGetHandler(c echo.Context) error {
 	// 5. Wrap the content in the Base layout, passing the flashes.
 	finalComponent := layouts.Base("Login", flashes, pageContent)
 
-	// 6. Render the final HTML response.
-	c.Response().Header().Set(echo.HeaderContentType, "text/html; charset=utf-8")
-	c.Response().WriteHeader(http.StatusOK)
-	return finalComponent.Render(c.Request().Context(), c.Response().Writer)
+	// 6. Render the final component using the universal renderer via c.Render().
+	return c.Render(http.StatusOK, "", finalComponent)
 }
 
 // LoginPost handles the form submission for logging in a user.
@@ -211,10 +207,8 @@ func (h *AuthHandler) ForgotPasswordGetHandler(c echo.Context) error {
 	// 4. Wrap the page content in the Base layout, passing the title and flash messages.
 	finalComponent := layouts.Base("Forgot Password", flashData, pageContent)
 
-	// 5. Render the final component directly using Templ's Render method.
-	c.Response().Header().Set(echo.HeaderContentType, "text/html; charset=utf-8")
-	c.Response().WriteHeader(http.StatusOK)
-	return finalComponent.Render(c.Request().Context(), c.Response().Writer)
+	// 5. Render the final component using the universal renderer via c.Render().
+	return c.Render(http.StatusOK, "", finalComponent)
 }
 
 // ForgotPasswordPost handles the form submission for requesting a password reset.
@@ -271,10 +265,8 @@ func (h *AuthHandler) ResetPasswordGetHandler(c echo.Context) error {
 	// 5. Wrap the content in the Base layout, passing the flashes.
 	finalComponent := layouts.Base("Reset Password", flashes, pageContent)
 
-	// 6. Render the final HTML response.
-	c.Response().Header().Set(echo.HeaderContentType, "text/html; charset=utf-8")
-	c.Response().WriteHeader(http.StatusOK)
-	return finalComponent.Render(c.Request().Context(), c.Response().Writer)
+	// 6. Render the final component using the universal renderer via c.Render().
+	return c.Render(http.StatusOK, "", finalComponent)
 }
 
 // ResetPasswordPostHandler handles the form submission for setting a new password.

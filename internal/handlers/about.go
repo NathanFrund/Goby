@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"net/http"
+
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/view"
 
@@ -25,6 +27,6 @@ func (h *AboutHandler) HandleGet(c echo.Context) error {
 	// This ensures the Gomponents content is rendered within your unified Templ shell.
 	page := layouts.Base("About Us", partials.FlashData{}, pageContent)
 
-	// 4. Render the full page using Templ's Render method.
-	return page.Render(c.Request().Context(), c.Response().Writer)
+	// 4. Render the full page using the universal renderer via c.Render().
+	return c.Render(http.StatusOK, "", page)
 }

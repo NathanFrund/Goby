@@ -12,6 +12,7 @@ import (
 	"github.com/nfrund/goby/internal/email"
 	"github.com/nfrund/goby/internal/hub"
 	"github.com/nfrund/goby/internal/logging"
+	"github.com/nfrund/goby/internal/rendering"
 	"github.com/nfrund/goby/internal/server"
 )
 
@@ -55,12 +56,16 @@ func main() {
 	htmlHub := hub.NewHub()
 	dataHub := hub.NewHub()
 
+	// Create the universal renderer that can handle both templ and gomponents.
+	renderer := rendering.NewUniversalRenderer()
+
 	// 3. Create the server by passing the option functions.
 	s, err := server.New(
 		server.WithConfig(cfg),
 		server.WithDB(db, cfg.GetDBNs(), cfg.GetDBDb()),
 		server.WithEmailer(emailer),
 		server.WithHubs(htmlHub, dataHub),
+		server.WithRenderer(renderer),
 	)
 	if err != nil {
 		slog.Error("Failed to create server", "error", err)

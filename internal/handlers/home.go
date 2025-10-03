@@ -35,14 +35,7 @@ func (h *HomeHandler) HomeGet(c echo.Context) error {
 
 	finalComponent := layouts.Base("Home", flashData, pageContent)
 
-	// 3. Render the final component directly to the response writer.
-	// This replaces the old c.Render(status, name, data) call.
-
-	// FIX: Use the standard string "text/html" as a reliable workaround for the
-	// potentially missing constant in the specific echo version being used.
-	c.Response().Header().Set(echo.HeaderContentType, "text/html")
-	c.Response().WriteHeader(http.StatusOK)
-
-	// Use the component's Render method to stream the HTML output.
-	return finalComponent.Render(c.Request().Context(), c.Response().Writer)
+	// 3. Render the final component using the universal renderer via c.Render().
+	// The 'name' parameter is ignored by our renderer, but the component is passed as 'data'.
+	return c.Render(http.StatusOK, "", finalComponent)
 }

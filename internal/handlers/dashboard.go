@@ -6,10 +6,11 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/domain"
 	"github.com/nfrund/goby/internal/middleware"
+	"github.com/nfrund/goby/internal/view"
 	"github.com/nfrund/goby/internal/view/dto/dashboard" // DTO
 	"github.com/nfrund/goby/web/src/templates/layouts"   // Layout
 	"github.com/nfrund/goby/web/src/templates/pages"     // Page Component
-	"github.com/nfrund/goby/web/src/templates/partials"  // Partials
+	// Partials
 )
 
 // DashboardHandler handles requests for the user dashboard.
@@ -50,15 +51,10 @@ func (h *DashboardHandler) DashboardGet(c echo.Context) error {
 	}
 
 	// 3. Instantiate and render the final Templ component.
-
 	pageContent := pages.Dashboard(data)
-	flashData := partials.FlashData{}
+	flashData := view.GetFlashData(c) // Use view helper to get flash data
 
+	// 4. Render the final component using the universal renderer via c.Render().
 	finalComponent := layouts.Base("Dashboard", flashData, pageContent)
-
-	c.Response().Header().Set(echo.HeaderContentType, echo.MIMETextHTMLCharsetUTF8)
-	c.Response().WriteHeader(http.StatusOK)
-
-	// Use the component's Render method to stream the HTML output.
-	return finalComponent.Render(c.Request().Context(), c.Response().Writer)
+	return c.Render(http.StatusOK, "", finalComponent)
 }

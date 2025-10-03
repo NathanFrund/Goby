@@ -56,7 +56,7 @@ func (s *Server) RegisterRoutes() {
 	sl.Set(string(registry.DBConnectionKey), s.DB) // Use direct SurrealDB client
 	sl.Set(string(registry.HTMLHubKey), s.htmlHub)
 	sl.Set(string(registry.DataHubKey), s.dataHub)
-	sl.Set(string(registry.TemplateRendererKey), s.E.Renderer)
+	sl.Set(string(registry.TemplateRendererKey), s.Renderer)
 	sl.Set(string(registry.AppConfigKey), s.Cfg)
 	sl.Set(string(registry.UserStoreKey), s.UserStore)
 
