@@ -71,8 +71,8 @@ func (h *Handler) ServeWS(c echo.Context) error {
 		UserID: user.ID.String(),
 		Send:   make(chan []byte, 256),
 	}
-	client := &Client{conn: conn, hub: h.hub, subscriber: sub, User: user, renderer: h.renderer}
-	h.hub.Register <- client.subscriber
+	bridge := &HubBridge{conn: conn, hub: h.hub, subscriber: sub, User: user, renderer: h.renderer}
+	h.hub.Register <- bridge.subscriber
 
 	// --- Send a welcome message directly to the new user ---
 	go func(renderer rendering.Renderer) {
@@ -91,8 +91,8 @@ func (h *Handler) ServeWS(c echo.Context) error {
 		}
 	}(h.renderer)
 
-	go client.writePump()
-	go client.readPump()
+	go bridge.writePump()
+	go bridge.readPump()
 
 	return nil
 }

@@ -13,8 +13,8 @@ import (
 	"github.com/nfrund/goby/internal/rendering"
 )
 
-// Client is a middleman between the WebSocket connection and the hub.
-type Client struct {
+// HubBridge is a middleman between the WebSocket connection and the hub.
+type HubBridge struct {
 	// The WebSocket connection.
 	conn *websocket.Conn
 
@@ -35,7 +35,7 @@ type Client struct {
 //
 // The application runs one readPump per connection. It ensures that there is at
 // most one reader on a connection by executing all reads from this goroutine.
-func (c *Client) readPump() {
+func (c *HubBridge) readPump() {
 	// When this function returns, it means the client has disconnected.
 	// We unregister the client and close the connection.
 	defer func() {
@@ -110,7 +110,7 @@ func (c *Client) readPump() {
 // A goroutine running writePump is started for each connection. The
 // application ensures that there is at most one writer to a connection by
 
-func (c *Client) writePump() {
+func (c *HubBridge) writePump() {
 	defer func() {
 		c.conn.Close(websocket.StatusNormalClosure, "")
 	}()
