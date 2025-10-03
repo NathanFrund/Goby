@@ -2,7 +2,6 @@ package wargame
 
 import (
 	"fmt"
-	"io/fs"
 	"log/slog"
 	"net/http"
 
@@ -10,6 +9,7 @@ import (
 	"github.com/nfrund/goby/internal/config"
 	"github.com/nfrund/goby/internal/hub"
 	"github.com/nfrund/goby/internal/registry"
+	"github.com/nfrund/goby/internal/rendering"
 )
 
 // WargameModule implements the module.Module interface.
@@ -18,11 +18,6 @@ type WargameModule struct{}
 // Name returns the unique name for the module.
 func (m *WargameModule) Name() string {
 	return "wargame"
-}
-
-// TemplateFS returns the embedded filesystem for the module's templates.
-func (m *WargameModule) TemplateFS() fs.FS {
-	return templatesFS
 }
 
 // Register creates the Wargame Engine and registers it in the service locator.
@@ -44,7 +39,7 @@ func (m *WargameModule) Register(sl registry.ServiceLocator, cfg config.Provider
 	if !ok {
 		return fmt.Errorf("template renderer not found in service locator for wargame module")
 	}
-	renderer := rendererVal.(echo.Renderer)
+	renderer := rendererVal.(rendering.Renderer)
 
 	slog.Info("Initializing wargame engine")
 	wargameEngine := NewEngine(htmlHub, dataHub, renderer)

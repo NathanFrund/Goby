@@ -12,6 +12,7 @@ require (
 	github.com/stretchr/testify v1.11.0
 	github.com/surrealdb/surrealdb.go v0.9.0
 	maragu.dev/gomponents v1.2.0
+	maragu.dev/gomponents-htmx v0.6.1
 )
 
 require (
