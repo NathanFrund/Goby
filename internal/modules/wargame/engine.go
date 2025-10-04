@@ -1,15 +1,14 @@
 package wargame
 
 import (
-	"bytes"
-	"embed"
+	"context"
 	"encoding/json"
 	"log/slog"
 	"math/rand/v2"
 
-	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/hub"
-	"github.com/nfrund/goby/internal/templates"
+	"github.com/nfrund/goby/internal/modules/wargame/templates/components"
+	"github.com/nfrund/goby/internal/rendering"
 )
 
 // DamageEvent represents a damage event in the game for HTML rendering.
@@ -44,27 +43,12 @@ type GameStateUpdate struct {
 type Engine struct {
 	htmlHub  *hub.Hub
 	dataHub  *hub.Hub
-	renderer echo.Renderer
+	renderer rendering.Renderer
 }
 
 // NewEngine creates a new wargame engine instance.
-func NewEngine(htmlHub, dataHub *hub.Hub, r echo.Renderer) *Engine {
+func NewEngine(htmlHub, dataHub *hub.Hub, r rendering.Renderer) *Engine {
 	return &Engine{htmlHub: htmlHub, dataHub: dataHub, renderer: r}
-}
-
-func init() {
-	// Self-register the template registration function.
-	templates.Register(RegisterTemplates)
-}
-
-//go:embed templates/components/*.html
-var templatesFS embed.FS
-
-// RegisterTemplates registers embedded templates for the wargame module under the "wargame" namespace.
-func RegisterTemplates(r *templates.Renderer) {
-	if err := r.AddStandaloneFromFS(templatesFS, "templates/components", "wargame"); err != nil {
-		slog.Error("Failed to register wargame embedded components", "error", err)
-	}
 }
 
 // SimulateHit simulates a unit being hit and publishes updates to both channels.
@@ -78,10 +62,10 @@ func (e *Engine) SimulateHit() {
 	newHealth := 100 - damage
 
 	// 1. Publish the rendered HTML fragment to the HTML hub for web clients.
-	htmlEvent := DamageEvent{TargetUnit: target.Name, DamageAmount: damage, AttackingUnit: attacker}
-	var buf bytes.Buffer
-	if err := e.renderer.Render(&buf, "wargame/wargame-damage.html", htmlEvent, nil); err == nil {
-		e.htmlHub.Broadcast <- buf.Bytes()
+	component := components.DamageEvent(target.Name, damage, attacker)
+	htmlContent, err := e.renderer.RenderComponent(context.Background(), component)
+	if err == nil {
+		e.htmlHub.Broadcast <- htmlContent
 		slog.Info("Wargame engine: Published HTML fragment to htmlHub.")
 	} else {
 		slog.Error("Wargame engine: Failed to render HTML fragment", "error", err)

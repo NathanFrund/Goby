@@ -1,8 +1,9 @@
 module github.com/nfrund/goby
 
-go 1.23.0
+go 1.25.0
 
 require (
+	github.com/a-h/templ v0.3.943
 	github.com/coder/websocket v1.8.14
 	github.com/gorilla/sessions v1.3.0
 	github.com/joho/godotenv v1.5.1
@@ -10,6 +11,8 @@ require (
 	github.com/labstack/echo/v4 v4.13.4
 	github.com/stretchr/testify v1.11.0
 	github.com/surrealdb/surrealdb.go v0.9.0
+	maragu.dev/gomponents v1.2.0
+	maragu.dev/gomponents-htmx v0.6.1
 )
 
 require (
@@ -27,10 +30,10 @@ require (
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasttemplate v1.2.2 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
-	golang.org/x/crypto v0.38.0 // indirect
-	golang.org/x/net v0.40.0 // indirect
-	golang.org/x/sys v0.33.0 // indirect
-	golang.org/x/text v0.25.0 // indirect
+	golang.org/x/crypto v0.40.0 // indirect
+	golang.org/x/net v0.42.0 // indirect
+	golang.org/x/sys v0.34.0 // indirect
+	golang.org/x/text v0.27.0 // indirect
 	golang.org/x/time v0.11.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

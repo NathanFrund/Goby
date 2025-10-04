@@ -5,7 +5,25 @@ import (
 	"net"
 	"os"
 	"strings"
+	"sync"
 )
+
+// ModuleConfigLoader is a function that loads configuration for a specific module.
+type ModuleConfigLoader func() interface{}
+
+var (
+	moduleConfigLoaders = make(map[string]ModuleConfigLoader)
+	_                   = make(map[string]interface{}) // moduleConfigs is used in Config struct
+	configMutex        sync.RWMutex
+)
+
+// RegisterModuleConfig registers a configuration loader for a module.
+// This should be called during package initialization.
+func RegisterModuleConfig(moduleName string, loader ModuleConfigLoader) {
+	configMutex.Lock()
+	defer configMutex.Unlock()
+	moduleConfigLoaders[moduleName] = loader
+}
 
 // Provider defines the interface for accessing configuration values.
 // This allows for dependency injection and easier testing.
@@ -21,6 +39,9 @@ type Provider interface {
 	GetEmailSender() string
 	GetAppBaseURL() string
 	GetSessionSecret() string
+	// GetModuleConfig retrieves the configuration for a specific module.
+	// Returns the config and a boolean indicating if it was found.
+	GetModuleConfig(moduleName string) (interface{}, bool)
 }
 
 // Config holds all configuration for the application.
@@ -36,6 +57,8 @@ type Config struct {
 	EmailSender   string
 	AppBaseURL    string
 	SessionSecret string
+	// ModuleConfigs holds configuration for registered modules.
+	moduleConfigs map[string]interface{}
 }
 
 // New loads configuration from environment variables.
@@ -52,6 +75,15 @@ func New() Provider {
 		EmailSender:   os.Getenv("EMAIL_SENDER"),
 		AppBaseURL:    os.Getenv("APP_BASE_URL"),
 		SessionSecret: os.Getenv("SESSION_SECRET"),
+		moduleConfigs: make(map[string]interface{}),
+	}
+
+	// Load all registered module configurations
+	configMutex.RLock()
+	defer configMutex.RUnlock()
+	
+	for moduleName, loader := range moduleConfigLoaders {
+		cfg.moduleConfigs[moduleName] = loader()
 	}
 
 	if cfg.ServerAddr == "" {
@@ -147,4 +179,14 @@ func (c *Config) GetAppBaseURL() string {
 // GetSessionSecret returns the session secret key.
 func (c *Config) GetSessionSecret() string {
 	return c.SessionSecret
+}
+
+// GetModuleConfig retrieves the configuration for a specific module.
+// Returns the config and a boolean indicating if it was found.
+func (c *Config) GetModuleConfig(moduleName string) (interface{}, bool) {
+	configMutex.RLock()
+	defer configMutex.RUnlock()
+	
+	cfg, exists := c.moduleConfigs[moduleName]
+	return cfg, exists
 }

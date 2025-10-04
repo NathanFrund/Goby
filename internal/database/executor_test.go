@@ -2,9 +2,12 @@ package database
 
 import (
 	"context"
+	"log"
 	"testing"
 	"time"
 
+	"github.com/joho/godotenv"
+	"github.com/nfrund/goby/internal/config"
 	"github.com/nfrund/goby/internal/domain"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -16,6 +19,27 @@ import (
 type TestUser struct {
 	domain.User
 	Password *string `json:"password,omitempty"`
+}
+
+func TestMain(m *testing.M) {
+	// Load test-specific environment variables.
+	if err := godotenv.Overload("../../.env.test"); err != nil {
+		log.Fatalf("Error loading .env.test file for integration tests: %v", err)
+	}
+	m.Run()
+}
+
+// setupTestDB is a test helper that creates a connection to the test database
+// and returns the connection along with a cleanup function.
+func setupTestDB(t *testing.T) (*surreal.DB, func()) {
+	cfg := config.New()
+	db, err := NewDB(context.Background(), cfg)
+	require.NoError(t, err, "Failed to connect to test database")
+
+	cleanup := func() {
+		db.Close(context.Background())
+	}
+	return db, cleanup
 }
 
 func TestExecutor(t *testing.T) {

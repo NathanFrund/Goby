@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -16,8 +17,12 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/joho/godotenv"
+	"github.com/nfrund/goby/internal/config"
+	"github.com/nfrund/goby/internal/database"
 	"github.com/nfrund/goby/internal/domain"
-	"github.com/nfrund/goby/internal/modules/wargame"
+	"github.com/nfrund/goby/internal/email"
+	"github.com/nfrund/goby/internal/hub"
+	"github.com/nfrund/goby/internal/modules/wargame" // Assuming this is used in the test
 	"github.com/nfrund/goby/internal/server"
 	"github.com/stretchr/testify/assert" // Note: Corrected a typo in the original file's import path
 	"github.com/stretchr/testify/require"
@@ -50,9 +55,26 @@ func TestTwoChannelArchitecture_Integration(t *testing.T) {
 		_ = os.Chdir(originalWD)
 	}()
 
-	// Create a new server instance for testing
-	s := server.New()
-	s.RegisterRoutes()
+	// Create dependencies for the server, similar to main.go
+	cfg := config.New()
+	db, err := database.NewDB(context.Background(), cfg)
+	require.NoError(t, err)
+	defer db.Close(context.Background()) // Ensure DB connection is closed after the test
+
+	emailer, err := email.NewEmailService(cfg)
+	require.NoError(t, err)
+
+	htmlHub := hub.NewHub()
+	dataHub := hub.NewHub()
+
+	// Create a new server instance by injecting dependencies
+	s, err := server.New(
+		server.WithConfig(cfg),
+		server.WithDB(db, cfg.GetDBNs(), cfg.GetDBDb()),
+		server.WithEmailer(emailer),
+		server.WithHubs(htmlHub, dataHub),
+	)
+	require.NoError(t, err)
 	testServer := httptest.NewServer(s.E)
 	defer testServer.Close()
 
@@ -171,4 +193,71 @@ func TestTwoChannelArchitecture_Integration(t *testing.T) {
 		assert.Equal(t, "damage", gameState.EventType, "JSON eventType should be 'damage'")
 		assert.Greater(t, gameState.DamageTaken, 0, "JSON damageTaken should be greater than 0")
 	}
+}
+
+func TestServer_EmbeddedAssets_Integration(t *testing.T) {
+	// Use t.Setenv to ensure environment variables are scoped to this test
+	// and cleaned up automatically.
+	t.Setenv("APP_TEMPLATES", "embed")
+	t.Setenv("APP_STATIC", "embed")
+
+	// Change to project root, similar to the other integration test.
+	originalWD, err := os.Getwd()
+	require.NoError(t, err)
+	err = os.Chdir("../../")
+	require.NoError(t, err)
+	defer func() {
+		_ = os.Chdir(originalWD)
+	}()
+
+	// Create a new server instance. It will now use embedded assets
+	// because of the environment variables we set.
+	cfg := config.New()
+	db, err := database.NewDB(context.Background(), cfg)
+	require.NoError(t, err)
+	defer db.Close(context.Background())
+
+	emailer, err := email.NewEmailService(cfg)
+	require.NoError(t, err)
+
+	htmlHub := hub.NewHub()
+	dataHub := hub.NewHub()
+
+	s, err := server.New(
+		server.WithConfig(cfg),
+		server.WithDB(db, cfg.GetDBNs(), cfg.GetDBDb()),
+		server.WithEmailer(emailer),
+		server.WithHubs(htmlHub, dataHub),
+	)
+	require.NoError(t, err)
+	testServer := httptest.NewServer(s.E)
+	defer testServer.Close()
+
+	t.Run("it serves the home page from embedded templates", func(t *testing.T) {
+		// Make a request to the root URL
+		res, err := http.Get(testServer.URL + "/")
+		require.NoError(t, err)
+		defer res.Body.Close()
+
+		// Check that the status code is 200 OK.
+		assert.Equal(t, http.StatusOK, res.StatusCode)
+
+		// Check that the body contains some text from the home page.
+		body, err := io.ReadAll(res.Body)
+		require.NoError(t, err)
+		assert.Contains(t, string(body), "Goby", "The home page should contain the project name")
+	})
+
+	t.Run("it serves a static CSS file from embedded assets", func(t *testing.T) {
+		// Make a request to a static asset
+		res, err := http.Get(testServer.URL + "/static/css/style.css")
+		require.NoError(t, err)
+		defer res.Body.Close()
+
+		// Check that the status code is 200 OK.
+		assert.Equal(t, http.StatusOK, res.StatusCode)
+
+		// Check that the Content-Type is correct for a CSS file.
+		assert.Equal(t, "text/css; charset=utf-8", res.Header.Get("Content-Type"))
+	})
 }

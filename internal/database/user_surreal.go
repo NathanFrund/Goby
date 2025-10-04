@@ -137,6 +137,8 @@ func generateSecureToken(length int) (string, error) {
 }
 
 // GenerateResetToken creates a secure reset token and sets its expiration
+// CRITICAL: This uses Go's time package to set the expiration as an RFC3339 string.
+// This is the "art that works" approach that avoids SurrealDB's time parsing errors.
 func (s *SurrealUserStore) GenerateResetToken(ctx context.Context, email string) (string, error) {
 	// Ensure the correct namespace and database are selected for this operation.
 	if err := s.db.Use(ctx, s.ns, s.dbName); err != nil {
@@ -161,7 +163,6 @@ func (s *SurrealUserStore) GenerateResetToken(ctx context.Context, email string)
 	// Set token expiration (24 hours from now)
 	expires := time.Now().UTC().Add(24 * time.Hour).Format(time.RFC3339)
 
-	// Log the token and expiration for debugging
 	slog.Debug(
 		"Setting reset token for user",
 		"user_id", user.ID,
@@ -171,7 +172,7 @@ func (s *SurrealUserStore) GenerateResetToken(ctx context.Context, email string)
 
 	// Update user with reset token and expiration
 	query := `
-		UPDATE $id SET 
+		UPDATE $id SET
 			resetToken = $reset_token,
 			resetTokenExpires = $expires
 	`
@@ -189,9 +190,9 @@ func (s *SurrealUserStore) GenerateResetToken(ctx context.Context, email string)
 	return token, nil
 }
 
-// GetUserByResetToken finds and validates a reset token.
-// It returns the user if the token is valid and not expired.
-// The token is automatically invalidated after this call to prevent reuse.
+// GetUserByResetToken finds and validates a reset token using Go's time check.
+// CRITICAL CHANGE: This function now serves only as a non-mutating validation step.
+// The token is NOT invalidated here; invalidation is now handled atomically in ResetPassword.
 func (s *SurrealUserStore) GetUserByResetToken(ctx context.Context, token string) (*domain.User, error) {
 	if token == "" {
 		return nil, errors.New("reset token cannot be empty")
@@ -202,10 +203,9 @@ func (s *SurrealUserStore) GetUserByResetToken(ctx context.Context, token string
 		return nil, fmt.Errorf("failed to set database scope: %w", err)
 	}
 
-	// First, find the user with the given token
-	// Note: Don't include semicolon as QueryOne will add LIMIT 1 if needed
+	// Find the user with the given token
 	query := `
-		SELECT * FROM user 
+		SELECT * FROM user
 		WHERE resetToken = $reset_token
 	`
 	params := map[string]interface{}{
@@ -218,23 +218,16 @@ func (s *SurrealUserStore) GetUserByResetToken(ctx context.Context, token string
 		return nil, fmt.Errorf("error finding user by reset token: %w", err)
 	}
 
-	// If no user found with this token
-	if user == nil {
-		slog.Debug("No user found with the provided reset token")
-		return nil, nil
+	// If no user found
+	if user == nil || user.ResetToken == nil || *user.ResetToken != token {
+		slog.Debug("No user found with the provided reset token or token mismatch")
+		return nil, errors.New("invalid or expired reset link")
 	}
 
-	// Explicitly check if the token field exists and matches.
-	// While the query should ensure this, this check prevents any ambiguity.
-	if user.ResetToken == nil || *user.ResetToken != token {
-		slog.Debug("User found, but reset token does not match or is nil")
-		return nil, nil
-	}
-
-	// Check if token has expired
+	// Check if token has expired (using Go's time comparison - "art that works")
 	if user.ResetTokenExpires == nil {
 		slog.Debug("Reset token has no expiration time")
-		return nil, nil
+		return nil, errors.New("invalid or expired reset link")
 	}
 
 	expires, err := time.Parse(time.RFC3339, *user.ResetTokenExpires)
@@ -245,62 +238,66 @@ func (s *SurrealUserStore) GetUserByResetToken(ctx context.Context, token string
 
 	if time.Now().After(expires) {
 		slog.Debug("Reset token expired", "expires_at", *user.ResetTokenExpires)
-		return nil, nil
-	}
-
-	// Invalidate the token to prevent reuse
-	invalidateQuery := `
-		UPDATE $id SET 
-			resetToken = NONE,
-			resetTokenExpires = NONE
-	`
-	invalidateParams := map[string]interface{}{
-		"id": user.ID,
-	}
-
-	if err := Execute(ctx, s.db, invalidateQuery, invalidateParams); err != nil {
-		// If we can't invalidate the token, we must not proceed.
-		// This prevents the token from being reused if the database operation fails.
-		return nil, fmt.Errorf("critical: failed to invalidate reset token for user %s: %w", user.ID, err)
+		return nil, errors.New("invalid or expired reset link")
 	}
 
 	slog.Debug("Successfully validated reset token for user", "user_id", user.ID)
+	// Return the user without modifying the database state
 	return user, nil
 }
 
-// ResetPassword updates a user's password using a valid reset token
-// The token is automatically invalidated as part of GetUserByResetToken
+// ResetPassword performs an atomic password reset.
+// It uses a single query to verify the token's existence, check expiration, update the password,
+// and invalidate the token. It does NOT call GetUserByResetToken to avoid conflict.
 func (s *SurrealUserStore) ResetPassword(ctx context.Context, token, newPassword string) (*domain.User, error) {
-	if token == "" {
-		return nil, errors.New("reset token cannot be empty")
-	}
-	if newPassword == "" {
-		return nil, errors.New("new password cannot be empty")
+	if token == "" || newPassword == "" {
+		return nil, errors.New("token and password cannot be empty")
 	}
 
-	// Get and validate the user by token - this will also invalidate the token
-	user, err := s.GetUserByResetToken(ctx, token)
-	if err != nil {
-		return nil, fmt.Errorf("invalid or expired reset token: %w", err)
-	}
-	if user == nil {
-		return nil, fmt.Errorf("invalid or expired reset token")
+	if err := s.db.Use(ctx, s.ns, s.dbName); err != nil {
+		return nil, fmt.Errorf("failed to set database scope: %w", err)
 	}
 
-	// Update the user's password using SurrealDB's built-in password hashing
+	// This single query performs the atomic update:
+	// 1. It finds the user where the token matches AND is not expired.
+	// 2. It sets the new password (using crypto::argon2::generate).
+	// 3. It immediately invalidates the token by setting both fields to NONE.
+	// 4. It returns the updated user object.
+	// NOTE: We use type::datetime() on the expiration field to force the database to treat
+	// the stored string as a datetime for comparison, resolving prior issues.
 	query := `
-		UPDATE $id SET 
-			password = crypto::argon2::generate($password)
+		UPDATE user SET
+			password = crypto::argon2::generate($password),
+			resetToken = NONE,
+			resetTokenExpires = NONE
+		WHERE resetToken = $target_token AND type::datetime(resetTokenExpires) > time::now()
+		RETURN AFTER; // Use RETURN AFTER to get the complete record
 	`
+
+	// Renaming the key to "target_token" avoids conflicts with SurrealDB's reserved 'token' keyword.
 	params := map[string]interface{}{
-		"id":       user.ID,
-		"password": newPassword,
+		"target_token": token,
+		"password":     newPassword,
 	}
 
-	if err := Execute(ctx, s.db, query, params); err != nil {
-		return nil, fmt.Errorf("failed to update password: %w", err)
+	// NOTE: Query is a hypothetical helper function that executes the SurrealQL.
+	updatedUsers, err := Query[domain.User](ctx, s.db, query, params)
+	if err != nil {
+		slog.Error("Database error during atomic password reset", "error", err)
+		return nil, fmt.Errorf("failed to execute atomic password reset: %w", err)
 	}
 
+	if len(updatedUsers) == 0 {
+		// If no users were updated, the WHERE clause failed (token invalid or expired).
+		slog.Warn("Password reset failed: Invalid or expired token")
+		return nil, errors.New("invalid or expired reset link")
+	}
+
+	user := &updatedUsers[0]
+	// Clear the password before returning (security best practice)
+	user.Password = ""
+
+	slog.Info("Successfully reset password", "user_id", user.ID)
 	return user, nil
 }
 

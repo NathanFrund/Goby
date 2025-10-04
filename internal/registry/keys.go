@@ -5,7 +5,15 @@ type ServiceKey string
 
 // Service keys for dependency injection. Using constants prevents typos.
 const (
-	WargameEngineKey ServiceKey = "wargame.engine"
-	// To add a new service key:
-	// GreeterServiceKey ServiceKey = "greeter.service"
+	WargameEngineKey    ServiceKey = "wargame.engine"
+	ChatHandlerKey      ServiceKey = "chat.handler"
+	FullChatStoreKey    ServiceKey = "fullchat.store"
+	HTMLHubKey          ServiceKey = "hub.html"
+	DataHubKey          ServiceKey = "hub.data"
+	TemplateRendererKey ServiceKey = "templates.renderer"
+	DBConnectionKey     ServiceKey = "database.connection"
+	AppConfigKey        ServiceKey = "config.provider"
+	UserStoreKey        ServiceKey = "user.store"
+	MessengerHandlerKey ServiceKey = "messenger.handler"
+	Chat2HandlerKey     ServiceKey = "chat2.handler"
 )

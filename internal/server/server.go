@@ -2,164 +2,229 @@ package server
 
 import (
 	"context"
-	"log"
+	"io/fs"
 	"log/slog"
+	"net/http"
 	"os"
-	"path/filepath"
+	"time"
 
 	"github.com/gorilla/sessions"
-	"github.com/joho/godotenv"
 	"github.com/labstack/echo-contrib/session"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/nfrund/goby/internal/config"
 	"github.com/nfrund/goby/internal/database"
 	"github.com/nfrund/goby/internal/domain"
-	"github.com/nfrund/goby/internal/email"
 	"github.com/nfrund/goby/internal/handlers"
 	"github.com/nfrund/goby/internal/hub"
-	"github.com/nfrund/goby/internal/logging"
-	"github.com/nfrund/goby/internal/modules/chat"
 	"github.com/nfrund/goby/internal/modules/data"
-	"github.com/nfrund/goby/internal/templates"
+	"github.com/nfrund/goby/web"
 	"github.com/surrealdb/surrealdb.go"
 )
 
 // Server holds the dependencies for the HTTP server.
 type Server struct {
-	E                *echo.Echo
-	DB               *surrealdb.DB
-	Cfg              config.Provider
-	Emailer          domain.EmailSender
-	UserStore        domain.UserRepository
+	E         *echo.Echo
+	DB        *surrealdb.DB
+	Cfg       config.Provider
+	Emailer   domain.EmailSender
+	UserStore domain.UserRepository
+	Renderer  echo.Renderer
+
 	homeHandler      *handlers.HomeHandler
 	authHandler      *handlers.AuthHandler
 	dashboardHandler *handlers.DashboardHandler
-	htmlHub          *hub.Hub
-	dataHub          *hub.Hub
-	chatHandler      *chat.Handler
-	dataHandler      *data.Handler
+	aboutHandler     *handlers.AboutHandler
+
+	htmlHub     *hub.Hub
+	dataHub     *hub.Hub
+	dataHandler *data.Handler
 }
 
-// New creates a new Server instance.
-func New() *Server {
-	// Load environment variables from .env file if it exists
-	if err := godotenv.Load(); err != nil {
-		// We don't have slog configured yet, so we use the standard logger here.
-		// This is acceptable as it's only for the initial setup.
-		log.Println("No .env file found, relying on environment variables")
-	}
-
-	logging.New() // Initialize the structured logger
-	cfg := config.New()
-	db, err := database.NewDB(context.Background(), cfg)
-	if err != nil {
-		slog.Error("Failed to connect to database", "error", err)
-		os.Exit(1)
-	}
-
-	emailer, err := email.NewEmailService(cfg)
-	if err != nil {
-		slog.Error("Failed to initialize email service", "error", err)
-		os.Exit(1)
-	}
-
-	// Create and run two separate hubs for our two channels.
-	htmlHub := hub.NewHub()
-	go htmlHub.Run()
-
-	dataHub := hub.NewHub()
-	go dataHub.Run()
-
-	// Create stores and handlers, making them dependencies of the server.
-	userStore := database.NewSurrealUserStore(db, cfg.GetDBNs(), cfg.GetDBDb())
-	homeHandler := handlers.NewHomeHandler()
-	dataHandler := data.NewHandler(dataHub)
-	authHandler := handlers.NewAuthHandler(userStore, emailer, cfg.GetAppBaseURL())
-	dashboardHandler := handlers.NewDashboardHandler()
-
-	e := echo.New()
-	e.Use(middleware.Logger())
+func setupErrorHandling(e *echo.Echo) {
+	// 1. Recover Middleware: CRITICAL for Panics
+	// This catches any panic that occurs during request handling, prevents the Go app
+	// from crashing, and logs the full stack trace to your console.
 	e.Use(middleware.Recover())
 
+	// 2. Custom HTTP Error Handler: CRITICAL for Unhandled Errors
+	// This intercepts errors returned by handlers (e.g., 'return err') or by Echo's internal systems.
+	e.HTTPErrorHandler = func(err error, c echo.Context) {
+		if c.Response().Committed {
+			return // Cannot write headers after the response is committed.
+		}
+
+		// Try to cast the error to a standard Echo HTTPError
+		he, ok := err.(*echo.HTTPError)
+		if !ok {
+			// If it's not an Echo HTTPError, it's an unexpected internal error.
+			slog.Error("Internal Server Error (Unhandled)",
+				"error", err.Error(),
+				"method", c.Request().Method,
+				"path", c.Path(),
+				"remote_ip", c.RealIP(),
+				// Log the Request ID if available (from middleware.RequestID)
+				"request_id", c.Response().Header().Get(echo.HeaderXRequestID),
+			)
+			// Ensure we still return a standard 500 response
+			he = &echo.HTTPError{Code: http.StatusInternalServerError, Message: http.StatusText(http.StatusInternalServerError)}
+		}
+
+		// Log all 5xx errors returned by handlers as errors, and 4xx as warnings.
+		if he.Code >= 500 {
+			slog.Error("HTTP Error",
+				"status", he.Code,
+				"message", he.Message,
+				"path", c.Path(),
+				"method", c.Request().Method,
+			)
+		} else if he.Code >= 400 {
+			slog.Warn("Client Error",
+				"status", he.Code,
+				"message", he.Message,
+				"path", c.Path(),
+				"method", c.Request().Method,
+			)
+		}
+
+		// Respond to the client (we'll just use JSON for errors for simplicity)
+		c.JSON(he.Code, map[string]interface{}{"error": he.Message})
+	}
+}
+
+// ServerOption is a function that configures a Server.
+type ServerOption func(*Server) error
+
+// WithConfig is an option to set the configuration provider.
+func WithConfig(cfg config.Provider) ServerOption {
+	return func(s *Server) error {
+		s.Cfg = cfg
+		return nil
+	}
+}
+
+// WithDB is an option to set the database connection and the UserStore.
+func WithDB(db *surrealdb.DB, ns, dbName string) ServerOption {
+	return func(s *Server) error {
+		s.DB = db
+		s.UserStore = database.NewSurrealUserStore(db, ns, dbName)
+		return nil
+	}
+}
+
+// WithEmailer is an option to set the email sender.
+func WithEmailer(emailer domain.EmailSender) ServerOption {
+	return func(s *Server) error {
+		s.Emailer = emailer
+		return nil
+	}
+}
+
+// WithHubs is an option to set the WebSocket hubs.
+func WithHubs(htmlHub, dataHub *hub.Hub) ServerOption {
+	return func(s *Server) error {
+		s.htmlHub = htmlHub
+		s.dataHub = dataHub
+		return nil
+	}
+}
+
+// WithRenderer is an option to set the component renderer.
+func WithRenderer(renderer echo.Renderer) ServerOption {
+	return func(s *Server) error {
+		s.Renderer = renderer
+		return nil
+	}
+}
+
+// New creates a new Server instance by applying functional options.
+func New(opts ...ServerOption) (*Server, error) {
+	e := echo.New()
+	setupErrorHandling(e)
+
+	s := &Server{
+		E: e,
+	}
+
+	// Loop through the provided options and apply them.
+	for _, opt := range opts {
+		if err := opt(s); err != nil {
+			return nil, err
+		}
+	}
+
+	s.initHandlers()
+
+	// Set the renderer on the Echo instance so it can be used for page rendering.
+	s.E.Renderer = s.Renderer
+
 	// Configure and use session middleware
-	store := sessions.NewCookieStore([]byte(cfg.GetSessionSecret()))
+	store := sessions.NewCookieStore([]byte(s.Cfg.GetSessionSecret()))
 	store.Options = &sessions.Options{
 		Path:     "/",
 		MaxAge:   86400 * 7, // 7 days
 		HttpOnly: true,
 	}
-	e.Use(session.Middleware(store))
+	s.E.Use(session.Middleware(store))
 
-	// Serve static files from the "web/static" directory.
-	e.Static("/static", "web/static")
-
-	// Setup template renderer (base shared templates from disk)
-	renderer := templates.NewRenderer("web/src/templates")
-
-	// Register embedded templates for modules first (prod-friendly, can be overridden by disk in dev)
-	// This call will execute all template registration functions from modules that have self-registered.
-	templates.ApplyRegistrars(renderer)
-
-	// Auto-discover modules under internal/modules and register their templates with namespace = module name.
-	registerModuleTemplates := func(r *templates.Renderer) {
-		modulesRoot := "internal/modules"
-		entries, err := os.ReadDir(modulesRoot)
+	// Serve static files from disk or embedded FS based on APP_STATIC.
+	if os.Getenv("APP_STATIC") == "embed" {
+		slog.Info("Serving embedded static assets")
+		staticFS, err := fs.Sub(web.FS, "static")
 		if err != nil {
-			slog.Warn("Could not read modules directory", "path", modulesRoot, "error", err)
-			return
+			return nil, err
 		}
-		for _, e := range entries {
-			if !e.IsDir() {
-				continue
-			}
-			moduleName := e.Name()
-			moduleTemplatesRoot := filepath.Join(modulesRoot, moduleName, "templates")
-
-			// Register module components
-			componentsDir := filepath.Join(moduleTemplatesRoot, "components")
-			if fi, err := os.Stat(componentsDir); err == nil && fi.IsDir() {
-				if err := r.AddStandaloneFrom(componentsDir, moduleName); err != nil {
-					slog.Error("Failed to register module components", "module", moduleName, "error", err)
-				}
-			}
-
-			// Register module partials (also standalone)
-			partialsDir := filepath.Join(moduleTemplatesRoot, "partials")
-			if fi, err := os.Stat(partialsDir); err == nil && fi.IsDir() {
-				if err := r.AddStandaloneFrom(partialsDir, moduleName); err != nil {
-					slog.Error("Failed to register module partials", "module", moduleName, "error", err)
-				}
-			}
-
-			// Register module pages (optional)
-			pagesDir := filepath.Join(moduleTemplatesRoot, "pages")
-			if fi, err := os.Stat(pagesDir); err == nil && fi.IsDir() {
-				if err := r.AddPagesFrom(moduleTemplatesRoot, moduleName); err != nil {
-					slog.Error("Failed to register module pages", "module", moduleName, "error", err)
-				}
-			}
-		}
+		s.E.GET("/static/*", echo.WrapHandler(http.StripPrefix("/static/", http.FileServer(http.FS(staticFS)))))
+	} else {
+		slog.Info("Serving static assets from disk")
+		s.E.Static("/static", "web/static")
 	}
-	registerModuleTemplates(renderer)
 
-	// Create the handler for our chat module, injecting the HTML hub and renderer.
-	chatHandler := chat.NewHandler(htmlHub, renderer)
+	// Register all application routes, including those from modules.
+	s.RegisterRoutes()
 
-	e.Renderer = renderer
+	return s, nil
+}
 
-	return &Server{
-		E:                e,
-		DB:               db,
-		Cfg:              cfg,
-		Emailer:          emailer,
-		UserStore:        userStore,
-		homeHandler:      homeHandler,
-		authHandler:      authHandler,
-		dashboardHandler: dashboardHandler,
-		htmlHub:          htmlHub,
-		dataHub:          dataHub,
-		chatHandler:      chatHandler,
-		dataHandler:      dataHandler,
+// initHandlers initializes all handler structs using the Server's dependencies.
+func (s *Server) initHandlers() {
+	s.homeHandler = handlers.NewHomeHandler()
+	s.dataHandler = data.NewHandler(s.dataHub)
+	s.authHandler = handlers.NewAuthHandler(s.UserStore, s.Emailer, s.Cfg.GetAppBaseURL())
+	s.dashboardHandler = handlers.NewDashboardHandler()
+	s.aboutHandler = &handlers.AboutHandler{}
+}
+
+// Start runs the HTTP server with graceful shutdown.
+func (s *Server) Start() {
+	addr := s.Cfg.GetServerAddr()
+
+	// Start server in a goroutine so that it doesn't block.
+	// Also start the hubs, which are background services of the server.
+	go s.htmlHub.Run()
+	go s.dataHub.Run()
+
+	go func() {
+		slog.Info("Starting server", "address", addr)
+		if err := s.E.Start(addr); err != nil && err != http.ErrServerClosed {
+			slog.Error("Server failed to start", "error", err)
+			os.Exit(1)
+		}
+	}()
+
+	// Wait for an interrupt signal to gracefully shut down the server.
+	waitForShutdown()
+	slog.Info("Shutting down server...")
+
+	// The context is used to inform the server it has 10 seconds to finish
+	// the requests it is currently handling.
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Close the database connection.
+	s.DB.Close(ctx)
+
+	if err := s.E.Shutdown(ctx); err != nil {
+		slog.Error("Server shutdown failed", "error", err)
 	}
 }

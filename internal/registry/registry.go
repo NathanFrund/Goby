@@ -1,33 +1,41 @@
 package registry
 
 import (
-	"log/slog"
-
-	"github.com/labstack/echo/v4"
+	"sync"
 )
 
-// ServiceLocator defines a simple interface for dependency injection into modules.
-// It allows modules to retrieve shared services by name without a direct import.
+// ServiceLocator defines an interface for a service locator.
 type ServiceLocator interface {
-	Get(name string) any
+	Get(key string) (any, bool)
+	Set(key string, service any)
 }
 
-// RouteRegistrar is a function that registers a module's routes.
-type RouteRegistrar func(group *echo.Group, sl ServiceLocator)
+// --- New Service Locator Implementation ---
 
-var registrars []RouteRegistrar
-
-// Register adds a route registrar function to the global list.
-// This is intended to be called from the init() function of a module's routes package.
-func Register(rr RouteRegistrar) {
-	registrars = append(registrars, rr)
+// serviceLocator is a thread-safe implementation of the ServiceLocator interface.
+type serviceLocator struct {
+	mu       sync.RWMutex
+	services map[string]any
 }
 
-// Apply iterates over all registered RouteRegistrars and executes them,
-// wiring the module routes into the provided Echo group.
-func Apply(group *echo.Group, sl ServiceLocator) {
-	for _, rr := range registrars {
-		rr(group, sl)
+// NewServiceLocator creates a new instance of a service locator.
+func NewServiceLocator() ServiceLocator {
+	return &serviceLocator{
+		services: make(map[string]any),
 	}
-	slog.Info("Applied all registered module routes", "count", len(registrars))
+}
+
+// Get retrieves a service by its key.
+func (sl *serviceLocator) Get(key string) (any, bool) {
+	sl.mu.RLock()
+	defer sl.mu.RUnlock()
+	service, ok := sl.services[key]
+	return service, ok
+}
+
+// Set registers a service with a given key.
+func (sl *serviceLocator) Set(key string, service any) {
+	sl.mu.Lock()
+	defer sl.mu.Unlock()
+	sl.services[key] = service
 }

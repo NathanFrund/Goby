@@ -41,15 +41,16 @@ func TestFlashMessages(t *testing.T) {
 		view.SetFlashSuccess(c, "It worked!")
 
 		// Get flashes
-		flashes := view.GetFlashes(c)
+		flashes := view.GetFlashData(c)
 
-		assert.NotNil(t, flashes)
-		assert.Contains(t, flashes, "success")
-		assert.Equal(t, "It worked!", flashes["success"][0])
+		// Assert against the struct fields
+		assert.NotEmpty(t, flashes.Success)
+		assert.Equal(t, "It worked!", flashes.Success[0])
+		assert.Empty(t, flashes.Error)
 
 		// Get flashes again to ensure they are cleared
-		flashesAfterRead := view.GetFlashes(c)
-		assert.NotContains(t, flashesAfterRead, "success", "Flashes should be cleared after being read")
+		flashesAfterRead := view.GetFlashData(c)
+		assert.Empty(t, flashesAfterRead.Success, "Flashes should be cleared after being read")
 	})
 
 	t.Run("Set and Get Error Flash", func(t *testing.T) {
@@ -59,17 +60,19 @@ func TestFlashMessages(t *testing.T) {
 		view.SetFlashError(c, "It failed!")
 
 		// Get flashes
-		flashes := view.GetFlashes(c)
+		flashes := view.GetFlashData(c)
 
-		assert.NotNil(t, flashes)
-		assert.Contains(t, flashes, "error")
-		assert.Equal(t, "It failed!", flashes["error"][0])
+		// Assert against the struct fields
+		assert.NotEmpty(t, flashes.Error)
+		assert.Equal(t, "It failed!", flashes.Error[0])
+		assert.Empty(t, flashes.Success)
 	})
 
 	t.Run("GetFlashes with no flashes set", func(t *testing.T) {
 		c, _ := setupTestContext()
 
-		flashes := view.GetFlashes(c)
-		assert.Empty(t, flashes, "Should return an empty map when no flashes are set")
+		flashes := view.GetFlashData(c)
+		assert.Empty(t, flashes.Success, "Success flashes should be empty")
+		assert.Empty(t, flashes.Error, "Error flashes should be empty")
 	})
 }
