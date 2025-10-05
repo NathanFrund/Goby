@@ -7,6 +7,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/middleware" // Your custom middleware
 	"github.com/nfrund/goby/internal/registry"
+	"github.com/nfrund/goby/internal/websocket"
 )
 
 // RegisterRoutes sets up all the application routes.
@@ -85,4 +86,8 @@ func (s *Server) RegisterRoutes() {
 
 	// Register the new generic WebSocket bridge handler
 	protected.GET("/ws/bridge", s.wsBridge.ServeEcho)
+
+	// Strangler Fig: New V2 bridge handles the HTML websocket endpoint.
+	// This replaces the /ws/html endpoint previously registered by the chat module.
+	protected.GET("/ws/html", s.newBridge.Handler(websocket.ConnectionTypeHTML))
 }

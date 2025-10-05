@@ -42,6 +42,7 @@ type Server struct {
 	dataHub     *hub.Hub
 	dataHandler *data.Handler
 	wsBridge    *websocket.WebsocketBridge
+	newBridge   *websocket.Bridge
 	PubSub      pubsub.Publisher
 }
 
@@ -157,6 +158,14 @@ func WithWebsocketBridge(bridge *websocket.WebsocketBridge) ServerOption {
 	}
 }
 
+// WithNewBridge is an option to set the new V2 WebSocket bridge.
+func WithNewBridge(bridge *websocket.Bridge) ServerOption {
+	return func(s *Server) error {
+		s.newBridge = bridge
+		return nil
+	}
+}
+
 // New creates a new Server instance by applying functional options.
 func New(opts ...ServerOption) (*Server, error) {
 	e := echo.New()
@@ -225,6 +234,10 @@ func (s *Server) Start() {
 	// Start the new WebsocketBridge runner
 	if s.wsBridge != nil {
 		go s.wsBridge.Run()
+	}
+	// Start the new V2 WebsocketBridge runner
+	if s.newBridge != nil {
+		go s.newBridge.Run()
 	}
 	go s.dataHub.Run()
 

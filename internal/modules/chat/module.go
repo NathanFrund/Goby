@@ -83,7 +83,9 @@ func (m *ChatModule) Boot(g *echo.Group, sl registry.ServiceLocator) error {
 
 	// Set up routes
 	g.GET("/chat", handler.ChatGet)
-	g.GET("/ws/html", handler.ServeWS)
+	// The /ws/html endpoint is now handled globally by the new V2 websocket.Bridge
+	// in server/routes.go as part of the strangler fig migration.
+	// g.GET("/ws/html", handler.ServeWS)
 
 	return nil
 }

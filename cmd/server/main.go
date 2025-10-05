@@ -73,6 +73,9 @@ func main() {
 	// Create the new WebSocket bridge, which depends on the pub/sub publisher.
 	wsBridge := websocket.NewWebsocketBridge(pubSub)
 
+	// Create the new V2 WebSocket bridge for the strangler fig pattern.
+	newBridge := websocket.NewBridge(pubSub)
+
 	// 3. Create the server by passing the option functions.
 	s, err := server.New(
 		server.WithConfig(cfg),
@@ -82,6 +85,7 @@ func main() {
 		server.WithRenderer(renderer),
 		server.WithPubSub(pubSub),
 		server.WithWebsocketBridge(wsBridge),
+		server.WithNewBridge(newBridge),
 	)
 	if err != nil {
 		slog.Error("Failed to create server", "error", err)
