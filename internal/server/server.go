@@ -18,6 +18,8 @@ import (
 	"github.com/nfrund/goby/internal/handlers"
 	"github.com/nfrund/goby/internal/hub"
 	"github.com/nfrund/goby/internal/modules/data"
+	"github.com/nfrund/goby/internal/pubsub"
+	"github.com/nfrund/goby/internal/websocket"
 	"github.com/nfrund/goby/web"
 	"github.com/surrealdb/surrealdb.go"
 )
@@ -39,6 +41,8 @@ type Server struct {
 	htmlHub     *hub.Hub
 	dataHub     *hub.Hub
 	dataHandler *data.Handler
+	wsBridge    *websocket.WebsocketBridge
+	PubSub      pubsub.Publisher
 }
 
 func setupErrorHandling(e *echo.Echo) {
@@ -137,6 +141,22 @@ func WithRenderer(renderer echo.Renderer) ServerOption {
 	}
 }
 
+// WithPubSub is an option to set the Pub/Sub service.
+func WithPubSub(pubSub pubsub.Publisher) ServerOption {
+	return func(s *Server) error {
+		s.PubSub = pubSub
+		return nil
+	}
+}
+
+// WithWebsocketBridge is an option to set the new WebSocket bridge.
+func WithWebsocketBridge(bridge *websocket.WebsocketBridge) ServerOption {
+	return func(s *Server) error {
+		s.wsBridge = bridge
+		return nil
+	}
+}
+
 // New creates a new Server instance by applying functional options.
 func New(opts ...ServerOption) (*Server, error) {
 	e := echo.New()
@@ -202,6 +222,10 @@ func (s *Server) Start() {
 	// Start server in a goroutine so that it doesn't block.
 	// Also start the hubs, which are background services of the server.
 	go s.htmlHub.Run()
+	// Start the new WebsocketBridge runner
+	if s.wsBridge != nil {
+		go s.wsBridge.Run()
+	}
 	go s.dataHub.Run()
 
 	go func() {

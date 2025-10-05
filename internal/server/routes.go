@@ -58,7 +58,9 @@ func (s *Server) RegisterRoutes() {
 	sl.Set(string(registry.DataHubKey), s.dataHub)
 	sl.Set(string(registry.TemplateRendererKey), s.Renderer)
 	sl.Set(string(registry.AppConfigKey), s.Cfg)
+	sl.Set(string(registry.PubSubKey), s.PubSub)
 	sl.Set(string(registry.UserStoreKey), s.UserStore)
+	sl.Set(string(registry.WebsocketBridgeKey), s.wsBridge)
 
 	// 3. Register services from all active modules.
 	// This allows modules to add their services to the container.
@@ -80,4 +82,7 @@ func (s *Server) RegisterRoutes() {
 	// Standard routes
 	protected.GET("/dashboard", s.dashboardHandler.DashboardGet)
 	protected.GET("/ws/data", s.dataHandler.ServeWS)
+
+	// Register the new generic WebSocket bridge handler
+	protected.GET("/ws/bridge", echo.WrapHandler(s.wsBridge))
 }

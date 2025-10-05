@@ -1,14 +1,17 @@
 package chat
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/config"
 	"github.com/nfrund/goby/internal/hub"
+	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/registry"
 	"github.com/nfrund/goby/internal/rendering"
+	"github.com/nfrund/goby/internal/websocket"
 )
 
 // ChatModule implements the module.Module interface for the chat feature.
@@ -48,6 +51,29 @@ func (m *ChatModule) Register(sl registry.ServiceLocator, cfg config.Provider) e
 
 // Boot sets up the routes for the chat module.
 func (m *ChatModule) Boot(g *echo.Group, sl registry.ServiceLocator) error {
+	// --- Start Background Services ---
+	// The Boot method is the ideal place to start any background workers
+	// that a module requires, such as this pub/sub subscriber.
+
+	// Retrieve dependencies for the subscriber.
+	pubSubVal, _ := sl.Get(string(registry.PubSubKey))
+	bridgeVal, _ := sl.Get(string(registry.WebsocketBridgeKey))
+	rendererVal, _ := sl.Get(string(registry.TemplateRendererKey))
+
+	// Type-assert the dependencies.
+	sub, ok1 := pubSubVal.(pubsub.Subscriber)
+	bridge, ok2 := bridgeVal.(*websocket.WebsocketBridge)
+	renderer, ok3 := rendererVal.(rendering.Renderer)
+
+	if !ok1 || !ok2 || !ok3 {
+		return fmt.Errorf("chat module subscriber could not resolve dependencies")
+	}
+
+	// Create and start the subscriber in a goroutine.
+	chatSubscriber := NewChatSubscriber(sub, bridge, renderer)
+	go chatSubscriber.Start(context.Background()) // Using a cancellable context is a good future improvement.
+
+	// --- Register HTTP Handlers ---
 	slog.Info("Booting ChatModule: Setting up routes")
 	handlerVal, ok := sl.Get(string(registry.ChatHandlerKey))
 	if !ok {
