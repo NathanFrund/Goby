@@ -1,15 +1,17 @@
 package wargame
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/config"
-	"github.com/nfrund/goby/internal/hub"
+	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/registry"
 	"github.com/nfrund/goby/internal/rendering"
+	"github.com/nfrund/goby/internal/websocket"
 )
 
 // WargameModule implements the module.Module interface.
@@ -22,27 +24,14 @@ func (m *WargameModule) Name() string {
 
 // Register creates the Wargame Engine and registers it in the service locator.
 func (m *WargameModule) Register(sl registry.ServiceLocator, cfg config.Provider) error {
-	// This logic is moved from internal/server/modules.go
-	htmlHubVal, ok := sl.Get(string(registry.HTMLHubKey))
+	pubSubVal, ok := sl.Get(string(registry.PubSubKey))
 	if !ok {
-		return fmt.Errorf("HTML hub not found in service locator for wargame module")
+		return fmt.Errorf("pub/sub service not found for wargame module")
 	}
-	htmlHub := htmlHubVal.(*hub.Hub)
-
-	dataHubVal, ok := sl.Get(string(registry.DataHubKey))
-	if !ok {
-		return fmt.Errorf("data hub not found in service locator for wargame module")
-	}
-	dataHub := dataHubVal.(*hub.Hub)
-
-	rendererVal, ok := sl.Get(string(registry.TemplateRendererKey))
-	if !ok {
-		return fmt.Errorf("template renderer not found in service locator for wargame module")
-	}
-	renderer := rendererVal.(rendering.Renderer)
+	publisher := pubSubVal.(pubsub.Publisher)
 
 	slog.Info("Initializing wargame engine")
-	wargameEngine := NewEngine(htmlHub, dataHub, renderer)
+	wargameEngine := NewEngine(publisher)
 	sl.Set(string(registry.WargameEngineKey), wargameEngine)
 
 	return nil
@@ -50,6 +39,26 @@ func (m *WargameModule) Register(sl registry.ServiceLocator, cfg config.Provider
 
 // Boot registers the HTTP routes for the wargame module.
 func (m *WargameModule) Boot(g *echo.Group, sl registry.ServiceLocator) error {
+	// --- Start Background Services ---
+	pubSubVal, _ := sl.Get(string(registry.PubSubKey))
+	bridgeVal, _ := sl.Get(string(registry.NewWebsocketBridgeKey))
+	rendererVal, _ := sl.Get(string(registry.TemplateRendererKey))
+
+	sub, ok1 := pubSubVal.(pubsub.Subscriber)
+	bridge, ok2 := bridgeVal.(*websocket.Bridge)
+	renderer, ok3 := rendererVal.(rendering.Renderer)
+
+	if !ok1 || !ok2 || !ok3 || bridge == nil {
+		return fmt.Errorf("wargame module subscriber could not resolve dependencies")
+	}
+
+	// Create and start the subscriber in a goroutine.
+	wargameSubscriber := NewSubscriber(sub, bridge, renderer)
+	go wargameSubscriber.Start(context.Background())
+
+	// --- Register HTTP Handlers ---
+	slog.Info("Booting WargameModule: Setting up routes")
+
 	// This logic is moved from the old init-based route registration.
 	wargameEngineVal, ok := sl.Get(string(registry.WargameEngineKey))
 	if !ok {

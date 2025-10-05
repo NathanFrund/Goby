@@ -83,12 +83,16 @@ func (s *Server) RegisterRoutes() {
 
 	// Standard routes
 	protected.GET("/dashboard", s.dashboardHandler.DashboardGet)
-	protected.GET("/ws/data", s.dataHandler.ServeWS)
+
+	// The /ws/data endpoint is now handled globally by the new V2 websocket.Bridge
+	// as part of the strangler fig migration.
+	// protected.GET("/ws/data", s.dataHandler.ServeWS)
 
 	// Register the new generic WebSocket bridge handler
 	protected.GET("/ws/bridge", s.wsBridge.ServeEcho)
 
-	// Strangler Fig: New V2 bridge handles the HTML websocket endpoint.
+	// Strangler Fig: New V2 bridge handles both websocket endpoints.
 	// This replaces the /ws/html endpoint previously registered by the chat module.
 	protected.GET("/ws/html", s.newBridge.Handler(websocket.ConnectionTypeHTML))
+	protected.GET("/ws/data", s.newBridge.Handler(websocket.ConnectionTypeData))
 }
