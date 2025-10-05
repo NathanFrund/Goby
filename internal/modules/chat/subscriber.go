@@ -34,11 +34,42 @@ func NewChatSubscriber(sub pubsub.Subscriber, bridge *websocket.Bridge, renderer
 // This method blocks until the provided context is canceled.
 func (cs *ChatSubscriber) Start(ctx context.Context) {
 	slog.Info("Starting chat module subscriber")
-	err := cs.subscriber.Subscribe(ctx, "chat.messages.new", cs.handleNewMessage)
-	if err != nil && err != context.Canceled {
-		slog.Error("Chat module subscriber stopped with error", "error", err)
+
+	// Listen for new chat messages to broadcast
+	go func() {
+		err := cs.subscriber.Subscribe(ctx, "chat.messages.new", cs.handleNewMessage)
+		if err != nil && err != context.Canceled {
+			slog.Error("Chat message subscriber stopped with error", "error", err)
+		}
+	}()
+
+	// Listen for new client connections to send a welcome message
+	go func() {
+		err := cs.subscriber.Subscribe(ctx, "system.websocket.connected", cs.handleClientConnect)
+		if err != nil && err != context.Canceled {
+			slog.Error("Chat client connect subscriber stopped with error", "error", err)
+		}
+	}()
+}
+
+// handleClientConnect sends a welcome message to a newly connected client.
+func (cs *ChatSubscriber) handleClientConnect(ctx context.Context, msg pubsub.Message) error {
+	var connectEvent struct {
+		ConnectionType websocket.ConnectionType `json:"connectionType"`
 	}
-	slog.Info("Chat module subscriber stopped")
+	if err := json.Unmarshal(msg.Payload, &connectEvent); err != nil {
+		return err // Ignore malformed events
+	}
+
+	// Only send a welcome message to HTML clients.
+	if connectEvent.ConnectionType == websocket.ConnectionTypeHTML {
+		welcomeComponent := components.WelcomeMessage("Welcome to the chat, " + msg.UserID + "!")
+		renderedHTML, err := cs.renderer.RenderComponent(ctx, welcomeComponent)
+		if err == nil {
+			cs.bridge.SendDirect(msg.UserID, renderedHTML, websocket.ConnectionTypeHTML)
+		}
+	}
+	return nil
 }
 
 // handleNewMessage is the handler function for incoming pub/sub messages.

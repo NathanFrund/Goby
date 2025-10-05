@@ -2,6 +2,7 @@ package websocket
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -54,13 +55,22 @@ type BroadcastMessage struct {
 	targetTypes map[ConnectionType]bool
 }
 
+// DirectMessage represents a message to be sent to a single user.
+type DirectMessage struct {
+	TargetUserID string
+	Payload      []byte
+	// targetTypes specifies which connection types should receive the message.
+	targetTypes map[ConnectionType]bool
+}
+
 // Bridge manages all WebSocket connections and routes messages
 // between connected clients and the Pub/Sub message bus.
 type Bridge struct {
 	publisher pubsub.Publisher
 
-	// clients is a map of all connected clients.
-	clients map[*ClientV2]bool
+	// clients is a map of user IDs to a list of their active clients.
+	// A user can have multiple connections (e.g., browser tab, mobile).
+	clients map[string][]*ClientV2
 
 	// register is a channel for new clients to register.
 	register chan *ClientV2
@@ -70,6 +80,9 @@ type Bridge struct {
 
 	// broadcast is a channel for messages to be sent to all relevant clients.
 	broadcast chan *BroadcastMessage
+
+	// direct is a channel for messages to be sent to a specific user.
+	direct chan *DirectMessage
 
 	// incoming is a channel for messages received from clients.
 	incoming chan *IncomingMessage
@@ -83,10 +96,11 @@ type Bridge struct {
 func NewBridge(pub pubsub.Publisher) *Bridge {
 	return &Bridge{
 		publisher:  pub,
-		clients:    make(map[*ClientV2]bool),
+		clients:    make(map[string][]*ClientV2),
 		register:   make(chan *ClientV2),
 		unregister: make(chan *ClientV2),
 		broadcast:  make(chan *BroadcastMessage),
+		direct:     make(chan *DirectMessage),
 		incoming:   make(chan *IncomingMessage, 256), // Buffered channel
 	}
 }
@@ -98,14 +112,24 @@ func (b *Bridge) Run() {
 		select {
 		case client := <-b.register:
 			b.mu.Lock()
-			b.clients[client] = true
+			b.clients[client.ID] = append(b.clients[client.ID], client)
 			b.mu.Unlock()
 			slog.Info("Client registered to new bridge", "userID", client.ID, "type", client.connType)
 
 		case client := <-b.unregister:
 			b.mu.Lock()
-			if _, ok := b.clients[client]; ok {
-				delete(b.clients, client)
+			// Remove the client from the list of clients for that user.
+			if clients, ok := b.clients[client.ID]; ok {
+				for i, c := range clients {
+					if c == client {
+						b.clients[client.ID] = append(clients[:i], clients[i+1:]...)
+						break
+					}
+				}
+				// If the user has no more connections, remove the entry from the map.
+				if len(b.clients[client.ID]) == 0 {
+					delete(b.clients, client.ID)
+				}
 				close(client.send)
 				slog.Info("Client unregistered from new bridge", "userID", client.ID, "type", client.connType)
 			}
@@ -113,14 +137,34 @@ func (b *Bridge) Run() {
 
 		case message := <-b.broadcast:
 			b.mu.RLock()
-			for client := range b.clients {
-				// Check if the client's connection type is one of the targets.
-				if message.targetTypes[client.connType] {
+			for _, clients := range b.clients {
+				for _, client := range clients {
+					// Check if the client's connection type is one of the targets.
+					if !message.targetTypes[client.connType] {
+						continue
+					}
 					select {
 					case client.send <- message.payload:
 					default:
 						// Drop message if client's send buffer is full.
 						slog.Warn("Client send channel full, dropping message", "userID", client.ID)
+					}
+				}
+			}
+			b.mu.RUnlock()
+
+		case message := <-b.direct:
+			b.mu.RLock()
+			if clients, ok := b.clients[message.TargetUserID]; ok {
+				for _, client := range clients {
+					// Check if the client's connection type is one of the targets.
+					if !message.targetTypes[client.connType] {
+						continue
+					}
+					select {
+					case client.send <- message.Payload:
+					default:
+						slog.Warn("Client send channel full, dropping direct message", "userID", client.ID)
 					}
 				}
 			}
@@ -173,6 +217,23 @@ func (b *Bridge) Handler(connType ConnectionType) echo.HandlerFunc {
 
 		go client.writePump()
 		go client.readPump()
+
+		// Publish a generic "client connected" event to the message bus.
+		// Any module can listen for this to perform actions like sending a welcome message.
+		go func() {
+			payload, _ := json.Marshal(map[string]any{
+				"userID":         user.Email,
+				"connectionType": connType,
+			})
+			connectMsg := pubsub.Message{
+				Topic:   "system.websocket.connected",
+				UserID:  user.Email,
+				Payload: payload,
+			}
+			if err := b.publisher.Publish(context.Background(), connectMsg); err != nil {
+				slog.Error("Failed to publish websocket connect event", "error", err)
+			}
+		}()
 
 		return nil
 	}
@@ -242,5 +303,19 @@ func (b *Bridge) Broadcast(payload []byte, connTypes ...ConnectionType) {
 	b.broadcast <- &BroadcastMessage{
 		payload:     payload,
 		targetTypes: targets,
+	}
+}
+
+// SendDirect sends a message directly to all connections for a specific user.
+func (b *Bridge) SendDirect(userID string, payload []byte, connTypes ...ConnectionType) {
+	targets := make(map[ConnectionType]bool)
+	for _, t := range connTypes {
+		targets[t] = true
+	}
+
+	b.direct <- &DirectMessage{
+		TargetUserID: userID,
+		Payload:      payload,
+		targetTypes:  targets,
 	}
 }
