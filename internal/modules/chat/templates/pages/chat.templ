@@ -6,7 +6,7 @@ templ ChatPage() {
 	<div
 		class="container mx-auto p-4 h-screen flex flex-col bg-white shadow-xl rounded-2xl"
 		hx-ext="ws"
-		ws-connect="/app/ws/html"
+		ws-connect="/app/ws/html?publish_topic=chat.messages.new"
 	>
 		<h1 class="text-3xl font-extrabold mb-6 text-gray-900 border-b pb-2">
 			Real-time Chat with Data Stream
@@ -24,7 +24,12 @@ templ ChatPage() {
 		</div>
 
 		<!-- 2. FORM FOR SENDING MESSAGES -->
-		<form id="chat-form" hx-ws="send" class="flex gap-3">
+		<form
+ 			id="chat-form"
+ 			hx-post="/app/chat/message"
+ 			hx-swap="none"
+ 			class="flex gap-3"
+		>
 			<input
 				type="text"
 				name="content"
@@ -60,12 +65,13 @@ templ ChatPage() {
 		<!-- 4. INLINE JAVASCRIPT LOGIC -->
 		<script>
 			// A little bit of JS to clear the input after a message is sent via WebSocket
-			document
-				.getElementById("chat-form")
-				.addEventListener("htmx:wsAfterSend", function (evt) {
-					// We must query for the input element here, as evt.detail.elt will be the form itself.
+			// We listen for htmx:afterRequest which fires after a successful POST.
+			document.body.addEventListener("htmx:afterRequest", function (evt) {
+				// Check if the event was triggered by our chat form
+				if (evt.detail.elt.id === "chat-form") {
 					document.querySelector('#chat-form input[name="content"]').value = "";
-				});
+				}
+			});
 
 			// --- Auto-scrolling for the chat container ---
 			const chatContainer = document.getElementById("chat-messages");

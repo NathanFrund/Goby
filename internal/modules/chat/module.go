@@ -58,12 +58,14 @@ func (m *ChatModule) Boot(g *echo.Group, sl registry.ServiceLocator) error {
 	// --- Register HTTP Handlers ---
 	slog.Info("Booting ChatModule: Setting up routes")
 
-	// Instantiate the handler directly. No need for the service locator
-	// since it has no dependencies.
-	handler := NewHandler()
+	// The handler now depends on the publisher, so we resolve it and
+	// instantiate the handler here.
+	publisher := pubSubVal.(pubsub.Publisher)
+	handler := NewHandler(publisher)
 
 	// Set up routes
 	g.GET("/chat", handler.ChatGet)
+	g.POST("/chat/message", handler.MessagePost)
 
 	return nil
 }

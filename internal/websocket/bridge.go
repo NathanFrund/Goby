@@ -44,8 +44,7 @@ type Client struct {
 type IncomingMessage struct {
 	ClientID string
 	Payload  []byte
-	// In a real app, you might parse the message to determine a topic.
-	// For now, we'll keep it simple.
+	Topic    string
 }
 
 // BroadcastMessage represents a message to be broadcast to clients.
@@ -171,19 +170,29 @@ func (b *Bridge) Run() {
 			b.mu.RUnlock()
 
 		case msg := <-b.incoming:
-			// For now, we'll follow the old bridge's logic and hardcode the topic
-			// for chat messages. A future improvement would be to parse the
-			// incoming message to determine the topic dynamically.
-			pubsubMsg := pubsub.Message{
-				Topic:   "chat.messages.new",
-				UserID:  msg.ClientID,
-				Payload: msg.Payload,
-				Metadata: map[string]string{
-					"timestamp": time.Now().UTC().Format(time.RFC3339),
-				},
+			// Dynamically route incoming messages based on a topic field in the payload.
+			// We only unmarshal to get the topic, then pass the original payload on.
+			var routedMessage struct {
+				Topic string `json:"topic"`
 			}
+			if err := json.Unmarshal(msg.Payload, &routedMessage); err != nil {
+				slog.Warn("Failed to unmarshal incoming message for routing", "error", err, "payload", string(msg.Payload))
+				continue
+			}
+
+			if routedMessage.Topic == "" {
+				slog.Warn("Incoming message missing 'topic' field", "payload", string(msg.Payload))
+				continue
+			}
+
+			pubsubMsg := pubsub.Message{
+				Topic:   routedMessage.Topic,
+				UserID:  msg.ClientID,
+				Payload: msg.Payload, // Pass the original, full payload
+			}
+
 			if err := b.publisher.Publish(context.Background(), pubsubMsg); err != nil {
-				slog.Error("New bridge failed to publish incoming message", "userID", msg.ClientID, "error", err)
+				slog.Error("Bridge failed to publish incoming message", "userID", msg.ClientID, "topic", routedMessage.Topic, "error", err)
 			}
 		}
 	}
