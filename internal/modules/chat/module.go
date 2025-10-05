@@ -57,15 +57,15 @@ func (m *ChatModule) Boot(g *echo.Group, sl registry.ServiceLocator) error {
 
 	// Retrieve dependencies for the subscriber.
 	pubSubVal, _ := sl.Get(string(registry.PubSubKey))
-	bridgeVal, _ := sl.Get(string(registry.WebsocketBridgeKey))
+	bridgeVal, _ := sl.Get(string(registry.NewWebsocketBridgeKey))
 	rendererVal, _ := sl.Get(string(registry.TemplateRendererKey))
 
 	// Type-assert the dependencies.
 	sub, ok1 := pubSubVal.(pubsub.Subscriber)
-	bridge, ok2 := bridgeVal.(*websocket.WebsocketBridge)
+	bridge, ok2 := bridgeVal.(*websocket.Bridge)
 	renderer, ok3 := rendererVal.(rendering.Renderer)
 
-	if !ok1 || !ok2 || !ok3 {
+	if !ok1 || !ok2 || !ok3 || bridge == nil {
 		return fmt.Errorf("chat module subscriber could not resolve dependencies")
 	}
 

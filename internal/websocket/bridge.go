@@ -125,6 +125,22 @@ func (b *Bridge) Run() {
 				}
 			}
 			b.mu.RUnlock()
+
+		case msg := <-b.incoming:
+			// For now, we'll follow the old bridge's logic and hardcode the topic
+			// for chat messages. A future improvement would be to parse the
+			// incoming message to determine the topic dynamically.
+			pubsubMsg := pubsub.Message{
+				Topic:   "chat.messages.new",
+				UserID:  msg.ClientID,
+				Payload: msg.Payload,
+				Metadata: map[string]string{
+					"timestamp": time.Now().UTC().Format(time.RFC3339),
+				},
+			}
+			if err := b.publisher.Publish(context.Background(), pubsubMsg); err != nil {
+				slog.Error("New bridge failed to publish incoming message", "userID", msg.ClientID, "error", err)
+			}
 		}
 	}
 }

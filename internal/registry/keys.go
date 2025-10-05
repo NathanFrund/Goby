@@ -17,4 +17,6 @@ const (
 	MessengerHandlerKey ServiceKey = "messenger.handler"
 	PubSubKey           ServiceKey = "pubsub"
 	WebsocketBridgeKey  ServiceKey = "websocket.bridge"
+	// NewWebsocketBridgeKey is the key for the new (V2) WebSocket bridge used in the strangler fig migration.
+	NewWebsocketBridgeKey ServiceKey = "websocket.bridge.new"
 )

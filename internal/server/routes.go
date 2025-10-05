@@ -62,6 +62,7 @@ func (s *Server) RegisterRoutes() {
 	sl.Set(string(registry.PubSubKey), s.PubSub)
 	sl.Set(string(registry.UserStoreKey), s.UserStore)
 	sl.Set(string(registry.WebsocketBridgeKey), s.wsBridge)
+	sl.Set(string(registry.NewWebsocketBridgeKey), s.newBridge)
 
 	// 3. Register services from all active modules.
 	// This allows modules to add their services to the container.
