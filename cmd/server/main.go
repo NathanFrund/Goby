@@ -10,7 +10,6 @@ import (
 	"github.com/nfrund/goby/internal/config"
 	"github.com/nfrund/goby/internal/database"
 	"github.com/nfrund/goby/internal/email"
-	"github.com/nfrund/goby/internal/hub"
 	"github.com/nfrund/goby/internal/logging"
 	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/rendering"
@@ -64,16 +63,10 @@ func main() {
 		}
 	}()
 
-	htmlHub := hub.NewHub()
-	dataHub := hub.NewHub()
-
 	// Create the universal renderer that can handle both templ and gomponents.
 	renderer := rendering.NewUniversalRenderer()
 
-	// Create the new WebSocket bridge, which depends on the pub/sub publisher.
-	wsBridge := websocket.NewWebsocketBridge(pubSub)
-
-	// Create the new V2 WebSocket bridge for the strangler fig pattern.
+	// Create the WebSocket bridge.
 	newBridge := websocket.NewBridge(pubSub)
 
 	// 3. Create the server by passing the option functions.
@@ -81,10 +74,8 @@ func main() {
 		server.WithConfig(cfg),
 		server.WithDB(db, cfg.GetDBNs(), cfg.GetDBDb()),
 		server.WithEmailer(emailer),
-		server.WithHubs(htmlHub, dataHub),
 		server.WithRenderer(renderer),
 		server.WithPubSub(pubSub),
-		server.WithWebsocketBridge(wsBridge),
 		server.WithNewBridge(newBridge),
 	)
 	if err != nil {

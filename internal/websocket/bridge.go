@@ -26,8 +26,8 @@ const (
 	ConnectionTypeData
 )
 
-// Client represents a single connected WebSocket client in the new bridge.
-type ClientV2 struct {
+// Client represents a single connected WebSocket client in the bridge.
+type Client struct {
 	// ID is the unique identifier for the client, typically the User ID.
 	ID string
 	// conn is the underlying WebSocket connection.
@@ -70,13 +70,13 @@ type Bridge struct {
 
 	// clients is a map of user IDs to a list of their active clients.
 	// A user can have multiple connections (e.g., browser tab, mobile).
-	clients map[string][]*ClientV2
+	clients map[string][]*Client
 
 	// register is a channel for new clients to register.
-	register chan *ClientV2
+	register chan *Client
 
 	// unregister is a channel for clients to unregister.
-	unregister chan *ClientV2
+	unregister chan *Client
 
 	// broadcast is a channel for messages to be sent to all relevant clients.
 	broadcast chan *BroadcastMessage
@@ -96,9 +96,9 @@ type Bridge struct {
 func NewBridge(pub pubsub.Publisher) *Bridge {
 	return &Bridge{
 		publisher:  pub,
-		clients:    make(map[string][]*ClientV2),
-		register:   make(chan *ClientV2),
-		unregister: make(chan *ClientV2),
+		clients:    make(map[string][]*Client),
+		register:   make(chan *Client),
+		unregister: make(chan *Client),
 		broadcast:  make(chan *BroadcastMessage),
 		direct:     make(chan *DirectMessage),
 		incoming:   make(chan *IncomingMessage, 256), // Buffered channel
@@ -206,7 +206,7 @@ func (b *Bridge) Handler(connType ConnectionType) echo.HandlerFunc {
 			return err
 		}
 
-		client := &ClientV2{
+		client := &Client{
 			ID:       user.Email, // Using email as the unique ID for now.
 			conn:     conn,
 			send:     make(chan []byte, 256),
@@ -240,7 +240,7 @@ func (b *Bridge) Handler(connType ConnectionType) echo.HandlerFunc {
 }
 
 // readPump pumps messages from the WebSocket connection to the bridge's incoming channel.
-func (c *ClientV2) readPump() {
+func (c *Client) readPump() {
 	defer func() {
 		c.bridge.unregister <- c
 		c.conn.Close(websocket.StatusNormalClosure, "Client disconnected")
@@ -266,7 +266,7 @@ func (c *ClientV2) readPump() {
 }
 
 // writePump pumps messages from the client's send channel to the WebSocket connection.
-func (c *ClientV2) writePump() {
+func (c *Client) writePump() {
 	defer func() {
 		c.conn.Close(websocket.StatusNormalClosure, "Server-side cleanup")
 	}()

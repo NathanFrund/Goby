@@ -55,14 +55,11 @@ func (s *Server) RegisterRoutes() {
 
 	// 2. Register core framework services that modules might need.
 	sl.Set(string(registry.DBConnectionKey), s.DB) // Use direct SurrealDB client
-	sl.Set(string(registry.HTMLHubKey), s.htmlHub)
-	sl.Set(string(registry.DataHubKey), s.dataHub)
 	sl.Set(string(registry.TemplateRendererKey), s.Renderer)
 	sl.Set(string(registry.AppConfigKey), s.Cfg)
 	sl.Set(string(registry.PubSubKey), s.PubSub)
 	sl.Set(string(registry.UserStoreKey), s.UserStore)
-	sl.Set(string(registry.WebsocketBridgeKey), s.wsBridge)
-	sl.Set(string(registry.NewWebsocketBridgeKey), s.newBridge)
+	sl.Set(string(registry.NewWebsocketBridgeKey), s.bridge)
 
 	// 3. Register services from all active modules.
 	// This allows modules to add their services to the container.
@@ -84,15 +81,7 @@ func (s *Server) RegisterRoutes() {
 	// Standard routes
 	protected.GET("/dashboard", s.dashboardHandler.DashboardGet)
 
-	// The /ws/data endpoint is now handled globally by the new V2 websocket.Bridge
-	// as part of the strangler fig migration.
-	// protected.GET("/ws/data", s.dataHandler.ServeWS)
-
-	// Register the new generic WebSocket bridge handler
-	protected.GET("/ws/bridge", s.wsBridge.ServeEcho)
-
-	// Strangler Fig: New V2 bridge handles both websocket endpoints.
-	// This replaces the /ws/html endpoint previously registered by the chat module.
-	protected.GET("/ws/html", s.newBridge.Handler(websocket.ConnectionTypeHTML))
-	protected.GET("/ws/data", s.newBridge.Handler(websocket.ConnectionTypeData))
+	// Register WebSocket endpoints.
+	protected.GET("/ws/html", s.bridge.Handler(websocket.ConnectionTypeHTML))
+	protected.GET("/ws/data", s.bridge.Handler(websocket.ConnectionTypeData))
 }

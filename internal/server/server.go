@@ -16,8 +16,6 @@ import (
 	"github.com/nfrund/goby/internal/database"
 	"github.com/nfrund/goby/internal/domain"
 	"github.com/nfrund/goby/internal/handlers"
-	"github.com/nfrund/goby/internal/hub"
-	"github.com/nfrund/goby/internal/modules/data"
 	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/websocket"
 	"github.com/nfrund/goby/web"
@@ -38,12 +36,8 @@ type Server struct {
 	dashboardHandler *handlers.DashboardHandler
 	aboutHandler     *handlers.AboutHandler
 
-	htmlHub     *hub.Hub
-	dataHub     *hub.Hub
-	dataHandler *data.Handler
-	wsBridge    *websocket.WebsocketBridge
-	newBridge   *websocket.Bridge
-	PubSub      pubsub.Publisher
+	bridge *websocket.Bridge
+	PubSub pubsub.Publisher
 }
 
 func setupErrorHandling(e *echo.Echo) {
@@ -125,15 +119,6 @@ func WithEmailer(emailer domain.EmailSender) ServerOption {
 	}
 }
 
-// WithHubs is an option to set the WebSocket hubs.
-func WithHubs(htmlHub, dataHub *hub.Hub) ServerOption {
-	return func(s *Server) error {
-		s.htmlHub = htmlHub
-		s.dataHub = dataHub
-		return nil
-	}
-}
-
 // WithRenderer is an option to set the component renderer.
 func WithRenderer(renderer echo.Renderer) ServerOption {
 	return func(s *Server) error {
@@ -150,18 +135,10 @@ func WithPubSub(pubSub pubsub.Publisher) ServerOption {
 	}
 }
 
-// WithWebsocketBridge is an option to set the new WebSocket bridge.
-func WithWebsocketBridge(bridge *websocket.WebsocketBridge) ServerOption {
-	return func(s *Server) error {
-		s.wsBridge = bridge
-		return nil
-	}
-}
-
 // WithNewBridge is an option to set the new V2 WebSocket bridge.
 func WithNewBridge(bridge *websocket.Bridge) ServerOption {
 	return func(s *Server) error {
-		s.newBridge = bridge
+		s.bridge = bridge
 		return nil
 	}
 }
@@ -218,7 +195,6 @@ func New(opts ...ServerOption) (*Server, error) {
 // initHandlers initializes all handler structs using the Server's dependencies.
 func (s *Server) initHandlers() {
 	s.homeHandler = handlers.NewHomeHandler()
-	s.dataHandler = data.NewHandler(s.dataHub)
 	s.authHandler = handlers.NewAuthHandler(s.UserStore, s.Emailer, s.Cfg.GetAppBaseURL())
 	s.dashboardHandler = handlers.NewDashboardHandler()
 	s.aboutHandler = &handlers.AboutHandler{}
@@ -230,16 +206,9 @@ func (s *Server) Start() {
 
 	// Start server in a goroutine so that it doesn't block.
 	// Also start the hubs, which are background services of the server.
-	go s.htmlHub.Run()
-	// Start the new WebsocketBridge runner
-	if s.wsBridge != nil {
-		go s.wsBridge.Run()
+	if s.bridge != nil {
+		go s.bridge.Run()
 	}
-	// Start the new V2 WebsocketBridge runner
-	if s.newBridge != nil {
-		go s.newBridge.Run()
-	}
-	go s.dataHub.Run()
 
 	go func() {
 		slog.Info("Starting server", "address", addr)
