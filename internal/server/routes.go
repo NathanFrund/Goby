@@ -84,5 +84,5 @@ func (s *Server) RegisterRoutes() {
 	protected.GET("/ws/data", s.dataHandler.ServeWS)
 
 	// Register the new generic WebSocket bridge handler
-	protected.GET("/ws/bridge", echo.WrapHandler(s.wsBridge))
+	protected.GET("/ws/bridge", s.wsBridge.ServeEcho)
 }

@@ -7,6 +7,9 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/labstack/echo/v4"
+	"github.com/nfrund/goby/internal/domain"
+	"github.com/nfrund/goby/internal/middleware"
 	"github.com/nfrund/goby/internal/pubsub"
 
 	"github.com/coder/websocket"
@@ -42,22 +45,27 @@ func NewWebsocketBridge(pub pubsub.Publisher) *WebsocketBridge {
 	}
 }
 
-// ServeHTTP handles incoming WebSocket upgrade requests and sets up the client.
-// It implements the http.Handler interface.
-func (wb *WebsocketBridge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// In a real application, you would extract the authenticated User ID here
-	// from the request context or session data.
-	// For now, we'll use a placeholder user ID derived from the connection time.
-	// NOTE: This MUST be replaced with real authentication in production.
-	userID := "user_" + time.Now().Format("150405")
+// ServeEcho is an echo.HandlerFunc that handles incoming WebSocket upgrade requests.
+func (wb *WebsocketBridge) ServeEcho(c echo.Context) error {
+	// Retrieve the authenticated user from the request context.
+	// The Auth middleware places the user object in the context.
+	user, ok := c.Get(middleware.UserContextKey).(*domain.User)
+	if !ok || user == nil {
+		slog.Error("WebsocketBridge: Could not get user from context for WebSocket connection")
+		return c.String(http.StatusUnauthorized, "User not authenticated")
+	}
 
-	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+	// Use the user's email as the identifier for chat messages.
+	// In a more complex app, you might use user.ID.String().
+	userID := user.Email
+
+	conn, err := websocket.Accept(c.Response(), c.Request(), &websocket.AcceptOptions{
 		// In a production environment, you should check the origin to prevent CSRF.
 		InsecureSkipVerify: true,
 	})
 	if err != nil {
 		slog.Error("Failed to upgrade connection to WebSocket", "error", err)
-		return
+		return err
 	}
 
 	client := &Client{ID: userID, conn: conn, send: make(chan []byte, 256)}
@@ -67,6 +75,8 @@ func (wb *WebsocketBridge) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// The writePump is now responsible for pinging, so we only need two goroutines.
 	go wb.writePump(client)
 	go wb.readPump(client)
+
+	return nil
 }
 
 // Run starts the main bridge goroutine for managing client lifecycle events.
