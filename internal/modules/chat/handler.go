@@ -1,98 +1,51 @@
 package chat
 
 import (
-	"context"
-	"log/slog"
 	"net/http"
 
-	"github.com/coder/websocket"
+	"github.com/a-h/templ"
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/domain"
-	"github.com/nfrund/goby/internal/hub"
 	"github.com/nfrund/goby/internal/middleware"
-	"github.com/nfrund/goby/internal/modules/chat/templates/components"
 	"github.com/nfrund/goby/internal/modules/chat/templates/pages"
-	"github.com/nfrund/goby/internal/rendering"
+	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/view"
 	"github.com/nfrund/goby/web/src/templates/layouts"
 )
 
-// Handler holds dependencies for the chat module's HTTP handlers.
+// Handler manages the HTTP requests for the chat module.
 type Handler struct {
-	hub      *hub.Hub
-	renderer rendering.Renderer
+	publisher pubsub.Publisher
 }
 
-// NewHandler creates a new chat handler with its dependencies.
-func NewHandler(h *hub.Hub, r rendering.Renderer) *Handler {
-	return &Handler{hub: h, renderer: r}
+// NewHandler creates a new chat handler.
+func NewHandler(pub pubsub.Publisher) *Handler {
+	return &Handler{
+		publisher: pub,
+	}
 }
 
-// ChatGet serves the main chat page.
+// ChatGet renders the main chat page using the application's rendering pipeline.
 func (h *Handler) ChatGet(c echo.Context) error {
-	// The renderer is available on the handler struct.
-	// We can use it to render the ChatPage component directly.
-	if r, ok := h.renderer.(*rendering.UniversalRenderer); ok {
-		// Follow the handler-level composition pattern used elsewhere.
-		// 1. Get the flash data.
-		flashes := view.GetFlashData(c)
-		// 2. Create the inner page content.
-		pageContent := pages.ChatPage()
-		// 3. Wrap the content in the base layout and render.
-		return r.RenderPage(c, http.StatusOK, layouts.Base("Goby Chat", flashes, pageContent))
-	}
-	// Fallback for safety, though in practice the type assertion should always succeed.
-	return c.String(http.StatusInternalServerError, "Renderer not configured correctly")
+	pageContent := pages.ChatPage()
+	// The renderer expects a templ.Component, so we wrap it.
+	finalComponent := templ.Component(layouts.Base("Chat", view.GetFlashData(c), pageContent))
+	return c.Render(http.StatusOK, "", finalComponent)
 }
 
-// ServeWS handles WebSocket connection requests for the chat.
-func (h *Handler) ServeWS(c echo.Context) error {
-	slog.Info("ServeWS: Received request to upgrade to WebSocket")
-	conn, err := websocket.Accept(c.Response(), c.Request(), &websocket.AcceptOptions{
-		// In a production environment, you should check the origin to prevent CSRF.
-		// For this template, we'll allow any origin.
-		InsecureSkipVerify: true,
-	})
-	if err != nil {
-		slog.Error("Failed to upgrade WebSocket connection", "error", err)
-		return c.String(http.StatusInternalServerError, "Failed to upgrade to WebSocket")
+// MessagePost handles the form submission for a new chat message.
+func (h *Handler) MessagePost(c echo.Context) error {
+	user := c.Get(middleware.UserContextKey).(*domain.User)
+	content := c.FormValue("content")
+
+	if content == "" {
+		return c.NoContent(http.StatusBadRequest)
 	}
 
-	slog.Info("ServeWS: WebSocket connection upgraded successfully. Creating client.")
+	// The payload is the raw form data, which the subscriber expects.
+	payload := []byte(`{"content":"` + content + `"}`)
+	msg := pubsub.Message{Topic: "chat.messages.new", UserID: user.Email, Payload: payload}
+	h.publisher.Publish(c.Request().Context(), msg)
 
-	// Get the authenticated user from the context.
-	user, ok := c.Get(middleware.UserContextKey).(*domain.User)
-	if !ok {
-		slog.Error("Could not get user from context for WebSocket connection")
-		return c.String(http.StatusUnauthorized, "User not authenticated")
-	}
-
-	sub := &hub.Subscriber{
-		UserID: user.ID.String(),
-		Send:   make(chan []byte, 256),
-	}
-	bridge := &HubBridge{conn: conn, hub: h.hub, subscriber: sub, User: user, renderer: h.renderer}
-	h.hub.Register <- bridge.subscriber
-
-	// --- Send a welcome message directly to the new user ---
-	go func(renderer rendering.Renderer) {
-		// Pass the renderer into the goroutine to ensure safe concurrent access.
-		welcomeComponent := components.WelcomeMessage("Welcome to the chat, " + user.Email + "!")
-		renderedHTML, err := renderer.RenderComponent(context.Background(), welcomeComponent)
-		if err != nil {
-			slog.Error("Failed to render welcome message", "error", err)
-		} else {
-
-			directMessage := &hub.DirectMessage{
-				UserID:  user.ID.String(),
-				Payload: renderedHTML,
-			}
-			h.hub.Direct <- directMessage
-		}
-	}(h.renderer)
-
-	go bridge.writePump()
-	go bridge.readPump()
-
-	return nil
+	return c.NoContent(http.StatusOK)
 }

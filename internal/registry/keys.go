@@ -15,5 +15,8 @@ const (
 	AppConfigKey        ServiceKey = "config.provider"
 	UserStoreKey        ServiceKey = "user.store"
 	MessengerHandlerKey ServiceKey = "messenger.handler"
-	Chat2HandlerKey     ServiceKey = "chat2.handler"
+	PubSubKey           ServiceKey = "pubsub"
+	WebsocketBridgeKey  ServiceKey = "websocket.bridge"
+	// NewWebsocketBridgeKey is the key for the new (V2) WebSocket bridge used in the strangler fig migration.
+	NewWebsocketBridgeKey ServiceKey = "websocket.bridge.new"
 )

@@ -10,10 +10,11 @@ import (
 	"github.com/nfrund/goby/internal/config"
 	"github.com/nfrund/goby/internal/database"
 	"github.com/nfrund/goby/internal/email"
-	"github.com/nfrund/goby/internal/hub"
 	"github.com/nfrund/goby/internal/logging"
+	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/rendering"
 	"github.com/nfrund/goby/internal/server"
+	"github.com/nfrund/goby/internal/websocket"
 )
 
 // AppTemplates can be set at build time to force a template loading strategy.
@@ -53,19 +54,29 @@ func main() {
 		os.Exit(1)
 	}
 
-	htmlHub := hub.NewHub()
-	dataHub := hub.NewHub()
+	pubSub := pubsub.NewWatermillBridge()
+	// MANDATORY: Ensure the Pub/Sub system is cleanly shut down.
+	defer func() {
+		slog.Info("Shutting down Pub/Sub system...")
+		if err := pubSub.Close(); err != nil {
+			slog.Error("Failed to close Pub/Sub system", "error", err)
+		}
+	}()
 
 	// Create the universal renderer that can handle both templ and gomponents.
 	renderer := rendering.NewUniversalRenderer()
+
+	// Create the WebSocket bridge.
+	newBridge := websocket.NewBridge(pubSub)
 
 	// 3. Create the server by passing the option functions.
 	s, err := server.New(
 		server.WithConfig(cfg),
 		server.WithDB(db, cfg.GetDBNs(), cfg.GetDBDb()),
 		server.WithEmailer(emailer),
-		server.WithHubs(htmlHub, dataHub),
 		server.WithRenderer(renderer),
+		server.WithPubSub(pubSub),
+		server.WithNewBridge(newBridge),
 	)
 	if err != nil {
 		slog.Error("Failed to create server", "error", err)

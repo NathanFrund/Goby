@@ -7,6 +7,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/middleware" // Your custom middleware
 	"github.com/nfrund/goby/internal/registry"
+	"github.com/nfrund/goby/internal/websocket"
 )
 
 // RegisterRoutes sets up all the application routes.
@@ -54,11 +55,11 @@ func (s *Server) RegisterRoutes() {
 
 	// 2. Register core framework services that modules might need.
 	sl.Set(string(registry.DBConnectionKey), s.DB) // Use direct SurrealDB client
-	sl.Set(string(registry.HTMLHubKey), s.htmlHub)
-	sl.Set(string(registry.DataHubKey), s.dataHub)
 	sl.Set(string(registry.TemplateRendererKey), s.Renderer)
 	sl.Set(string(registry.AppConfigKey), s.Cfg)
+	sl.Set(string(registry.PubSubKey), s.PubSub)
 	sl.Set(string(registry.UserStoreKey), s.UserStore)
+	sl.Set(string(registry.NewWebsocketBridgeKey), s.bridge)
 
 	// 3. Register services from all active modules.
 	// This allows modules to add their services to the container.
@@ -79,5 +80,8 @@ func (s *Server) RegisterRoutes() {
 
 	// Standard routes
 	protected.GET("/dashboard", s.dashboardHandler.DashboardGet)
-	protected.GET("/ws/data", s.dataHandler.ServeWS)
+
+	// Register WebSocket endpoints.
+	protected.GET("/ws/html", s.bridge.Handler(websocket.ConnectionTypeHTML))
+	protected.GET("/ws/data", s.bridge.Handler(websocket.ConnectionTypeData))
 }

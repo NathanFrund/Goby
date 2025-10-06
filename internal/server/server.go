@@ -16,8 +16,8 @@ import (
 	"github.com/nfrund/goby/internal/database"
 	"github.com/nfrund/goby/internal/domain"
 	"github.com/nfrund/goby/internal/handlers"
-	"github.com/nfrund/goby/internal/hub"
-	"github.com/nfrund/goby/internal/modules/data"
+	"github.com/nfrund/goby/internal/pubsub"
+	"github.com/nfrund/goby/internal/websocket"
 	"github.com/nfrund/goby/web"
 	"github.com/surrealdb/surrealdb.go"
 )
@@ -36,9 +36,8 @@ type Server struct {
 	dashboardHandler *handlers.DashboardHandler
 	aboutHandler     *handlers.AboutHandler
 
-	htmlHub     *hub.Hub
-	dataHub     *hub.Hub
-	dataHandler *data.Handler
+	bridge *websocket.Bridge
+	PubSub pubsub.Publisher
 }
 
 func setupErrorHandling(e *echo.Echo) {
@@ -120,19 +119,26 @@ func WithEmailer(emailer domain.EmailSender) ServerOption {
 	}
 }
 
-// WithHubs is an option to set the WebSocket hubs.
-func WithHubs(htmlHub, dataHub *hub.Hub) ServerOption {
-	return func(s *Server) error {
-		s.htmlHub = htmlHub
-		s.dataHub = dataHub
-		return nil
-	}
-}
-
 // WithRenderer is an option to set the component renderer.
 func WithRenderer(renderer echo.Renderer) ServerOption {
 	return func(s *Server) error {
 		s.Renderer = renderer
+		return nil
+	}
+}
+
+// WithPubSub is an option to set the Pub/Sub service.
+func WithPubSub(pubSub pubsub.Publisher) ServerOption {
+	return func(s *Server) error {
+		s.PubSub = pubSub
+		return nil
+	}
+}
+
+// WithNewBridge is an option to set the new V2 WebSocket bridge.
+func WithNewBridge(bridge *websocket.Bridge) ServerOption {
+	return func(s *Server) error {
+		s.bridge = bridge
 		return nil
 	}
 }
@@ -189,7 +195,6 @@ func New(opts ...ServerOption) (*Server, error) {
 // initHandlers initializes all handler structs using the Server's dependencies.
 func (s *Server) initHandlers() {
 	s.homeHandler = handlers.NewHomeHandler()
-	s.dataHandler = data.NewHandler(s.dataHub)
 	s.authHandler = handlers.NewAuthHandler(s.UserStore, s.Emailer, s.Cfg.GetAppBaseURL())
 	s.dashboardHandler = handlers.NewDashboardHandler()
 	s.aboutHandler = &handlers.AboutHandler{}
@@ -201,8 +206,9 @@ func (s *Server) Start() {
 
 	// Start server in a goroutine so that it doesn't block.
 	// Also start the hubs, which are background services of the server.
-	go s.htmlHub.Run()
-	go s.dataHub.Run()
+	if s.bridge != nil {
+		go s.bridge.Run()
+	}
 
 	go func() {
 		slog.Info("Starting server", "address", addr)
