@@ -4,7 +4,31 @@
   <img src="web/static/img/logo.svg" alt="Goby Mascot" width="200">
 </p>
 
-Goby is a project template for building web applications with Go, SurrealDB, and Tailwind CSS, featuring live-reloading for a great developer experience.
+A modular Go web framework for building real-time, interactive UIs.
+
+Combine Go's performance with modern web development practices to create responsive, component-based web applications that scale.
+
+## Tech Stack
+
+- **Backend**: Go 1.22+
+- **Frontend**: HTMX, Templ, and Gomponents
+- **Styling**: Tailwind CSS with DaisyUI components
+- **Database**: SurrealDB
+- **Real-time**: WebSockets with custom bridge
+- **Messaging**: Watermill for event-driven architecture
+- **Development**: Seamless development experience with Overmind orchestrating Go hot-reloading (Air), template compilation (Templ), and CSS processing (Tailwind).
+
+## Why Goby?
+
+Goby is built around a presentation-first architecture:
+
+- **Component-Based UI**: Build with Templ and Gomponents for type-safe templates
+- **Real-Time by Default**: Built-in WebSocket support with automatic DOM updates
+- **Event-Driven**: Watermill-powered message bus for scalable, decoupled services
+- **Beautiful UIs**: Pre-configured with Tailwind CSS and DaisyUI components
+- **Developer Experience**: Hot-reloading, comprehensive tooling, and sensible defaults
+- **Dual-Mode API**: Serve both HTML and JSON from dedicated endpoints
+- **Modular Design**: Easy to extend with custom modules
 
 ## Development Setup
 
