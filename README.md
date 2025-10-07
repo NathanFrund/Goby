@@ -374,9 +374,11 @@ Static assets (CSS, JS, images) are managed in the `web/` directory:
 - `web/src/`: Source files that need processing (Sass, TypeScript, etc.)
 - `web/dist/`: Compiled assets (managed by build tools)
 
-### Production Builds
+## Production Deployment
 
-For production, run:
+### Building for Production
+
+To create a production-ready, self-contained binary with all assets embedded:
 
 ```sh
 make build
@@ -385,52 +387,13 @@ make build
 This will:
 1. Compile all Templ components to Go
 2. Build and minify CSS/JS assets
-3. Create a self-contained binary with all assets embedded
+3. Create a single binary at `./tmp/goby` with all assets embedded
 
-The production build uses Go's `embed` package to include all necessary assets directly in the binary, making deployment as simple as copying a single file.
-
-## Production Deployment
-
-This project can produce a self-contained binary that embeds all templates and static assets.
-
-### Build Steps
-
-The `make build-embed` command is the recommended way to create a fully self-contained production binary. It builds the minified CSS and compiles the Go application with templates and static assets embedded.
-
-```sh
-# Build minified CSS and the binary (with embedded assets)
-make build-embed
-```
-
-## Production Deployment
-
-### Building for Production
-
-To create a production-ready binary with embedded assets:
-
-```sh
-make build
-```
-
-This will produce a single, self-contained binary in `./tmp/goby` that includes all necessary assets.
-
-### Deployment Steps
-
-1. **Build the binary** on your build server or local machine:
-   ```sh
-   make build
-   ```
-
-2. **Transfer the binary** to your production server:
-   ```sh
-   scp ./tmp/goby user@production-server:/opt/goby/
-   ```
-
-3. **Set up the runtime environment** with the required configuration (see Configuration section below).
+The resulting binary includes all templates and static files using Go's `embed` package.
 
 ### Systemd Service
 
-Here's an example systemd service file for running Goby in production:
+For production deployments, you can use this systemd service file as a reference. Save it to `/etc/systemd/system/goby.service`:
 
 ```ini
 [Unit]
@@ -441,8 +404,8 @@ After=network.target
 Type=simple
 User=www-data
 Group=www-data
-WorkingDirectory=/opt/goby
-ExecStart=/opt/goby/goby
+WorkingDirectory=/path/to/goby
+ExecStart=/path/to/goby/goby
 Restart=always
 EnvironmentFile=/etc/goby/env
 
@@ -450,11 +413,7 @@ EnvironmentFile=/etc/goby/env
 WantedBy=multi-user.target
 ```
 
-Save this to `/etc/systemd/system/goby.service` and create the environment file at `/etc/goby/env` with your production configuration.
-
-### Environment Variables
-
-Set the required environment variables in production (via your process manager or a systemd unit file). See the Configuration section below for all available options.
+Create the environment file at `/etc/goby/env` with your production configuration. See the Configuration section below for all available options.
 
 ## Configuration
 
