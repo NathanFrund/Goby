@@ -76,7 +76,7 @@ func main() {
 		server.WithEmailer(emailer),
 		server.WithRenderer(renderer),
 		server.WithPubSub(pubSub),
-		server.WithNewBridge(newBridge),
+		server.WithWebsocketBridge(newBridge),
 	)
 	if err != nil {
 		slog.Error("Failed to create server", "error", err)

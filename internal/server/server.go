@@ -135,8 +135,8 @@ func WithPubSub(pubSub pubsub.Publisher) ServerOption {
 	}
 }
 
-// WithNewBridge is an option to set the new V2 WebSocket bridge.
-func WithNewBridge(bridge *websocket.Bridge) ServerOption {
+// WithWebsocketBridge is an option to set the WebSocket bridge.
+func WithWebsocketBridge(bridge *websocket.Bridge) ServerOption {
 	return func(s *Server) error {
 		s.bridge = bridge
 		return nil

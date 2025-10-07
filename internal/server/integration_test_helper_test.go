@@ -56,7 +56,7 @@ func setupIntegrationTest(t *testing.T) (*server.Server, *httptest.Server, func(
 		server.WithEmailer(emailer),
 		server.WithRenderer(renderer),
 		server.WithPubSub(ps),
-		server.WithNewBridge(bridge),
+		server.WithWebsocketBridge(bridge),
 	)
 	require.NoError(t, err)
 	testServer := httptest.NewServer(s.E)
