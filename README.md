@@ -4,154 +4,156 @@
   <img src="web/static/img/logo.svg" alt="Goby Mascot" width="200">
 </p>
 
-Goby is a project template for building web applications with Go and Tailwind CSS, featuring live-reloading for a great developer experience.
+Goby is a project template for building web applications with Go, SurrealDB, and Tailwind CSS, featuring live-reloading for a great developer experience.
 
-## Quick Start
+## Development Setup
 
-Get up and running fast.
-
-```sh
-# Install JS deps (first run)
-npm install
-
-# Development with live reload (recommended)
-make dev
-
-# Alternatively, run directly with disk templates
-make run
-
-# Run with embedded templates (production-like)
-make run-embed
-
-# Build binary (uses disk assets unless env vars are set)
-make build
-
-# Build a self-contained production binary with all assets embedded
-make build-embed
-```
-
-Once the app is running, open `http://localhost:8080`, log in, and navigate to `Chat`.
-
-- Click "Trigger Hit Event" in the Game State Monitor to see:
-  - An HTML fragment injected into the chat via `/app/ws/html`.
-  - A JSON update displayed by the monitor via `/app/ws/data`.
-
-## Prerequisites
+### Prerequisites
 
 Before you begin, ensure you have the following tools installed:
 
-- **Go**: Version 1.22 or newer.
-- **Node.js and npm**: For managing Tailwind CSS.
-- **[Air](https://github.com/air-verse/air)**: For live-reloading the Go application.
-- **[Overmind](https://github.com/DarthSim/overmind)**: For running multiple processes (Go and Tailwind) concurrently.
-- **[tmux](https://github.com/tmux/tmux/wiki)**: The terminal multiplexer used by `overmind` to manage processes.
+- **Go** (1.22 or newer) - [Download](https://golang.org/dl/)
+- **Node.js and npm** (LTS version recommended) - [Download](https://nodejs.org/)
+- **Overmind** - Process manager for development
+  ```sh
+  # Install with Go (recommended)
+  go install github.com/DarthSim/overmind/v2@latest
 
-### Tool Installation
+  # Alternative installations:
+  # macOS (Homebrew): brew install overmind
+  # Arch Linux: pacman -S overmind
+  ```
+- **tmux** - Terminal multiplexer used by Overmind
+  ```sh
+  # macOS (Homebrew)
+  brew install tmux
+  
+  # Linux (Debian/Ubuntu)
+  # sudo apt-get install tmux
+  ```
+- **Air** - For live-reloading Go applications
+  ```sh
+  go install github.com/air-verse/air@latest
+  ```
+  Make sure your `$GOPATH/bin` is in your `$PATH`.
 
-You can install the required Go and system tools with these commands:
+### Quick Start
 
-```sh
-# Install tmux
-# On macOS with Homebrew:
-brew install tmux
-# On Debian/Ubuntu:
-# sudo apt-get install tmux
+1. **Install Node.js dependencies**
+   ```sh
+   npm install
+   ```
+   This will install all required frontend dependencies including Tailwind CSS and other JavaScript packages.
 
-# Install Air for Go live-reloading
-go install github.com/air-verse/air@latest
+2. **Start development server**
+   ```sh
+   make dev
+   ```
+   This single command starts:
+   - Go application with hot-reloading (via `air`)
+   - Templ file watcher
+   - Tailwind CSS compiler
+   - Other development services
 
-# Install Overmind process manager
-go install github.com/DarthSim/overmind/v2@latest
-```
+3. **Explore the application**
+   Open http://localhost:8080 in your browser and log in. Navigate to the **Chat** page to see the real-time features:
+   - Click "Trigger Hit Event" in the Game State Monitor
+   - Watch HTML fragments update in the chat log via WebSocket
+   - See raw JSON data update in the monitor
 
-## Development
+### Alternative: Manual Process Management
 
-This project is configured for a streamlined development experience. The recommended approach uses `overmind` to manage both the Go and Tailwind processes from a single command.
+If you prefer not to use Overmind, you can run processes separately:
 
-1.  **Install dependencies:**
+1. **Terminal 1: Start Tailwind watcher**
+   ```sh
+   npm run dev:tailwind
+   ```
 
-    ```sh
-    npm install
-    ```
+2. **Terminal 2: Start Go application**
+   ```sh
+   air
+   ```
 
-2.  **Start the development server:**
+3. **Terminal 3: Watch for template changes**
+   ```sh
+   templ generate --watch
+   ```
 
-    ```sh
-    overmind start
-    ```
-
-This will start both processes defined in the `Procfile`. Your application will be available at `http://localhost:8080` and will automatically reload when you make changes to Go or CSS files.
-
-### Alternative: Running in Separate Terminals
-
-If you prefer not to install `overmind` and `tmux`, you can run the Go live-reloader and the Tailwind CSS watcher in two separate terminal shells.
-
-1.  **Terminal 1: Start the Tailwind watcher:**
-
-    ```sh
-    npm run dev:tailwind
-    ```
-
-2.  **Terminal 2: Start the Go application with Air:**
-    ```sh
-    air
-    ```
-
-This setup achieves the same result, with your Go application running on `http://localhost:8080` and live-reloading enabled for both backend and frontend changes.
+This achieves the same result as `make dev` but requires managing each process separately.
 
 ## Module System
 
-Goby features a modular architecture inspired by frameworks like Laravel. Features are organized into self-contained packages under `internal/modules/`. Each module implements the `module.Module` interface, allowing it to be registered and booted by the core application. This promotes strong separation of concerns and makes the application highly extensible.
+Goby features a modular architecture where features are organized into self-contained packages under `internal/modules/`. Each module implements the `module.Module` interface, allowing it to be registered and booted by the core application. This promotes strong separation of concerns and makes the application highly extensible.
+
+### The Module Interface
+
+The `module.Module` interface defines the contract for how a module interacts with the application kernel.
+
+```go
+type Module interface {
+	Name() string
+	Register(s *server.Server) error
+	Boot(g *echo.Group, s *server.Server) error
+}
+```
+
+**Method Lifecycle:**
+
+1.  **`Name()`**: Returns a unique, lowercase name for the module (e.g., `"greeter"`). This is used for namespacing routes.
+2.  **`Register()`**: Called during application startup. This is the ideal place for dependency injection and service registration. The `*server.Server` instance acts as a service locator, providing access to shared services like the database (`s.DB`), configuration (`s.Cfg`), and pub/sub bus (`s.PubSub`).
+3.  **`Boot()`**: The final stage of startup. This method is for registering the module's HTTP routes within a prefixed `echo.Group` and for starting any background processes (like pub/sub subscribers).
 
 ### Creating a New Module
 
 Follow these steps to create a new module:
 
-1.  **Create the Module Structure**
+1.  **Create the Directory Structure**
     Create a new directory for your module under `internal/modules/`. For a module named `greeter`, the structure would be:
 
     ```
     internal/modules/
     └── greeter/
-        ├── module.go          # Module interface implementation
-        ├── greeter.go         # Core service logic and types
-        └── templates/
-            └── components/
-                └── greeting.html
+        ├── module.go          # The module's main entrypoint (implements module.Module)
+        ├── handler.go         # HTTP handlers for the module's routes
+        └── service.go         # Core business logic and types
+        # Since templates are compiled Go code with `templ`,
+        # they are typically co-located with handlers or in a `view` package.
     ```
 
 2.  **Implement the `Module` Interface**
-    In `greeter/module.go`, create a struct (e.g., `GreeterModule`) and implement the `module.Module` interface.
+    In `greeter/module.go`, create a struct (e.g., `GreeterModule`) and implement the interface methods. This example shows a complete, working implementation.
 
-    - `Name()`: Return a unique name for the module (e.g., `"greeter"`).
-    - `RegisterTemplates()`: Register any embedded HTML templates with the renderer.
-    - `Register()`: Read configuration and register the module's services (e.g., `greeter.Service`) into the service locator.
-    - `Boot()`: Retrieve services from the service locator and register the module's HTTP routes.
+    ```go
+    // internal/modules/greeter/module.go
+    package greeter
 
-```go
- // internal/modules/greeter/module.go
- package greeter
+    import (
+    	"github.com/labstack/echo/v4"
+    	"github.com/nfrund/goby/internal/server"
+    )
 
- type GreeterModule struct{}
+    // GreeterModule is the entrypoint for the greeter feature.
+    type GreeterModule struct {
+    	handler *Handler // The module's HTTP handler
+    }
 
- func (m *GreeterModule) Name() string { return "greeter" }
+    func (m *GreeterModule) Name() string { return "greeter" }
 
- func (m *GreeterModule) Register(sl registry.ServiceLocator, cfg config.Provider) error {
-     // Create and register your service
-     svc := NewService()
-     sl.Set("greeter.service", svc)
-     return nil
- }
+    func (m *GreeterModule) Register(s *server.Server) error {
+    	// Create the module's service and handler, injecting shared dependencies from the server.
+    	service := NewService(s.PubSub)
+    	m.handler = NewHandler(service)
+    	return nil
+    }
 
- func (m *GreeterModule) Boot(g *echo.Group, sl registry.ServiceLocator) error {
-     // Get your service and register routes
-     svc, _ := sl.Get("greeter.service")
-     handler := NewHandler(svc.(*Service))
-     g.GET("/greet", handler.Greet)
-     return nil
- }
- // ... other interface methods
-```
+    func (m *GreeterModule) Boot(g *echo.Group, s *server.Server) error {
+    	// Register the module's routes under the group provided by the kernel.
+    	// e.g., GET /greeter/hello
+    	g.GET("/hello", m.handler.SayHello)
+    	return nil
+    }
+    ```
 
 3.  **Activate the Module**
     Finally, add your new module to the `AppModules` slice in `internal/server/kernel.go`. This is the single place to enable or disable modules for the entire application.
@@ -163,203 +165,376 @@ Follow these steps to create a new module:
     }
     ```
 
-## Templates, Modules, and Embedding
+## Real-time Architecture
 
-Goby supports two template sources to balance fast development and self-contained production builds.
+Goby uses a message bus (Watermill) connected to clients via WebSockets to enable real-time updates. This architecture allows for efficient communication between the server and clients.
 
-- **Shared templates (layouts/components/pages)** live under `web/src/templates/`.
-- **Module templates** live under `internal/modules/<module>/templates/` and are namespaced by the module name.
-  - Example: `internal/modules/wargame/templates/components/wargame-damage.html` is rendered as `wargame/wargame-damage.html`.
+### Message Flow (Broadcast)
 
-### How templates are loaded
+1. **Backend Event**: An event occurs in the backend (e.g., a new chat message is posted).
+2. **HTML Rendering**: The module renders an HTML fragment using Templ components.
+3. **Message Publishing**: The module publishes the fragment to a Watermill topic (e.g., `html-broadcast`).
+4. **WebSocket Delivery**: The WebSocket bridge receives the message and forwards it to all connected clients on the `/app/ws/html` endpoint.
+5. **Client Update**: htmx on the client-side swaps the content into the appropriate part of the page.
 
-- **Shared templates** are loaded either from disk or from an embedded filesystem, depending on the `APP_TEMPLATES` environment variable.
-  - `APP_TEMPLATES=disk` (default): read from disk via `templates.NewRenderer("web/src/templates")`.
-  - `APP_TEMPLATES=embed`: read from the embedded FS defined in `web/src/templates/embed.go` via `templates.NewRendererFromFS(webtemplates.FS, ".")`.
-- **Module templates** are registered in two ways:
-  - Each module can provide embedded templates (see `internal/modules/wargame/engine.go` and its `RegisterTemplates` function).
-  - At startup, the server auto-discovers `internal/modules/*/templates/` directories and registers any templates found from disk, namespaced by the module folder name. This lets disk templates override embedded ones during development.
+### Direct Messaging
 
-### Why namespacing?
+For user-specific updates:
+1. Messages are published to user-specific topics (e.g., `html-direct-user:user123`).
+2. The WebSocket bridge routes these messages only to the specified user's active connections.
 
-To avoid collisions between module templates and shared components, module templates are registered under the module name. For example, the `wargame` module registers templates as `wargame/<filename>.html`.
+### Example: Game State Updates
 
-### Running in development (disk templates)
+Here's how the wargame module handles real-time updates:
 
-Use disk-based templates for fast iteration:
+```go
+// Publish a game state update
+payload := map[string]interface{}{
+    "type": "game_update",
+    "data": gameState,
+}
 
-```sh
-make dev          # recommended (Overmind + live-reload)
-# or
-make run          # simpler: go run with APP_TEMPLATES=disk
+// Publish to all connected clients
+h.publisher.Publish("html-broadcast", message.NewMessage(
+    uuid.New().String(),
+    payload,
+))
 ```
 
-### Running with embedded templates (production-like)
+## Real-time Architecture: The Watermill Bridge
 
-Validate your production path locally using embedded templates:
+A core feature of this template is its real-time architecture, designed for modularity and scalability. It's built around a **Watermill** message bus, which is connected to clients via a **WebSocket Bridge**. This allows backend modules to communicate with each other and with the frontend in a decoupled manner.
 
-```sh
-make run-embed    # go run with APP_TEMPLATES=embed
-```
+This "presentation-centric" approach allows various backend services (e.g., a chat module, a game engine) to operate independently. They can focus on their own logic, render their state into a self-contained HTML component, and then publish it to a Watermill topic for delivery to clients.
 
-### Building for production
-
-Build the Go binary and production CSS. The `make build-embed` command is the recommended way to create a fully self-contained binary.
-
-```sh
-make build        # builds binary (disk templates unless APP_TEMPLATES=embed at runtime)
-make build-embed  # builds binary with APP_TEMPLATES=embed and APP_STATIC=embed set at build time
-```
-
-In production, set `APP_TEMPLATES=embed` to force the binary to use embedded templates.
-
-## Production Deployment
-
-This project can produce a self-contained binary that embeds all templates.
-
-- **Static assets** (CSS/JS/images) are served from `web/static/` at runtime and are not embedded. Build them before deploying.
-- **Templates** can be embedded via `APP_TEMPLATES=embed`.
-
-### Build steps
-
-```sh
-# Build minified CSS and the binary (with embedded templates enabled)
-make build-embed
-# Or, explicitly
-APP_TEMPLATES=embed go build -o ./tmp/goby ./cmd/server
-npm run build:js
-npm exec tailwindcss -- --input=./web/src/css/input.css --output=./web/static/css/style.css --minify
-```
-
-### Runtime environment
-
-Set these environment variables in production (via your process manager or unit file):
-
-- `SERVER_ADDR` (e.g., `:8080`)
-- `APP_BASE_URL` (e.g., `https://yourdomain.com`)
-- `SESSION_SECRET` (required)
-- `SURREAL_URL`, `SURREAL_NS`, `SURREAL_DB`, `SURREAL_USER`, `SURREAL_PASS`
-- `EMAIL_PROVIDER` (e.g., `log` or `resend`), `EMAIL_API_KEY`, `EMAIL_SENDER`
-- `APP_TEMPLATES=embed` to ensure the binary uses embedded templates.
-
-Example systemd service snippet:
-
-```ini
-[Service]
-Environment=SERVER_ADDR=:8080
-Environment=APP_BASE_URL=https://yourdomain.com
-Environment=SESSION_SECRET=change-me
-Environment=SURREAL_URL=ws://localhost:8000/rpc
-Environment=SURREAL_NS=app
-Environment=SURREAL_DB=app
-Environment=SURREAL_USER=app
-Environment=SURREAL_PASS=secret
-Environment=EMAIL_PROVIDER=log
-Environment=APP_TEMPLATES=embed
-ExecStart=/opt/goby/goby
-WorkingDirectory=/opt/goby
-# Ensure web/static exists and contains built assets
-```
-
-### Deployable artifacts
-
-- Binary: `./tmp/goby`
-- Static assets directory: `web/static/`
-
-Make sure `web/static/` (including `css/style.css`) is deployed alongside your binary or served via a CDN.
-
-## Real-time Architecture: The Presentation-Centric Hub
-
-A core feature of this template is its real-time architecture, designed for modularity and scalability. It's built around a central "hub" that acts as a distribution channel for pre-rendered HTML fragments.
-
-This "presentation-centric" approach allows various backend services (e.g., a chat module, a game engine, a notification service) to operate independently. They can focus on their own logic, render their state into a self-contained HTML component, and then publish it to the hub for delivery to all connected clients.
-
-### The Flow
+### The Broadcast Flow
 
 The data and presentation flow follows these steps:
 
 1.  **Event Occurs:** An event is triggered somewhere in the backend. This could be a user sending a chat message or a game engine calculating a state change.
-2.  **Render Fragment:** The service responsible for the event uses the application's template renderer to create a self-contained HTML fragment representing the new state (e.g., a `<div>` for a new chat message). This fragment often includes `hx-swap-oob` attributes to tell htmx where to place it on the client-side.
-3.  **Publish to Hub:** The service sends the fully rendered HTML fragment (as a `[]byte`) to the central hub's broadcast channel.
-4.  **Hub Broadcasts:** The hub receives the HTML fragment and immediately distributes it to every connected WebSocket client.
-5.  **Client Receives & Swaps:** The client's browser receives the HTML fragment over the WebSocket connection. htmx processes the fragment, sees the `hx-swap-oob` attribute, and swaps the content into the correct place in the DOM.
+2.  **Render Fragment:** The responsible module uses the application's template renderer to create a self-contained HTML fragment representing the new state (e.g., a `<div>` for a new chat message). This fragment often includes `hx-swap-oob` attributes to tell htmx where to place it on the client-side.
+3.  **Publish to Topic:** The module publishes a message containing the rendered HTML to a broadcast topic (e.g., `html-broadcast` or `data-broadcast`).
+4.  **Bridge Subscribes & Forwards:** The WebSocket Bridge, which subscribes to these topics, receives the message.
+5.  **Bridge Delivers to Client:** The bridge forwards the message payload to the appropriate WebSocket endpoint (`/app/ws/html` or `/app/ws/data`), delivering it to all connected clients.
+6.  **Client Receives & Swaps:** The client's browser receives the HTML fragment over the WebSocket connection. htmx processes the fragment, sees the `hx-swap-oob` attribute, and swaps the content into the correct place in the DOM.
 
 ### Example: Wargame Engine
 
 Imagine a tabletop game engine running on the server. When one unit damages another, the engine can publish this event to all observers.
+This code snippet from the `wargame` module demonstrates the process:
 
-1.  The `WargameEngine` calculates that "Alpha Squad" takes 15 damage.
-2.  It uses the renderer to create an HTML component from a hypothetical `wargame-damage.html`:
-    ```html
-    <div hx-swap-oob="beforeend:#game-log">
-      <div class="p-2 text-red-500">Alpha Squad takes 15 damage!</div>
-    </div>
-    ```
-3.  The engine sends this HTML to `hub.Broadcast`.
-4.  All connected clients receive the fragment, and htmx appends it to the element with the ID `#game-log`.
+```go
+// internal/modules/wargame/service.go
 
-This architecture decouples the game engine from the complexities of WebSocket and client management, allowing for clean, modular, and highly scalable real-time features.
+ func (s *Service) handleHit(target string, damage int) error {
+ 	// 1. Create an instance of the compiled `templ` component.
+ 	component := view.WargameDamage(target, damage)
+
+ 	// 2. Render the component to an HTML string.
+ 	html, err := view.RenderComponent(component)
+ 	if err != nil {
+ 		return err
+ 	}
+
+ 	// 3. Create a new Watermill message with the rendered HTML.
+ 	msg := message.NewMessage(watermill.NewUUID(), []byte(html))
+
+ 	// 4. Publish the message to the global broadcast topic.
+ 	return s.pubsub.Publish(topics.HTMLBroadcast, msg)
+ }
+```
+
+The corresponding `templ` component (`wargame_damage.templ`) defines the structure and uses an `hx-swap-oob` attribute to tell htmx where to place the content:
+
+```templ
+templ WargameDamage(target string, damage int) {
+	<div hx-swap-oob="beforeend:#game-log">
+		<div class="p-2 text-red-500">{ target } takes { fmt.Sprintf("%d", damage) } damage!</div>
+	</div>
+}
+```
+
+This architecture decouples the game engine from the complexities of WebSocket and client management, allowing for clean, modular, and scalable real-time features.
+
+### The Direct Message Flow
+
+In addition to broadcasting, the system supports sending direct messages to a specific user, even if they have multiple connections (e.g., on a desktop and a phone). This is achieved by publishing a message to a user-specific topic, like `html-direct-user:some_user_id`.
+
+The flow is nearly identical to the broadcast flow, with one key difference:
+
+1.  **Publish to User Topic:** Instead of publishing to a generic topic like `html-broadcast`, the service publishes the message to a topic that includes the user's unique ID. For example: `topics.HTMLDirectToUser(userID)`.
+2.  **Bridge Routes Message:** The WebSocket Bridge, which manages user sessions, identifies the active connections for that specific user and sends the payload only to them.
 
 This project includes a live, interactive demonstration of this feature. Once logged in, navigate to the **Chat** page. You will find a "Game State Monitor" with a button to trigger a random wargame event. Clicking it will publish an HTML fragment to the chat log and a JSON data object to the monitor, showcasing both real-time channels in action.
 
-### Direct Messaging to Specific Users
+## UI Components & Asset Management
 
-In addition to broadcasting to all clients, the hub supports sending direct messages to a specific user, even if they have multiple connections (e.g., on a desktop and a phone).
+Goby uses modern web development tools for building and managing UI components and static assets, providing a fast development experience with hot-reloading and optimized production builds.
 
-This is achieved by sending a `hub.DirectMessage` struct to the `hub.Direct` channel.
+### UI Components
 
-#### The Flow for Direct Messages
+Goby leverages two powerful templating systems:
 
-1.  **Event Occurs:** A backend service determines that a specific user needs to receive a private notification.
-2.  **Render Fragment:** The service renders the appropriate HTML fragment for the notification.
-3.  **Create Direct Message:** The service creates a `hub.DirectMessage` struct, populating the `UserID` of the recipient and the `Payload` with the rendered HTML.
-4.  **Publish to Direct Channel:** The message is sent to the `hub.Direct` channel.
-5.  **Hub Routes Message:** The hub looks up all active connections for the specified `UserID` and sends the payload only to them.
+- **[Templ](https://templ.guide/)**: A type-safe HTML templating language for Go that compiles to Go code, providing excellent performance and IDE support.
+- **[Gomponents](https://www.gomponents.com/)**: A view library for writing HTML in Go, offering a clean, type-safe way to build UI components.
 
-#### Example: Private Notification
+**Template Organization**
 
-If a player's unit is hit, the wargame engine can send them a private alert that appears at the top of their screen.
+Goby's UI components are organized in the following structure:
 
-1.  The engine identifies the `UserID` of the player whose unit was hit.
-2.  It renders a `wargame-hit-notification.html` component.
-3.  It creates and sends the `DirectMessage`:
-    ```go
-    directMessage := &hub.DirectMessage{
-        UserID:  "user:some_user_id",
-        Payload: renderedHTML,
-    }
-    engine.hub.Direct <- directMessage
-    ```
-4.  Only the user with the ID `user:some_user_id` will receive the notification.
+- **`web/src/templates/`** - Main templates directory
+  - `components/` - Reusable UI components
+  - `layouts/` - Base layouts and page templates
+  - `pages/` - Page-specific templates
+  - `partials/` - Reusable template partials
+
+- **Module Templates** - Feature-specific templates are located in their respective module directories:
+  - `internal/modules/<module-name>/templates/`
+
+### Development Workflow
+
+Goby uses [Overmind](https://github.com/DarthSim/overmind) to manage multiple processes during development, making it easy to run and monitor all required services with a single command.
+
+#### Prerequisites
+
+1. **Install Overmind**:
+   - **Using Go** (recommended if you have Go installed):
+     ```sh
+     go install github.com/DarthSim/overmind/v2@latest
+     ```
+     Make sure your `$GOPATH/bin` is in your `$PATH`.
+   - **macOS** (using Homebrew):
+     ```sh
+     brew install overmind
+     ```
+   - **Linux** (using Homebrew):
+     ```sh
+     brew install overmind
+     ```
+   - **Arch Linux**:
+     ```sh
+     pacman -S overmind
+     ```
+   - Other platforms: See [Overmind's installation guide](https://github.com/DarthSim/overmind#installation) for more options.
+
+2. **Install Node.js and npm**: Required for frontend development
+   - [Download and install Node.js](https://nodejs.org/) (LTS version recommended)
+
+3. **Install Go 1.21 or later**: Required for backend development
+   - [Download and install Go](https://golang.org/dl/)
+
+#### Starting Development
+
+1. **Using Overmind (Recommended)**:
+   ```sh
+   make dev
+   ```
+   This starts all required processes defined in the `Procfile`:
+   - Go application with hot-reloading (via `air`)
+   - Templ file watcher
+   - Tailwind CSS compiler
+   - Any other development services
+
+2. **Alternative: Manual Process Management**
+   If you prefer not to use Overmind, you can run processes separately:
+   ```sh
+   # Terminal 1: Start the Go application with air
+   air
+   
+   # Terminal 2: Watch for template changes
+   templ generate --watch
+   
+   # Terminal 3: Start the Tailwind CSS compiler
+   npm run dev:tailwind
+   ```
+
+#### Component Development
+
+1. **Templ Components**:
+   - Create `.templ` files for your components
+   - Changes are automatically picked up by the `templ generate --watch` process
+   - Import and use components in your Go code
+
+2. **Gomponents**:
+   - Create Go files that use the `g` package to build UI components
+   - Components are just Go functions that return `g.Node`
+   - Use them directly in your handlers or other components
+
+3. **Hot Reloading**:
+   The development server automatically handles changes to:
+   - Go files (via `air`)
+   - Templ files (via `templ generate --watch`)
+   - CSS/JS (via Tailwind's JIT compiler)
+
+### Static Assets
+
+Static assets (CSS, JS, images) are managed in the `web/` directory:
+
+- `web/static/`: Static files served directly (images, fonts, etc.)
+- `web/src/`: Source files that need processing (Sass, TypeScript, etc.)
+- `web/dist/`: Compiled assets (managed by build tools)
+
+### Production Builds
+
+For production, run:
+
+```sh
+make build
+```
+
+This will:
+1. Compile all Templ components to Go
+2. Build and minify CSS/JS assets
+3. Create a self-contained binary with all assets embedded
+
+The production build uses Go's `embed` package to include all necessary assets directly in the binary, making deployment as simple as copying a single file.
+
+## Production Deployment
+
+This project can produce a self-contained binary that embeds all templates and static assets.
+
+### Build Steps
+
+The `make build-embed` command is the recommended way to create a fully self-contained production binary. It builds the minified CSS and compiles the Go application with templates and static assets embedded.
+
+```sh
+# Build minified CSS and the binary (with embedded assets)
+make build-embed
+```
+
+## Production Deployment
+
+### Building for Production
+
+To create a production-ready binary with embedded assets:
+
+```sh
+make build
+```
+
+This will produce a single, self-contained binary in `./tmp/goby` that includes all necessary assets.
+
+### Deployment Steps
+
+1. **Build the binary** on your build server or local machine:
+   ```sh
+   make build
+   ```
+
+2. **Transfer the binary** to your production server:
+   ```sh
+   scp ./tmp/goby user@production-server:/opt/goby/
+   ```
+
+3. **Set up the runtime environment** with the required configuration (see Configuration section below).
+
+### Systemd Service
+
+Here's an example systemd service file for running Goby in production:
+
+```ini
+[Unit]
+Description=Goby Web Application
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/goby
+ExecStart=/opt/goby/goby
+Restart=always
+EnvironmentFile=/etc/goby/env
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Save this to `/etc/systemd/system/goby.service` and create the environment file at `/etc/goby/env` with your production configuration.
+
+### Environment Variables
+
+Set the required environment variables in production (via your process manager or a systemd unit file). See the Configuration section below for all available options.
 
 ## Configuration
 
 The application is configured using environment variables. For local development, you can create a `.env` file in the project root to manage these settings.
 
-### Database
+### Configuration Reference
 
-- `SURREAL_URL`: The URL of your SurrealDB instance (e.g., `ws://localhost:8000/rpc`).
-- `SURREAL_NS`: The namespace to use in SurrealDB.
-- `SURREAL_DB`: The database to use in SurrealDB.
-- `SURREAL_USER`: The user for authenticating with SurrealDB.
-- `SURREAL_PASS`: The password for authenticating with SurrealDB.
+| Variable             | Description                                                                           | Default                 | Required       |
+| :------------------- | :------------------------------------------------------------------------------------ | :---------------------- | :------------- |
+| **`SERVER_ADDR`**    | The address and port for the server to listen on.                                     | `:8080`                 | No             |
+| **`APP_BASE_URL`**   | The public base URL for the application, used for generating links in emails.         | `http://localhost:8080` | No             |
+| **`SESSION_SECRET`** | A long, random string used to secure user sessions.                                   | (none)                  | **Yes (Prod)** |
+| **`APP_STATIC`**     | Controls static asset serving. `disk` for development, `embed` for production builds. | `disk`                  | No             |
 
-### Server
+#### Database
 
-- `SERVER_ADDR`: The address and port for the server to listen on. Defaults to `:8080`.
-- `APP_BASE_URL`: The public base URL for the application, used for generating links in emails. Defaults to `http://localhost:8080` for local development.
+| Variable           | Description                                     | Default                   | Required |
+| :----------------- | :---------------------------------------------- | :------------------------ | :------- |
+| **`SURREAL_URL`**  | The URL of your SurrealDB instance.             | `ws://localhost:8000/rpc` | **Yes**  |
+| **`SURREAL_NS`**   | The namespace to use in SurrealDB.              | `app`                     | **Yes**  |
+| **`SURREAL_DB`**   | The database to use in SurrealDB.               | `app`                     | **Yes**  |
+| **`SURREAL_USER`** | The user for authenticating with SurrealDB.     | `app`                     | **Yes**  |
+| **`SURREAL_PASS`** | The password for authenticating with SurrealDB. | `secret`                  | **Yes**  |
 
-### Email
+#### Email
 
-- `EMAIL_PROVIDER`: The email service to use. Defaults to `log` (which prints emails to the console). Set to `resend` to use the Resend API.
-- `EMAIL_API_KEY`: Your API key for the chosen email provider (e.g., your Resend API key).
-- `EMAIL_SENDER`: The "from" address for outgoing emails (e.g., `you@yourdomain.com`). For Resend, this can be omitted to use the default `onboarding@resend.dev`.
+| Variable             | Description                                                              | Default | Required                         |
+| :------------------- | :----------------------------------------------------------------------- | :------ | :------------------------------- |
+| **`EMAIL_PROVIDER`** | The email service to use (`log` or `resend`).                            | `log`   | No                               |
+| **`EMAIL_API_KEY`**  | Your API key for the chosen email provider (e.g., Resend).               | (none)  | If `EMAIL_PROVIDER` is not `log` |
+| **`EMAIL_SENDER`**   | The "from" address for outgoing emails (e.g., `noreply@yourdomain.com`). | (none)  | If `EMAIL_PROVIDER` is not `log` |
 
-### Testing
+### Production Environment Example
 
-Integration tests require a running test database. Configuration for tests is managed in a separate `.env.test` file in the project root. You can copy your `.env` file to get started:
+Here is an example systemd service file for running the application in production.
+
+```ini
+[Service]
+User=www-data
+Group=www-data
+Restart=always
+
+Environment=SERVER_ADDR=:8080
+Environment=APP_BASE_URL=https://yourdomain.com
+Environment=SESSION_SECRET=a-very-long-and-random-secret-string
+Environment=SURREAL_URL=ws://localhost:8000/rpc
+Environment=SURREAL_NS=app
+Environment=SURREAL_DB=app
+Environment=SURREAL_USER=app
+Environment=SURREAL_PASS=secret
+Environment=EMAIL_PROVIDER=resend
+Environment=EMAIL_API_KEY=your-resend-api-key
+Environment=EMAIL_SENDER=noreply@yourdomain.com
+ExecStart=/opt/goby/goby
+WorkingDirectory=/opt/goby
+```
+
+## Testing
+
+This project includes both unit and integration tests to ensure code quality and correctness.
+
+### Running Tests
+
+To run the entire test suite, which includes both unit and integration tests, use the following command:
+
+```sh
+make test
+```
+
+This command executes `go test ./...` with the appropriate build tags.
+
+### Test Database
+
+Integration tests require a running test database, separate from your development database, to avoid data conflicts. Configuration for the test suite is managed in a `.env.test` file in the project root. To set it up, you can copy your existing `.env` file and modify the database connection details:
 
 ```sh
 cp .env .env.test
-
 ```
+
+### Test Types
+
+- **Unit Tests**: These tests focus on small, isolated pieces of code, like a single function or method. They do not require a database or other external services and are typically very fast.
+- **Integration Tests**: These tests verify that different parts of the application work together correctly. For example, an integration test might check that an HTTP handler correctly interacts with the database. These tests are tagged with `//go:build integration` and require a live test database to run.
