@@ -366,6 +366,100 @@ Goby uses [Overmind](https://github.com/DarthSim/overmind) to manage multiple pr
    - Templ files (via `templ generate --watch`)
    - CSS/JS (via Tailwind's JIT compiler)
 
+## Module Development
+
+### Creating a New Module
+
+1. **Create Module Structure**
+   ```
+   internal/modules/
+     yourmodule/
+       handler.go     # HTTP handlers
+       service.go     # Business logic
+       module.go      # Module definition
+       templates/     # Template files (if needed)
+       static/        # Static assets (if needed)
+   ```
+
+2. **Add Module Key**
+   Add a constant for your module in `internal/registry/keys.go`:
+   ```go
+   // internal/registry/keys.go
+   const (
+       // ... other keys
+       YourModuleServiceKey registry.ServiceKey = "yourmodule.service"
+   )
+   ```
+
+3. **Implement Module Interface**
+   ```go
+   // internal/modules/yourmodule/module.go
+   package yourmodule
+
+   import (
+       "github.com/labstack/echo/v4"
+       "github.com/nfrund/goby/internal/config"
+       "github.com/nfrund/goby/internal/registry"
+   )
+
+   type YourModule struct{}
+
+   func (m *YourModule) Name() string { return "yourmodule" }
+
+   func (m *YourModule) Register(sl registry.ServiceLocator, cfg config.Provider) error {
+       // Register services using the constant from keys.go
+       sl.Set(string(registry.YourModuleServiceKey), NewYourService())
+       return nil
+   }
+
+   func (m *YourModule) Boot(g *echo.Group, sl registry.ServiceLocator) error {
+       // Set up routes
+       h := NewHandler(sl)
+       g.GET("/your-route", h.YourHandler)
+       return nil
+   }
+   ```
+
+4. **Register Module**
+   In `cmd/server/main.go`:
+   ```go
+   modules := []module.Module{
+       // ... other modules
+       &yourmodule.YourModule{},
+   }
+   ```
+
+   **Note on Explicit Registration**: The explicit module registration (steps 1 and 4) is a deliberate design choice that:
+   - Makes all application dependencies immediately visible in one place
+   - Simplifies debugging by making the module graph explicit
+   - Follows the principle of least surprise
+   - Makes the codebase more maintainable for new contributors
+   - Avoids magic or implicit behavior that can be hard to reason about
+
+5. **Access Services**
+   ```go
+   // In your handler
+   service, _ := sl.Get(string(registry.YourModuleServiceKey)).(*YourService)
+   ```
+
+6. **Testing**
+   ```go
+   func TestYourModule(t *testing.T) {
+       // Test setup
+       sl := registry.NewServiceLocator()
+       cfg := config.NewTestConfig()
+       
+       // Register and test
+       m := &YourModule{}
+       m.Register(sl, cfg)
+       
+       // Your tests
+   }
+   ```
+
+### Example Module
+See `internal/modules/chat` for a complete implementation reference.
+
 ### Static Assets
 
 Static assets (CSS, JS, images) are managed in the `web/` directory:
