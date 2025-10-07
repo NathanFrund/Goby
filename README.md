@@ -15,6 +15,7 @@ Before you begin, ensure you have the following tools installed:
 - **Go** (1.22 or newer) - [Download](https://golang.org/dl/)
 - **Node.js and npm** (LTS version recommended) - [Download](https://nodejs.org/)
 - **Overmind** - Process manager for development
+
   ```sh
   # Install with Go (recommended)
   go install github.com/DarthSim/overmind/v2@latest
@@ -23,14 +24,17 @@ Before you begin, ensure you have the following tools installed:
   # macOS (Homebrew): brew install overmind
   # Arch Linux: pacman -S overmind
   ```
+
 - **tmux** - Terminal multiplexer used by Overmind
+
   ```sh
   # macOS (Homebrew)
   brew install tmux
-  
+
   # Linux (Debian/Ubuntu)
   # sudo apt-get install tmux
   ```
+
 - **Air** - For live-reloading Go applications
   ```sh
   go install github.com/air-verse/air@latest
@@ -40,16 +44,21 @@ Before you begin, ensure you have the following tools installed:
 ### Quick Start
 
 1. **Install Node.js dependencies**
+
    ```sh
    npm install
    ```
+
    This will install all required frontend dependencies including Tailwind CSS and other JavaScript packages.
 
 2. **Start development server**
+
    ```sh
    make dev
    ```
+
    This single command starts:
+
    - Go application with hot-reloading (via `air`)
    - Templ file watcher
    - Tailwind CSS compiler
@@ -66,11 +75,13 @@ Before you begin, ensure you have the following tools installed:
 If you prefer not to use Overmind, you can run processes separately:
 
 1. **Terminal 1: Start Tailwind watcher**
+
    ```sh
    npm run dev:tailwind
    ```
 
 2. **Terminal 2: Start Go application**
+
    ```sh
    air
    ```
@@ -165,23 +176,117 @@ Follow these steps to create a new module:
     }
     ```
 
-## Real-time Architecture
+## Presentation-Centric Architecture
 
-Goby uses a message bus (Watermill) connected to clients via WebSockets to enable real-time updates. This architecture allows for efficient communication between the server and clients.
+Goby is built around a presentation-first architecture that prioritizes efficient UI updates and real-time interactivity. The system is designed to make building dynamic, responsive web applications as straightforward as possible.
 
-### Message Flow (Broadcast)
+### Core Principles
+
+1. **UI-First Design**
+
+   - Backend services are structured around delivering UI components
+   - Real-time updates are a first-class concern
+   - Components manage their own state and updates
+
+2. **Component-Based Architecture**
+
+   - Build reusable UI components with **Templ** and **Gomponents**
+   - Components can be composed together to build complex interfaces
+   - Each component can update independently
+
+3. **Real-Time by Default**
+   - Built-in WebSocket support for live updates
+   - HTMX for fine-grained DOM updates without full page reloads
+   - Automatic state synchronization between server and client
+
+### Real-time Communication
+
+Goby uses a message bus (Watermill) connected to clients via WebSockets to enable real-time updates. This architecture allows for efficient communication between the server and clients, whether they're web browsers, mobile apps, or other services.
+
+### Client Types
+
+Goby supports multiple client types through its flexible architecture:
+
+1. **Web Browsers (HTMX)**
+
+   - Receives pre-rendered HTML fragments
+   - Zero client-side JavaScript required for basic interactions
+   - Automatic DOM updates via HTMX WebSockets
+
+2. **Native Mobile/Desktop Apps**
+   - Connects via WebSockets or HTTP/2 Server-Sent Events (SSE)
+   - Receives structured JSON data instead of HTML
+   - Can subscribe to specific data channels
+   - Example WebSocket endpoint: `/ws/data`
+
+### Message Flow for Web Clients
 
 1. **Backend Event**: An event occurs in the backend (e.g., a new chat message is posted).
-2. **HTML Rendering**: The module renders an HTML fragment using Templ components.
+2. **HTML Rendering**: The module renders an HTML fragment using either:
+
+   - **Templ**: Type-safe HTML templates that compile to Go code
+   - **Gomponents**: Composable HTML components in pure Go
+
+   You can also use them together - Templ for page layouts and Gomponents for reusable UI components.
+
 3. **Message Publishing**: The module publishes the fragment to a Watermill topic (e.g., `html-broadcast`).
 4. **WebSocket Delivery**: The WebSocket bridge receives the message and forwards it to all connected clients on the `/app/ws/html` endpoint.
 5. **Client Update**: htmx on the client-side swaps the content into the appropriate part of the page.
 
+### Message Flow for Data Clients
+
+For native mobile/desktop applications that work with raw data:
+
+1. **Backend Event**: An event occurs in the backend (e.g., game state changes).
+2. **Data Preparation**: The module prepares structured data (JSON/Protobuf).
+3. **Message Publishing**: The module publishes the data to a Watermill topic (e.g., `data-broadcast` or `data-user:user123`).
+4. **WebSocket Delivery**: The WebSocket bridge forwards the message to the appropriate clients on the `/app/ws/data` endpoint.
+5. **Client Processing**: The native client processes the data and updates its UI or state accordingly.
+
+Example data message structure:
+
+```json
+{
+  "type": "game_update",
+  "data": {
+    "game_id": "12345",
+    "players": ["player1", "player2"],
+    "scores": { "player1": 10, "player2": 8 }
+  },
+  "timestamp": "2025-10-07T23:14:14Z"
+}
+```
+
 ### Direct Messaging
 
 For user-specific updates:
-1. Messages are published to user-specific topics (e.g., `html-direct-user:user123`).
+
+1. Messages are published to user-specific topics (e.g., `html-direct-user:user123` or `data-user:user123`).
 2. The WebSocket bridge routes these messages only to the specified user's active connections.
+
+### Data-First API for Native Clients
+
+For non-HTML clients, Goby provides a clean data API:
+
+```go
+// Publish structured data for native clients
+payload := map[string]interface{}{
+    "type": "game_state_update",
+    "data": gameState,
+    "timestamp": time.Now().UTC().Format(time.RFC3339),
+}
+
+h.publisher.Publish("data-broadcast", message.NewMessage(
+    uuid.New().String(),
+    payload,
+))
+```
+
+Native clients can subscribe to specific data channels:
+
+- `data-broadcast` - Public data updates
+- `data-user:{userID}` - User-specific updates
+- `data-game:{gameID}` - Game-specific updates
 
 ### Example: Game State Updates
 
@@ -258,12 +363,14 @@ This architecture decouples the game engine from the complexities of WebSocket a
 
 ### The Direct Message Flow
 
-In addition to broadcasting, the system supports sending direct messages to a specific user, even if they have multiple connections (e.g., on a desktop and a phone). This is achieved by publishing a message to a user-specific topic, like `html-direct-user:some_user_id`.
+In addition to broadcasting, the system supports sending direct messages to a specific user. This is achieved by calling the `SendDirect` method on the WebSocket bridge.
 
-The flow is nearly identical to the broadcast flow, with one key difference:
+For services that are integrated with the real-time layer (e.g., a subscriber that is initialized with a reference to the bridge), it's straightforward to call the bridge's methods directly. This bypasses the pub/sub system for the outbound message.
 
-1.  **Publish to User Topic:** Instead of publishing to a generic topic like `html-broadcast`, the service publishes the message to a topic that includes the user's unique ID. For example: `topics.HTMLDirectToUser(userID)`.
-2.  **Bridge Routes Message:** The WebSocket Bridge, which manages user sessions, identifies the active connections for that specific user and sends the payload only to them.
+```go
+// A service with access to the bridge can send a message directly.
+bridge.SendDirect(userID, payload, websocket.ConnectionTypeHTML)
+```
 
 This project includes a live, interactive demonstration of this feature. Once logged in, navigate to the **Chat** page. You will find a "Game State Monitor" with a button to trigger a random wargame event. Clicking it will publish an HTML fragment to the chat log and a JSON data object to the monitor, showcasing both real-time channels in action.
 
@@ -283,6 +390,7 @@ Goby leverages two powerful templating systems:
 Goby's UI components are organized in the following structure:
 
 - **`web/src/templates/`** - Main templates directory
+
   - `components/` - Reusable UI components
   - `layouts/` - Base layouts and page templates
   - `pages/` - Page-specific templates
@@ -298,6 +406,7 @@ Goby uses [Overmind](https://github.com/DarthSim/overmind) to manage multiple pr
 #### Prerequisites
 
 1. **Install Overmind**:
+
    - **Using Go** (recommended if you have Go installed):
      ```sh
      go install github.com/DarthSim/overmind/v2@latest
@@ -318,6 +427,7 @@ Goby uses [Overmind](https://github.com/DarthSim/overmind) to manage multiple pr
    - Other platforms: See [Overmind's installation guide](https://github.com/DarthSim/overmind#installation) for more options.
 
 2. **Install Node.js and npm**: Required for frontend development
+
    - [Download and install Node.js](https://nodejs.org/) (LTS version recommended)
 
 3. **Install Go 1.21 or later**: Required for backend development
@@ -326,10 +436,13 @@ Goby uses [Overmind](https://github.com/DarthSim/overmind) to manage multiple pr
 #### Starting Development
 
 1. **Using Overmind (Recommended)**:
+
    ```sh
    make dev
    ```
+
    This starts all required processes defined in the `Procfile`:
+
    - Go application with hot-reloading (via `air`)
    - Templ file watcher
    - Tailwind CSS compiler
@@ -337,13 +450,14 @@ Goby uses [Overmind](https://github.com/DarthSim/overmind) to manage multiple pr
 
 2. **Alternative: Manual Process Management**
    If you prefer not to use Overmind, you can run processes separately:
+
    ```sh
    # Terminal 1: Start the Go application with air
    air
-   
+
    # Terminal 2: Watch for template changes
    templ generate --watch
-   
+
    # Terminal 3: Start the Tailwind CSS compiler
    npm run dev:tailwind
    ```
@@ -351,11 +465,13 @@ Goby uses [Overmind](https://github.com/DarthSim/overmind) to manage multiple pr
 #### Component Development
 
 1. **Templ Components**:
+
    - Create `.templ` files for your components
    - Changes are automatically picked up by the `templ generate --watch` process
    - Import and use components in your Go code
 
 2. **Gomponents**:
+
    - Create Go files that use the `g` package to build UI components
    - Components are just Go functions that return `g.Node`
    - Use them directly in your handlers or other components
@@ -371,6 +487,7 @@ Goby uses [Overmind](https://github.com/DarthSim/overmind) to manage multiple pr
 ### Creating a New Module
 
 1. **Create Module Structure**
+
    ```
    internal/modules/
      yourmodule/
@@ -383,6 +500,7 @@ Goby uses [Overmind](https://github.com/DarthSim/overmind) to manage multiple pr
 
 2. **Add Module Key**
    Add a constant for your module in `internal/registry/keys.go`:
+
    ```go
    // internal/registry/keys.go
    const (
@@ -392,6 +510,7 @@ Goby uses [Overmind](https://github.com/DarthSim/overmind) to manage multiple pr
    ```
 
 3. **Implement Module Interface**
+
    ```go
    // internal/modules/yourmodule/module.go
    package yourmodule
@@ -422,6 +541,7 @@ Goby uses [Overmind](https://github.com/DarthSim/overmind) to manage multiple pr
 
 4. **Register Module**
    In `cmd/server/main.go`:
+
    ```go
    modules := []module.Module{
        // ... other modules
@@ -430,6 +550,7 @@ Goby uses [Overmind](https://github.com/DarthSim/overmind) to manage multiple pr
    ```
 
    **Note on Explicit Registration**: The explicit module registration (steps 1 and 4) is a deliberate design choice that:
+
    - Makes all application dependencies immediately visible in one place
    - Simplifies debugging by making the module graph explicit
    - Follows the principle of least surprise
@@ -437,27 +558,30 @@ Goby uses [Overmind](https://github.com/DarthSim/overmind) to manage multiple pr
    - Avoids magic or implicit behavior that can be hard to reason about
 
 5. **Access Services**
+
    ```go
    // In your handler
    service, _ := sl.Get(string(registry.YourModuleServiceKey)).(*YourService)
    ```
 
 6. **Testing**
+
    ```go
    func TestYourModule(t *testing.T) {
        // Test setup
        sl := registry.NewServiceLocator()
        cfg := config.NewTestConfig()
-       
+
        // Register and test
        m := &YourModule{}
        m.Register(sl, cfg)
-       
+
        // Your tests
    }
    ```
 
 ### Example Module
+
 See `internal/modules/chat` for a complete implementation reference.
 
 ### Static Assets
@@ -479,6 +603,7 @@ make build
 ```
 
 This will:
+
 1. Compile all Templ components to Go
 2. Build and minify CSS/JS assets
 3. Create a single binary at `./tmp/goby` with all assets embedded
