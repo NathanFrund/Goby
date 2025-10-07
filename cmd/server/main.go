@@ -17,18 +17,11 @@ import (
 	"github.com/nfrund/goby/internal/websocket"
 )
 
-// AppTemplates can be set at build time to force a template loading strategy.
-// Example: go build -ldflags "-X 'main.AppTemplates=embed'"
-var AppTemplates string
-
 // AppStatic can be set at build time to force an asset loading strategy.
 // Example: go build -ldflags "-X 'main.AppStatic=embed'"
 var AppStatic string
 
 func main() {
-	if AppTemplates != "" {
-		os.Setenv("APP_TEMPLATES", AppTemplates)
-	}
 	if AppStatic != "" {
 		os.Setenv("APP_STATIC", AppStatic)
 	}
