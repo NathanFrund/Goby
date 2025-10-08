@@ -20,15 +20,15 @@ Combine Go's performance with modern web development practices to create respons
 
 ## Why Goby?
 
-Goby is built around a presentation-first architecture:
+Goby is built around a presentation-first architecture that prioritizes the UI/UX development experience:
 
-- **Component-Based UI**: Build with Templ and Gomponents for type-safe templates
-- **Real-Time by Default**: Built-in WebSocket support with automatic DOM updates
-- **Event-Driven**: Watermill-powered message bus for scalable, decoupled services
-- **Beautiful UIs**: Pre-configured with Tailwind CSS and DaisyUI components
-- **Developer Experience**: Hot-reloading, comprehensive tooling, and sensible defaults
-- **Dual-Mode API**: Serve both HTML and JSON from dedicated endpoints
-- **Modular Design**: Easy to extend with custom modules
+- **Beautiful UIs by Default**: Pre-configured with Tailwind CSS and DaisyUI components for stunning, accessible interfaces
+- **Component-Based Development**: Build with Templ and Gomponents for type-safe, reusable UI components
+- **Real-Time Interactions**: Built-in WebSocket support with automatic DOM updates for seamless user experiences
+- **Developer Experience**: Hot-reloading, comprehensive tooling, and sensible defaults that get out of your way
+- **Dual-Mode API**: Serve both HTML and JSON from dedicated endpoints for flexible client support
+- **Event-Driven Architecture**: Watermill-powered message bus for scalable, decoupled services
+- **Modular Design**: Easy to extend with custom modules and integrations
 
 ## Development Setup
 
