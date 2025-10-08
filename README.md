@@ -8,31 +8,20 @@ A modular Go web framework for building real-time, interactive UIs.
 
 Combine Go's performance with modern web development practices to create responsive, component-based web applications that scale.
 
-## Tech Stack
+# Tech Stack
 
 - **Backend**: Go 1.22+
 - **Frontend**: HTMX, Templ, and Gomponents
-- **Styling**: Tailwind CSS with DaisyUI components
 - **Database**: SurrealDB
 - **Real-time**: WebSockets with custom bridge
 - **Messaging**: Watermill for event-driven architecture
 - **Development**: Seamless development experience with Overmind orchestrating Go hot-reloading (Air), template compilation (Templ), and CSS processing (Tailwind).
 
-## Why Goby?
+# Quick Start
 
-Goby is built around a presentation-first architecture that prioritizes the UI/UX development experience:
+Get started with Goby in minutes. This section will help you set up your development environment and run the application.
 
-- **Beautiful UIs by Default**: Pre-configured with Tailwind CSS and DaisyUI components for stunning, accessible interfaces
-- **Component-Based Development**: Build with Templ and Gomponents for type-safe, reusable UI components
-- **Real-Time Interactions**: Built-in WebSocket support with automatic DOM updates for seamless user experiences
-- **Developer Experience**: Hot-reloading, comprehensive tooling, and sensible defaults that get out of your way
-- **Dual-Mode API**: Serve both HTML and JSON from dedicated endpoints for flexible client support
-- **Event-Driven Architecture**: Watermill-powered message bus for scalable, decoupled services
-- **Modular Design**: Easy to extend with custom modules and integrations
-
-## Development Setup
-
-### Prerequisites
+## Prerequisites
 
 Before you begin, ensure you have the following tools installed:
 
@@ -43,177 +32,119 @@ Before you begin, ensure you have the following tools installed:
   ```sh
   # Install with Go (recommended)
   go install github.com/DarthSim/overmind/v2@latest
-
+  
   # Alternative installations:
   # macOS (Homebrew): brew install overmind
-  # Arch Linux: pacman -S overmind
   ```
 
-- **tmux** - Terminal multiplexer used by Overmind
+## Installation
 
-  ```sh
-  # macOS (Homebrew)
-  brew install tmux
+1. **Clone the repository**
 
-  # Linux (Debian/Ubuntu)
-  # sudo apt-get install tmux
-  ```
+   ```sh
+   git clone https://github.com/yourusername/goby.git
+   cd goby
+   ```
 
-- **Air** - For live-reloading Go applications
-  ```sh
-  go install github.com/air-verse/air@latest
-  ```
-  Make sure your `$GOPATH/bin` is in your `$PATH`.
-
-### Quick Start
-
-1. **Install Node.js dependencies**
+2. **Install Node.js dependencies**
 
    ```sh
    npm install
    ```
 
-   This will install all required frontend dependencies including Tailwind CSS and other JavaScript packages.
+## Running the Application
 
-2. **Start development server**
+### Using Overmind (Recommended)
 
-   ```sh
-   make dev
-   ```
+Goby uses [Overmind](https://github.com/DarthSim/overmind) to manage multiple processes during development with a single command:
 
-   This single command starts:
+```sh
+make dev
+```
 
-   - Go application with hot-reloading (via `air`)
-   - Templ file watcher
-   - Tailwind CSS compiler
-   - Other development services
+This starts all required processes defined in the `Procfile`:
 
-3. **Explore the application**
-   Open http://localhost:8080 in your browser and log in. Navigate to the **Chat** page to see the real-time features:
-   - Click "Trigger Hit Event" in the Game State Monitor
-   - Watch HTML fragments update in the chat log via WebSocket
-   - See raw JSON data update in the monitor
+- Go application with hot-reloading (via `air`)
+- Templ file watcher
+- Tailwind CSS compiler
+- Other development services
 
 ### Alternative: Manual Process Management
 
 If you prefer not to use Overmind, you can run processes separately:
 
-1. **Terminal 1: Start Tailwind watcher**
+```sh
+# Terminal 1: Start the Go application with air
+air
 
-   ```sh
-   npm run dev:tailwind
-   ```
+# Terminal 2: Watch for template changes
+templ generate --watch
 
-2. **Terminal 2: Start Go application**
-
-   ```sh
-   air
-   ```
-
-3. **Terminal 3: Watch for template changes**
-   ```sh
-   templ generate --watch
-   ```
-
-This achieves the same result as `make dev` but requires managing each process separately.
-
-## Module System
-
-Goby features a modular architecture where features are organized into self-contained packages under `internal/modules/`. Each module implements the `module.Module` interface, allowing it to be registered and booted by the core application. This promotes strong separation of concerns and makes the application highly extensible.
-
-### The Module Interface
-
-The `module.Module` interface defines the contract for how a module interacts with the application kernel.
-
-```go
-type Module interface {
-	Name() string
-	Register(s *server.Server) error
-	Boot(g *echo.Group, s *server.Server) error
-}
+# Terminal 3: Start the Tailwind CSS compiler
+npm run dev:tailwind
 ```
 
-**Method Lifecycle:**
+# Why Choose Goby?
 
-1.  **`Name()`**: Returns a unique, lowercase name for the module (e.g., `"greeter"`). This is used for namespacing routes.
-2.  **`Register()`**: Called during application startup. This is the ideal place for dependency injection and service registration. The `*server.Server` instance acts as a service locator, providing access to shared services like the database (`s.DB`), configuration (`s.Cfg`), and pub/sub bus (`s.PubSub`).
-3.  **`Boot()`**: The final stage of startup. This method is for registering the module's HTTP routes within a prefixed `echo.Group` and for starting any background processes (like pub/sub subscribers).
+Goby is built around a presentation-first architecture that makes building modern, real-time web applications a joy. Here's what sets it apart:
 
-### Creating a New Module
+## Beautiful UIs by Default
 
-Follow these steps to create a new module:
+- Pre-configured with Tailwind CSS and DaisyUI components
+- Stunning, accessible interfaces out of the box
+- Consistent design system that's easy to customize
 
-1.  **Create the Directory Structure**
-    Create a new directory for your module under `internal/modules/`. For a module named `greeter`, the structure would be:
+## Component-Based Development
 
-    ```
-    internal/modules/
-    └── greeter/
-        ├── module.go          # The module's main entrypoint (implements module.Module)
-        ├── handler.go         # HTTP handlers for the module's routes
-        └── service.go         # Core business logic and types
-        # Since templates are compiled Go code with `templ`,
-        # they are typically co-located with handlers or in a `view` package.
-    ```
+- Build with **Templ** and **Gomponents** for type-safe, reusable UI components
+- Server-rendered components with automatic DOM updates
+- Compose complex UIs from simple, focused components
 
-2.  **Implement the `Module` Interface**
-    In `greeter/module.go`, create a struct (e.g., `GreeterModule`) and implement the interface methods. This example shows a complete, working implementation.
+## Real-Time by Design
 
-    ```go
-    // internal/modules/greeter/module.go
-    package greeter
+- Built-in WebSocket support with automatic DOM updates
+- Seamless real-time user experiences
+- Automatic state synchronization between server and client
 
-    import (
-    	"github.com/labstack/echo/v4"
-    	"github.com/nfrund/goby/internal/server"
-    )
+## Developer Experience First
 
-    // GreeterModule is the entrypoint for the greeter feature.
-    type GreeterModule struct {
-    	handler *Handler // The module's HTTP handler
-    }
+- Hot-reloading for both Go and frontend assets
+- Comprehensive tooling that stays out of your way
+- Clear project structure and sensible defaults
 
-    func (m *GreeterModule) Name() string { return "greeter" }
+## Flexible Architecture
 
-    func (m *GreeterModule) Register(s *server.Server) error {
-    	// Create the module's service and handler, injecting shared dependencies from the server.
-    	service := NewService(s.PubSub)
-    	m.handler = NewHandler(service)
-    	return nil
-    }
+- Serve both HTML and JSON from the same endpoints
+- Event-driven architecture with Watermill message bus
+- Modular design that grows with your application
 
-    func (m *GreeterModule) Boot(g *echo.Group, s *server.Server) error {
-    	// Register the module's routes under the group provided by the kernel.
-    	// e.g., GET /greeter/hello
-    	g.GET("/hello", m.handler.SayHello)
-    	return nil
-    }
-    ```
+# Exploring the Application
 
-3.  **Activate the Module**
-    Finally, add your new module to the `AppModules` slice in `internal/server/kernel.go`. This is the single place to enable or disable modules for the entire application.
-    ```go
-    // internal/server/kernel.go
-    var AppModules = []module.Module{
-        &wargame.WargameModule{},
-        &greeter.GreeterModule{}, // Add your new module here
-    }
-    ```
+1. Open `http://localhost:8080` in your browser
+2. Log in to the application
+3. Navigate to the **Chat** page to see real-time features in action:
+   - Click "Trigger Hit Event" in the Game State Monitor
+   - Watch HTML fragments update in the chat log via WebSocket
+   - See raw JSON data update in the monitor
 
-## Presentation-Centric Architecture
+# Next Steps
 
-Goby is built around a presentation-first architecture that prioritizes efficient UI updates and real-time interactivity. The system is designed to make building dynamic, responsive web applications as straightforward as possible.
+- Check out the [Module System](#module-system) section to learn how to extend Goby
+- Explore the example modules in the `internal/modules` directory
+- Review the [Configuration](#configuration) section for environment variables and settings
 
-### Core Principles
+# Architecture Overview
+
+Goby's architecture is designed to make building modern web applications straightforward and maintainable. At its core, it combines the performance of Go with modern web development practices to deliver fast, responsive user experiences.
+
+## Core Architecture
 
 1. **UI-First Design**
-
    - Backend services are structured around delivering UI components
    - Real-time updates are a first-class concern
    - Components manage their own state and updates
 
 2. **Component-Based Architecture**
-
    - Build reusable UI components with **Templ** and **Gomponents**
    - Components can be composed together to build complex interfaces
    - Each component can update independently
@@ -223,19 +154,54 @@ Goby is built around a presentation-first architecture that prioritizes efficien
    - HTMX for fine-grained DOM updates without full page reloads
    - Automatic state synchronization between server and client
 
-### Real-time Communication
+# UI-First Design in Practice
+
+Goby's architecture is designed around the concept of delivering complete UI components from the server, enabling a seamless development experience where the UI is not an afterthought but a primary concern.
+
+## Component Rendering
+
+Components are rendered on the server using **Templ** and **Gomponents**, which generate efficient, type-safe HTML. This approach ensures that:
+
+- UI logic is co-located with business logic
+- Components are reusable across different parts of the application
+- Server-side rendering provides fast initial page loads
+
+## State Management
+
+Each component manages its own state and can update independently, making it easy to build complex, interactive UIs without complex client-side state management.
+
+# Component-Based Architecture
+
+Goby's component system is built on two complementary technologies:
+
+1. **Templ** for type-safe HTML templates
+2. **Gomponents** for composable UI components
+
+This combination allows developers to build complex UIs from simple, reusable components while maintaining type safety and good performance characteristics.
+
+## Component Lifecycle
+
+1. **Definition**: Components are defined as Go types that implement the `templ.Component` interface
+2. **Rendering**: Components render themselves to HTML on the server
+3. **Updating**: Components can be updated independently via WebSocket messages
+
+# Real-Time by Default
+
+Goby's real-time capabilities are built into the core of the framework, making it easy to add live updates to any part of your application.
+
+## Real-time Communication
 
 Goby uses a message bus (Watermill) connected to clients via WebSockets to enable real-time updates. This architecture allows for efficient communication between the server and clients, whether they're web browsers, mobile apps, or other services.
 
-### Client Types
+## Client Types
 
 Goby supports multiple client types through its flexible architecture:
 
 1. **Web Browsers (HTMX)**
-
    - Receives pre-rendered HTML fragments
    - Zero client-side JavaScript required for basic interactions
    - Automatic DOM updates via HTMX WebSockets
+   - Example WebSocket endpoint: `/ws/html`
 
 2. **Native Mobile/Desktop Apps**
    - Connects via WebSockets or HTTP/2 Server-Sent Events (SSE)
@@ -257,7 +223,7 @@ Goby supports multiple client types through its flexible architecture:
 4. **WebSocket Delivery**: The WebSocket bridge receives the message and forwards it to all connected clients on the `/app/ws/html` endpoint.
 5. **Client Update**: htmx on the client-side swaps the content into the appropriate part of the page.
 
-### Message Flow for Data Clients
+## Message Flow for Data Clients
 
 For native mobile/desktop applications that work with raw data:
 
@@ -281,14 +247,14 @@ Example data message structure:
 }
 ```
 
-### Direct Messaging
+## Direct Messaging
 
 For user-specific updates:
 
 1. Messages are published to user-specific topics (e.g., `html-direct-user:user123` or `data-user:user123`).
 2. The WebSocket bridge routes these messages only to the specified user's active connections.
 
-### Data-First API for Native Clients
+## Data-First API for Native Clients
 
 For non-HTML clients, Goby provides a clean data API:
 
@@ -312,7 +278,7 @@ Native clients can subscribe to specific data channels:
 - `data-user:{userID}` - User-specific updates
 - `data-game:{gameID}` - Game-specific updates
 
-### Example: Game State Updates
+## Example: Game State Updates
 
 Here's how the wargame module handles real-time updates:
 
@@ -330,24 +296,24 @@ h.publisher.Publish("html-broadcast", message.NewMessage(
 ))
 ```
 
-## Real-time Architecture: The Watermill Bridge
+# Real-time Architecture: The Watermill Bridge
 
 A core feature of this template is its real-time architecture, designed for modularity and scalability. It's built around a **Watermill** message bus, which is connected to clients via a **WebSocket Bridge**. This allows backend modules to communicate with each other and with the frontend in a decoupled manner.
 
 This "presentation-centric" approach allows various backend services (e.g., a chat module, a game engine) to operate independently. They can focus on their own logic, render their state into a self-contained HTML component, and then publish it to a Watermill topic for delivery to clients.
 
-### The Broadcast Flow
+## The Broadcast Flow
 
 The data and presentation flow follows these steps:
 
-1.  **Event Occurs:** An event is triggered somewhere in the backend. This could be a user sending a chat message or a game engine calculating a state change.
-2.  **Render Fragment:** The responsible module uses the application's template renderer to create a self-contained HTML fragment representing the new state (e.g., a `<div>` for a new chat message). This fragment often includes `hx-swap-oob` attributes to tell htmx where to place it on the client-side.
-3.  **Publish to Topic:** The module publishes a message containing the rendered HTML to a broadcast topic (e.g., `html-broadcast` or `data-broadcast`).
-4.  **Bridge Subscribes & Forwards:** The WebSocket Bridge, which subscribes to these topics, receives the message.
-5.  **Bridge Delivers to Client:** The bridge forwards the message payload to the appropriate WebSocket endpoint (`/app/ws/html` or `/app/ws/data`), delivering it to all connected clients.
-6.  **Client Receives & Swaps:** The client's browser receives the HTML fragment over the WebSocket connection. htmx processes the fragment, sees the `hx-swap-oob` attribute, and swaps the content into the correct place in the DOM.
+1. **Event Occurs:** An event is triggered somewhere in the backend. This could be a user sending a chat message or a game engine calculating a state change.
+2. **Render Fragment:** The responsible module uses the application's template renderer to create a self-contained HTML fragment representing the new state (e.g., a `<div>` for a new chat message). This fragment often includes `hx-swap-oob` attributes to tell htmx where to place it on the client-side.
+3. **Publish to Topic:** The module publishes a message containing the rendered HTML to a broadcast topic (e.g., `html-broadcast` or `data-broadcast`).
+4. **Bridge Subscribes & Forwards:** The WebSocket Bridge, which subscribes to these topics, receives the message.
+5. **Bridge Delivers to Client:** The bridge forwards the message payload to the appropriate WebSocket endpoint (`/app/ws/html` or `/app/ws/data`), delivering it to all connected clients.
+6. **Client Receives & Swaps:** The client's browser receives the HTML fragment over the WebSocket connection. htmx processes the fragment, sees the `hx-swap-oob` attribute, and swaps the content into the correct place in the DOM.
 
-### Example: Wargame Engine
+## Example: Wargame Engine
 
 Imagine a tabletop game engine running on the server. When one unit damages another, the engine can publish this event to all observers.
 This code snippet from the `wargame` module demonstrates the process:
@@ -356,20 +322,20 @@ This code snippet from the `wargame` module demonstrates the process:
 // internal/modules/wargame/service.go
 
  func (s *Service) handleHit(target string, damage int) error {
- 	// 1. Create an instance of the compiled `templ` component.
- 	component := view.WargameDamage(target, damage)
+     // 1. Create an instance of the compiled `templ` component.
+    component := view.WargameDamage(target, damage)
 
- 	// 2. Render the component to an HTML string.
- 	html, err := view.RenderComponent(component)
- 	if err != nil {
- 		return err
- 	}
+    // 2. Render the component to an HTML string.
+    html, err := view.RenderComponent(component)
+    if err != nil {
+        return err
+    }
 
- 	// 3. Create a new Watermill message with the rendered HTML.
- 	msg := message.NewMessage(watermill.NewUUID(), []byte(html))
+    // 3. Create a new Watermill message with the rendered HTML.
+    msg := message.NewMessage(watermill.NewUUID(), []byte(html))
 
- 	// 4. Publish the message to the global broadcast topic.
- 	return s.pubsub.Publish(topics.HTMLBroadcast, msg)
+    // 4. Publish the message to the global broadcast topic.
+    return s.pubsub.Publish(topics.HTMLBroadcast, msg)
  }
 ```
 
@@ -377,15 +343,15 @@ The corresponding `templ` component (`wargame_damage.templ`) defines the structu
 
 ```templ
 templ WargameDamage(target string, damage int) {
-	<div hx-swap-oob="beforeend:#game-log">
-		<div class="p-2 text-red-500">{ target } takes { fmt.Sprintf("%d", damage) } damage!</div>
-	</div>
+    <div hx-swap-oob="beforeend:#game-log">
+        <div class="p-2 text-red-500">{ target } takes { fmt.Sprintf("%d", damage) } damage!</div>
+    </div>
 }
 ```
 
 This architecture decouples the game engine from the complexities of WebSocket and client management, allowing for clean, modular, and scalable real-time features.
 
-### The Direct Message Flow
+## The Direct Message Flow
 
 In addition to broadcasting, the system supports sending direct messages to a specific user. This is achieved by calling the `SendDirect` method on the WebSocket bridge.
 
@@ -409,7 +375,7 @@ Goby leverages two powerful templating systems:
 - **[Templ](https://templ.guide/)**: A type-safe HTML templating language for Go that compiles to Go code, providing excellent performance and IDE support.
 - **[Gomponents](https://www.gomponents.com/)**: A view library for writing HTML in Go, offering a clean, type-safe way to build UI components.
 
-**Template Organization**
+## Template Organization
 
 Goby's UI components are organized in the following structure:
 
@@ -423,70 +389,7 @@ Goby's UI components are organized in the following structure:
 - **Module Templates** - Feature-specific templates are located in their respective module directories:
   - `internal/modules/<module-name>/templates/`
 
-### Development Workflow
-
-Goby uses [Overmind](https://github.com/DarthSim/overmind) to manage multiple processes during development, making it easy to run and monitor all required services with a single command.
-
-#### Prerequisites
-
-1. **Install Overmind**:
-
-   - **Using Go** (recommended if you have Go installed):
-     ```sh
-     go install github.com/DarthSim/overmind/v2@latest
-     ```
-     Make sure your `$GOPATH/bin` is in your `$PATH`.
-   - **macOS** (using Homebrew):
-     ```sh
-     brew install overmind
-     ```
-   - **Linux** (using Homebrew):
-     ```sh
-     brew install overmind
-     ```
-   - **Arch Linux**:
-     ```sh
-     pacman -S overmind
-     ```
-   - Other platforms: See [Overmind's installation guide](https://github.com/DarthSim/overmind#installation) for more options.
-
-2. **Install Node.js and npm**: Required for frontend development
-
-   - [Download and install Node.js](https://nodejs.org/) (LTS version recommended)
-
-3. **Install Go 1.21 or later**: Required for backend development
-   - [Download and install Go](https://golang.org/dl/)
-
-#### Starting Development
-
-1. **Using Overmind (Recommended)**:
-
-   ```sh
-   make dev
-   ```
-
-   This starts all required processes defined in the `Procfile`:
-
-   - Go application with hot-reloading (via `air`)
-   - Templ file watcher
-   - Tailwind CSS compiler
-   - Any other development services
-
-2. **Alternative: Manual Process Management**
-   If you prefer not to use Overmind, you can run processes separately:
-
-   ```sh
-   # Terminal 1: Start the Go application with air
-   air
-
-   # Terminal 2: Watch for template changes
-   templ generate --watch
-
-   # Terminal 3: Start the Tailwind CSS compiler
-   npm run dev:tailwind
-   ```
-
-#### Component Development
+## Component Development
 
 1. **Templ Components**:
 
@@ -506,89 +409,166 @@ Goby uses [Overmind](https://github.com/DarthSim/overmind) to manage multiple pr
    - Templ files (via `templ generate --watch`)
    - CSS/JS (via Tailwind's JIT compiler)
 
-## Module Development
+# Module System
 
-### Creating a New Module
+Goby's architecture is built around the concept of modules - self-contained packages that encapsulate related functionality. Each module is responsible for its own routes, services, and UI components, making it easy to add, remove, or modify features without affecting other parts of the application.
 
-1. **Create Module Structure**
+### Core Concepts
 
-   ```
-   internal/modules/
-     yourmodule/
-       handler.go     # HTTP handlers
-       service.go     # Business logic
-       module.go      # Module definition
-       templates/     # Template files (if needed)
-       static/        # Static assets (if needed)
-   ```
+1. **Module Structure**
+   - Each module lives in its own directory under `internal/modules/`
+   - Implements the `module.Module` interface
+   - Can include routes, services, templates, and static assets
 
-2. **Add Module Key**
-   Add a constant for your module in `internal/registry/keys.go`:
+2. **Service Registration**
+   - Modules register their services using the service locator pattern
+   - Services are accessed via typed constants in `internal/registry/keys.go`
+   - Promotes loose coupling between modules
 
-   ```go
-   // internal/registry/keys.go
-   const (
-       // ... other keys
-       YourModuleServiceKey registry.ServiceKey = "yourmodule.service"
-   )
-   ```
+3. **Lifecycle**
+   - **Registration**: Modules declare their services and dependencies
+   - **Bootstrapping**: Routes are mounted and background processes start
+   - **Runtime**: Handles requests and events
 
-3. **Implement Module Interface**
+## Creating a New Module
 
-   ```go
-   // internal/modules/yourmodule/module.go
-   package yourmodule
+Follow these steps to create and integrate a new module:
 
-   import (
-       "github.com/labstack/echo/v4"
-       "github.com/nfrund/goby/internal/config"
-       "github.com/nfrund/goby/internal/registry"
-   )
+### 1. Set Up Module Structure
 
-   type YourModule struct{}
+Create the following directory structure for your module:
 
-   func (m *YourModule) Name() string { return "yourmodule" }
+```sh
+internal/modules/
+  yourmodule/
+    ├── handler.go     # HTTP request handlers
+    ├── service.go     # Business logic and core functionality
+    ├── module.go      # Module definition and lifecycle hooks
+    ├── templates/     # Optional: Template files (.templ)
+    └── static/        # Optional: Static assets (CSS, JS, images)
+```
 
-   func (m *YourModule) Register(sl registry.ServiceLocator, cfg config.Provider) error {
-       // Register services using the constant from keys.go
-       sl.Set(string(registry.YourModuleServiceKey), NewYourService())
-       return nil
-   }
+Each file has a specific purpose:
 
-   func (m *YourModule) Boot(g *echo.Group, sl registry.ServiceLocator) error {
-       // Set up routes
-       h := NewHandler(sl)
-       g.GET("/your-route", h.YourHandler)
-       return nil
-   }
-   ```
+- `module.go`: Defines the module and its lifecycle
+- `handler.go`: Contains HTTP request handlers
+- `service.go`: Implements the module's business logic
 
-4. **Register Module**
-   In `cmd/server/main.go`:
+### 2. Define Service Keys
 
-   ```go
-   modules := []module.Module{
-       // ... other modules
-       &yourmodule.YourModule{},
-   }
-   ```
+In `internal/registry/keys.go`, add a constant for your module's service:
 
-   **Note on Explicit Registration**: The explicit module registration (steps 1 and 4) is a deliberate design choice that:
+```go
+// internal/registry/keys.go
+const (
+    // ... other service keys
+    YourModuleServiceKey registry.ServiceKey = "yourmodule.service"
+)
+```
 
-   - Makes all application dependencies immediately visible in one place
-   - Simplifies debugging by making the module graph explicit
-   - Follows the principle of least surprise
-   - Makes the codebase more maintainable for new contributors
-   - Avoids magic or implicit behavior that can be hard to reason about
+This key will be used to register and retrieve your module's service from the service locator.
 
-5. **Access Services**
+### 3. Implement the Module Interface
+
+Create `module.go` with the following structure:
+
+```go
+// internal/modules/yourmodule/module.go
+package yourmodule
+
+import (
+    "github.com/labstack/echo/v4"
+    "github.com/nfrund/goby/internal/config"
+    "github.com/nfrund/goby/internal/registry"
+)
+
+// YourModule implements the module.Module interface
+type YourModule struct{}
+
+// Name returns the module's unique identifier
+func (m *YourModule) Name() string { 
+    return "yourmodule" 
+}
+
+// Register is called during application startup to initialize services
+func (m *YourModule) Register(
+    sl registry.ServiceLocator, 
+    cfg config.Provider,
+) error {
+    // Initialize and register services
+    svc := NewYourService()
+    sl.Set(string(registry.YourModuleServiceKey), svc)
+    return nil
+}
+
+// Boot is called after all modules are registered
+func (m *YourModule) Boot(
+    g *echo.Group, 
+    sl registry.ServiceLocator,
+) error {
+    // Initialize handler with dependencies
+    h := NewHandler(sl)
+    
+    // Register routes
+    g.GET("/your-route", h.YourHandler)
+    
+    // Start any background processes here
+    
+    return nil
+}
+```
+
+### 4. Register the Module
+
+Finally, add your module to the application's module list in `cmd/server/main.go`:
+
+```go
+// cmd/server/main.go
+modules := []module.Module{
+    // Core modules
+    &core.CoreModule{},
+    
+    // Feature modules
+    &chat.ChatModule{},
+    &yourmodule.YourModule{},  // Add your module here
+}
+```
+
+This registers your module with the application, and it will be initialized when the server starts.
+
+**Note on Explicit Registration**: The explicit module registration (steps 1 and 4) is a deliberate design choice that:
+
+- Makes all application dependencies immediately visible in one place
+- Simplifies debugging by making the module graph explicit
+- Follows the principle of least surprise
+- Makes the codebase more maintainable for new contributors
+
+### Best Practices
+
+1. **Keep Modules Focused**
+   - Each module should have a single responsibility
+   - Keep business logic in service layer
+   - Use the service locator for inter-module communication
+
+2. **Error Handling**
+   - Return meaningful error messages
+   - Use custom error types for expected errors
+   - Log errors with appropriate context
+
+3. **Service Access**
+   Access services from the service locator in your handlers:
 
    ```go
    // In your handler
    service, _ := sl.Get(string(registry.YourModuleServiceKey)).(*YourService)
    ```
 
-6. **Testing**
+4. **Testing**
+   - Write unit tests for services
+   - Add integration tests for HTTP endpoints
+   - Mock external dependencies
+
+   Example test setup:
 
    ```go
    func TestYourModule(t *testing.T) {
@@ -662,7 +642,7 @@ Create the environment file at `/etc/goby/env` with your production configuratio
 
 The application is configured using environment variables. For local development, you can create a `.env` file in the project root to manage these settings.
 
-### Configuration Reference
+## Configuration Reference
 
 | Variable             | Description                                                                           | Default                 | Required       |
 | :------------------- | :------------------------------------------------------------------------------------ | :---------------------- | :------------- |
