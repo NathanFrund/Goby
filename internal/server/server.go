@@ -73,14 +73,15 @@ func setupErrorHandling(e *echo.Echo) {
 		// Try to cast the error to a standard Echo HTTPError
 		he, ok := err.(*echo.HTTPError)
 		if !ok {
+			// Get the request-scoped logger.
+			logger := appmiddleware.FromContext(c.Request().Context())
+
 			// If it's not an Echo HTTPError, it's an unexpected internal error.
-			slog.Error("Internal Server Error (Unhandled)",
+			logger.Error("Internal Server Error (Unhandled)",
 				"error", err.Error(),
 				"method", c.Request().Method,
 				"path", c.Path(),
 				"remote_ip", c.RealIP(),
-				// Log the Request ID if available (from middleware.RequestID)
-				"request_id", c.Response().Header().Get(echo.HeaderXRequestID),
 			)
 			// Ensure we still return a standard 500 response
 			he = &echo.HTTPError{Code: http.StatusInternalServerError, Message: http.StatusText(http.StatusInternalServerError)}
@@ -145,6 +146,9 @@ func New(deps Dependencies) (*Server, error) {
 
 	// Add the RequestID middleware to assign a unique ID to every request.
 	s.E.Use(middleware.RequestID())
+
+	// Add our custom logger middleware to inject a request-scoped logger.
+	s.E.Use(appmiddleware.Logger)
 
 	s.initHandlers()
 

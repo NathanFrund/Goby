@@ -3,9 +3,9 @@ package wargame
 import (
 	"context"
 	"encoding/json"
-	"log/slog"
 	"math/rand"
 
+	"github.com/nfrund/goby/internal/middleware"
 	"github.com/nfrund/goby/internal/pubsub"
 )
 
@@ -48,8 +48,10 @@ func NewEngine(pub pubsub.Publisher) *Engine {
 }
 
 // SimulateHit simulates a unit being hit and publishes updates to both channels.
-func (e *Engine) SimulateHit() {
-	slog.Info("Wargame engine: Simulating a hit event.")
+func (e *Engine) SimulateHit(ctx context.Context) {
+	// Retrieve the request-scoped logger from the context.
+	logger := middleware.FromContext(ctx)
+	logger.Info("Wargame engine: Simulating a hit event.")
 
 	// --- Generate random event data ---
 	target := targetUnits[rand.Intn(len(targetUnits))]
@@ -62,19 +64,19 @@ func (e *Engine) SimulateHit() {
 	damageEvent := DamageEvent{TargetUnit: target.Name, DamageAmount: damage, AttackingUnit: attacker}
 	if payload, err := json.Marshal(damageEvent); err == nil {
 		msg := pubsub.Message{Topic: "wargame.events.damage", Payload: payload}
-		e.publisher.Publish(context.Background(), msg)
-		slog.Info("Wargame engine: Published 'wargame.events.damage' message.")
+		_ = e.publisher.Publish(ctx, msg) // Explicitly ignore error for this debug endpoint
+		logger.Info("Wargame engine: Published 'wargame.events.damage' message.")
 	} else {
-		slog.Error("Wargame engine: Failed to marshal damage event", "error", err)
+		logger.Error("Wargame engine: Failed to marshal damage event", "error", err)
 	}
 
 	// 2. Publish the raw data structure for data-only clients (e.g., Game State Monitor).
 	dataEvent := GameStateUpdate{EventType: "damage", UnitID: target.ID, NewHealth: newHealth, DamageTaken: damage}
 	if jsonData, err := json.Marshal(dataEvent); err == nil {
 		msg := pubsub.Message{Topic: "wargame.state.update", Payload: jsonData}
-		e.publisher.Publish(context.Background(), msg)
-		slog.Info("Wargame engine: Published 'wargame.state.update' message.")
+		_ = e.publisher.Publish(ctx, msg) // Explicitly ignore error for this debug endpoint
+		logger.Info("Wargame engine: Published 'wargame.state.update' message.")
 	} else {
-		slog.Error("Wargame engine: Failed to marshal JSON data", "error", err)
+		logger.Error("Wargame engine: Failed to marshal JSON data", "error", err)
 	}
 }

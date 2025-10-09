@@ -76,7 +76,8 @@ func (m *WargameModule) Boot(ctx context.Context, g *echo.Group, reg *registry.R
 
 	// The server mounts us under /app/wargame, so we use relative paths
 	g.GET("/debug/hit", func(c echo.Context) error {
-		go m.engine.SimulateHit()
+		// Pass the request's context to the background task.
+		go m.engine.SimulateHit(c.Request().Context())
 		return c.String(http.StatusOK, "Hit event triggered.")
 	})
 	return nil

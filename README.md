@@ -648,7 +648,58 @@ This approach offers several benefits:
    }
    ```
 
-4. **Testing**
+4. **Structured Logging**
+
+   The framework is configured for structured logging using Go's standard `slog` library. This provides a consistent, machine-readable logging format that is essential for production environments. The logging system supports two primary contexts: request-scoped logging and global (background) logging.
+
+   #### Request-Scoped Logging (For HTTP Handlers)
+
+   For any code that executes as part of an HTTP request, it is critical to use the request-scoped logger. This logger is automatically enriched with a unique `request_id`, allowing you to trace the entire lifecycle of a single request through the system.
+
+   - A middleware automatically assigns a `request_id` to every incoming request.
+   - A special logger instance, pre-configured with this `request_id`, is injected into the request's `context`.
+
+   To use it, retrieve the logger from the context using the `middleware.FromContext` helper.
+
+   ```go
+   import "github.com/nfrund/goby/internal/middleware"
+
+   func (h *YourHandler) HandleSomething(c echo.Context) error {
+       // Get the request-scoped logger from the context.
+       logger := middleware.FromContext(c.Request().Context())
+
+       // Any logs made with this logger will automatically include the `request_id`.
+       logger.Info("Handling the request for a specific user", "user_id", "123")
+
+       return c.String(http.StatusOK, "Done")
+   }
+   ```
+
+   **Resulting Log Output:**
+
+   ```log
+   level=INFO source=... msg="Handling the request for a specific user" request_id=abc-123 user_id=123
+   ```
+
+   #### Global Logging (For Background Services)
+
+   For background services, long-running tasks, or any code that runs outside of an HTTP request (e.g., in a module's `Boot` or `Shutdown` method), use the standard global logger. These logs will not have a `request_id` as they are not associated with a specific user request.
+
+   It is best practice to use the `...Context` variants of the `slog` functions (e.g., `slog.InfoContext`) and pass the context you were given.
+
+   ```go
+   import "log/slog"
+
+   func (m *YourModule) Boot(ctx context.Context, g *echo.Group, reg *registry.Registry) error {
+       // Use the global logger with the provided context for application-level events.
+       slog.InfoContext(ctx, "Booting YourModule: Setting up routes...")
+
+       // ...
+       return nil
+   }
+   ```
+
+5. **Testing**
 
    - Write unit tests for business logic
    - Test HTTP handlers with echo's test utilities
