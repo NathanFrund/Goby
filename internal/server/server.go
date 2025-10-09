@@ -2,12 +2,12 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
-	"time"
 
 	"github.com/gorilla/sessions"
 	"github.com/labstack/echo-contrib/session"
@@ -169,7 +169,7 @@ func New(deps Dependencies) (*Server, error) {
 //  2. Boot Phase: Each module performs its startup logic, such as starting
 //     background workers and registering HTTP routes. During this phase, a module
 //     can safely resolve services that were registered by other modules in the first phase.
-func (s *Server) InitModules(modules []module.Module, reg *registry.Registry) {
+func (s *Server) InitModules(ctx context.Context, modules []module.Module, reg *registry.Registry) {
 	s.modules = modules
 
 	// --- Phase 1: Register all module services ---
@@ -188,7 +188,7 @@ func (s *Server) InitModules(modules []module.Module, reg *registry.Registry) {
 	for _, mod := range modules {
 		// Create a dedicated sub-group for each module under the /app prefix.
 		group := protected.Group("/" + mod.Name())
-		if err := mod.Boot(group, reg); err != nil {
+		if err := mod.Boot(ctx, group, reg); err != nil {
 			slog.Error("Failed to boot module", "module", mod.Name(), "error", err)
 		}
 	}
@@ -203,38 +203,23 @@ func (s *Server) initHandlers() {
 }
 
 // Start runs the HTTP server with graceful shutdown.
-func (s *Server) Start() {
+func (s *Server) Start(ctx context.Context) {
 	addr := s.Cfg.GetServerAddr()
 
 	// Start server in a goroutine so that it doesn't block.
-	// Also start the hubs, which are background services of the server.
 	if s.bridge != nil {
 		go s.bridge.Run()
 	}
 
 	go func() {
 		slog.Info("Starting server", "address", addr)
-		if err := s.E.Start(addr); err != nil && err != http.ErrServerClosed {
+		if err := s.E.Start(addr); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			slog.Error("Server failed to start", "error", err)
 			os.Exit(1)
 		}
 	}()
 
-	// Wait for an interrupt signal to gracefully shut down the server.
-	waitForShutdown()
-	slog.Info("Shutting down server...")
-
-	// The context is used to inform the server it has 10 seconds to finish
-	// the requests it is currently handling.
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	// Close the database connection.
-	if s.DB != nil {
-		s.DB.Close()
-	}
-
-	if err := s.E.Shutdown(ctx); err != nil {
-		slog.Error("Server shutdown failed", "error", err)
-	}
+	// Block until the application context is canceled.
+	<-ctx.Done()
+	slog.Info("Server shutting down...")
 }

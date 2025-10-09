@@ -47,6 +47,12 @@ func (m *WargameModule) Name() string {
 	return "wargame"
 }
 
+// Shutdown is called on application termination.
+func (m *WargameModule) Shutdown(ctx context.Context) error {
+	slog.Info("Shutting down WargameModule...")
+	return nil
+}
+
 // Register creates the Wargame Engine and registers it in the service locator.
 func (m *WargameModule) Register(reg *registry.Registry) error {
 	slog.Info("Initializing wargame engine")
@@ -60,10 +66,10 @@ func (m *WargameModule) Register(reg *registry.Registry) error {
 }
 
 // Boot registers the HTTP routes for the wargame module.
-func (m *WargameModule) Boot(g *echo.Group, reg *registry.Registry) error {
+func (m *WargameModule) Boot(ctx context.Context, g *echo.Group, reg *registry.Registry) error {
 	// Create and start the subscriber in a goroutine.
 	wargameSubscriber := NewSubscriber(m.subscriber, m.bridge, m.renderer)
-	go wargameSubscriber.Start(context.Background())
+	go wargameSubscriber.Start(ctx)
 
 	// --- Register HTTP Handlers ---
 	slog.Info("Booting WargameModule: Setting up routes...")

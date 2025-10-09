@@ -90,7 +90,7 @@ func setupIntegrationTest(t *testing.T) (*server.Server, *httptest.Server, func(
 	// 4. Initialize modules and register all routes, just like in main.go
 	moduleDeps := app.Dependencies{Publisher: ps, Subscriber: ps, Bridge: wsBridge, Renderer: renderer}
 	modules := app.NewModules(moduleDeps)
-	s.InitModules(modules, reg)
+	s.InitModules(context.Background(), modules, reg)
 
 	s.RegisterRoutes()
 

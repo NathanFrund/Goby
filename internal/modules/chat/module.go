@@ -42,14 +42,21 @@ func (m *ChatModule) Name() string {
 	return "chat"
 }
 
-// Boot sets up the routes for the chat module.
-func (m *ChatModule) Boot(g *echo.Group, reg *registry.Registry) error {
+// Shutdown is called on application termination.
+func (m *ChatModule) Shutdown(ctx context.Context) error {
+	slog.Info("Shutting down ChatModule...")
+	// In a real module, you might wait for background workers to finish here.
+	return nil
+}
+
+// Boot sets up the routes and starts background services for the chat module.
+func (m *ChatModule) Boot(ctx context.Context, g *echo.Group, reg *registry.Registry) error {
 	// --- Start Background Services ---
 
 	// Create and start the subscriber in a goroutine.
 	// Dependencies are now injected via the constructor and stored on the module.
 	chatSubscriber := NewChatSubscriber(m.subscriber, m.bridge, m.renderer)
-	go chatSubscriber.Start(context.Background()) // Using a cancellable context is a good future improvement.
+	go chatSubscriber.Start(ctx)
 
 	// --- Register HTTP Handlers ---
 	slog.Info("Booting ChatModule: Setting up routes...")

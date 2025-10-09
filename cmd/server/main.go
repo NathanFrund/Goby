@@ -7,6 +7,8 @@ import (
 	"log"
 	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/joho/godotenv"
 	"github.com/labstack/echo/v4"
@@ -35,7 +37,10 @@ func main() {
 	logging.New()
 
 	// 2. Build and Start Server
-	s, cleanup, err := buildServer(cfg)
+	appCtx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
+	srv, cleanup, err := buildServer(appCtx, cfg)
 	if err != nil {
 		slog.Error("Failed to build server", "error", err)
 		os.Exit(1)
@@ -43,12 +48,12 @@ func main() {
 	defer cleanup()
 
 	// 3. Start the server and its background processes
-	s.Start()
+	srv.Start(appCtx)
 }
 
 // buildServer is the "Composition Root" of the application. It's responsible for
 // creating and connecting all the application's components.
-func buildServer(cfg config.Provider) (srv *server.Server, cleanup func(), err error) {
+func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Server, cleanup func(), err error) {
 	// Set static asset loading strategy if specified
 	if AppStatic != "" {
 		os.Setenv("APP_STATIC", AppStatic)
@@ -123,13 +128,25 @@ func buildServer(cfg config.Provider) (srv *server.Server, cleanup func(), err e
 		Renderer:   renderer,
 	}
 	modules := app.NewModules(moduleDeps)
-	srv.InitModules(modules, reg)
+	srv.InitModules(appCtx, modules, reg)
 	srv.RegisterRoutes()
+
+	// Add the Echo server shutdown to the list of cleanup tasks.
+	closers = append(closers, func() error {
+		slog.Info("Shutting down HTTP server...")
+		return srv.E.Shutdown(context.Background())
+	})
 
 	// 5. Define the master cleanup function.
 	cleanup = func() {
 		slog.Info("Shutting down application...")
 		var errs error
+
+		// Shut down modules
+		for _, mod := range modules {
+			errs = errors.Join(errs, mod.Shutdown(context.Background()))
+		}
+
 		for _, closeFn := range closers {
 			errs = errors.Join(errs, closeFn())
 		}
