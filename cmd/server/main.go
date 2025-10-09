@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/joho/godotenv"
 	"github.com/labstack/echo/v4"
@@ -131,25 +132,31 @@ func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Serve
 	srv.InitModules(appCtx, modules, reg)
 	srv.RegisterRoutes()
 
-	// Add the Echo server shutdown to the list of cleanup tasks.
-	closers = append(closers, func() error {
-		slog.Info("Shutting down HTTP server...")
-		return srv.E.Shutdown(context.Background())
-	})
-
 	// 5. Define the master cleanup function.
 	cleanup = func() {
 		slog.Info("Shutting down application...")
+
+		// Create a context with a timeout for the entire shutdown process.
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+
 		var errs error
 
 		// Shut down modules
 		for _, mod := range modules {
-			errs = errors.Join(errs, mod.Shutdown(context.Background()))
+			errs = errors.Join(errs, mod.Shutdown(shutdownCtx))
 		}
 
+		// Shut down core services
 		for _, closeFn := range closers {
 			errs = errors.Join(errs, closeFn())
 		}
+
+		// Finally, shut down the HTTP server. This must be done after services
+		// like the database are closed, but within the same timeout.
+		slog.Info("Shutting down HTTP server...")
+		errs = errors.Join(errs, srv.E.Shutdown(shutdownCtx))
+
 		if errs != nil {
 			slog.Error("Errors during shutdown", "errors", errs)
 		}
