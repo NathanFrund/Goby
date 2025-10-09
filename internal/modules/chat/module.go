@@ -15,11 +15,26 @@ import (
 // ChatModule implements the module.Module interface for the chat feature.
 type ChatModule struct {
 	module.BaseModule
+	publisher  pubsub.Publisher
+	subscriber pubsub.Subscriber
+	bridge     websocket.Bridge
+	renderer   rendering.Renderer
 }
 
-// New creates a new instance of the ChatModule.
-func New() *ChatModule {
-	return &ChatModule{}
+// Dependencies holds all the services that the ChatModule requires to operate.
+// This struct is used for constructor injection to make dependencies explicit.
+type Dependencies struct {
+	Publisher  pubsub.Publisher
+	Subscriber pubsub.Subscriber
+	Bridge     websocket.Bridge
+	Renderer   rendering.Renderer
+}
+
+// New creates a new instance of the ChatModule, injecting its dependencies.
+func New(deps Dependencies) *ChatModule {
+	return &ChatModule{
+		publisher: deps.Publisher, subscriber: deps.Subscriber, bridge: deps.Bridge, renderer: deps.Renderer,
+	}
 }
 
 // Name returns the module name.
@@ -31,21 +46,14 @@ func (m *ChatModule) Name() string {
 func (m *ChatModule) Boot(g *echo.Group, reg *registry.Registry) error {
 	// --- Start Background Services ---
 
-	// Retrieve dependencies by their interface type. This is now type-safe.
-	sub := registry.MustGet[pubsub.Subscriber](reg)
-	bridge := registry.MustGet[websocket.Bridge](reg)
-	renderer := registry.MustGet[rendering.Renderer](reg)
-
 	// Create and start the subscriber in a goroutine.
-	chatSubscriber := NewChatSubscriber(sub, bridge, renderer)
+	// Dependencies are now injected via the constructor and stored on the module.
+	chatSubscriber := NewChatSubscriber(m.subscriber, m.bridge, m.renderer)
 	go chatSubscriber.Start(context.Background()) // Using a cancellable context is a good future improvement.
 
 	// --- Register HTTP Handlers ---
 	slog.Info("Booting ChatModule: Setting up routes...")
-
-	// The handler depends on the publisher, so we resolve it and instantiate the handler.
-	publisher := registry.MustGet[pubsub.Publisher](reg)
-	handler := NewHandler(publisher)
+	handler := NewHandler(m.publisher)
 
 	// Set up routes - the server mounts us under /app/chat, so we use root paths here
 	g.GET("", handler.ChatGet)

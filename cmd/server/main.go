@@ -2,20 +2,19 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log"
 	"log/slog"
 	"os"
 
 	"github.com/joho/godotenv"
 	"github.com/labstack/echo/v4"
+	"github.com/nfrund/goby/internal/app"
 	"github.com/nfrund/goby/internal/config"
 	"github.com/nfrund/goby/internal/database"
-	"github.com/nfrund/goby/internal/domain"
 	"github.com/nfrund/goby/internal/email"
 	"github.com/nfrund/goby/internal/logging"
-	"github.com/nfrund/goby/internal/module"
-	"github.com/nfrund/goby/internal/modules/chat"
-	"github.com/nfrund/goby/internal/modules/wargame"
 	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/registry"
 	"github.com/nfrund/goby/internal/rendering"
@@ -28,82 +27,117 @@ import (
 var AppStatic string
 
 func main() {
-	if AppStatic != "" {
-		os.Setenv("APP_STATIC", AppStatic)
-	}
-
-	// 1. Load config and logger first.
+	// 1. Initialize Configuration and Logging
 	if err := godotenv.Load(); err != nil {
 		log.Println("No .env file found, relying on environment variables.")
 	}
 	cfg := config.New()
 	logging.New()
 
-	// 2. Create the DI Registry.
-	reg := registry.New(cfg)
-
-	// 3. Initialize and register core services.
-	surrealDB, err := database.NewDB(context.Background(), cfg)
+	// 2. Build and Start Server
+	s, cleanup, err := buildServer(cfg)
 	if err != nil {
-		slog.Error("Failed to connect to database", "error", err)
+		slog.Error("Failed to build server", "error", err)
 		os.Exit(1)
 	}
-	defer surrealDB.Close(context.Background())
+	defer cleanup()
 
-	// Create and register the database client
-	dbClient := database.NewClient(surrealDB)
-	reg.Set((*database.Client)(nil), dbClient)
-	reg.Set((*config.Provider)(nil), cfg)
+	// 3. Start the server and its background processes
+	s.Start()
+}
 
-	// Create and register the user repository.
-	userStore := database.NewSurrealUserStore(surrealDB, cfg.GetDBNs(), cfg.GetDBDb())
-	reg.Set((*domain.UserRepository)(nil), userStore)
+// buildServer is the "Composition Root" of the application. It's responsible for
+// creating and connecting all the application's components.
+func buildServer(cfg config.Provider) (srv *server.Server, cleanup func(), err error) {
+	// Set static asset loading strategy if specified
+	if AppStatic != "" {
+		os.Setenv("APP_STATIC", AppStatic)
+	}
 
+	// 1. Create the service registry and a list for cleanup functions.
+	// The registry is used for inter-module communication, not for core dependency injection.
+	reg := registry.New(cfg)
+	var closers []func() error
+
+	// 2. Initialize Core Services (Database, Pub/Sub, etc.)
+	// Each service is created, and its cleanup function is added to the closers list.
+	slog.Info("Initializing core services...")
+
+	// Database
+	db, err := database.NewDB(context.Background(), cfg)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to connect to database: %w", err)
+	}
+	closers = append(closers, func() error {
+		slog.Info("Closing database connection...")
+		return db.Close(context.Background())
+	})
+	dbClient := database.NewClient(db)
+
+	// Email
 	emailer, err := email.NewEmailService(cfg)
 	if err != nil {
-		slog.Error("Failed to initialize email service", "error", err)
-		os.Exit(1)
+		return nil, nil, fmt.Errorf("failed to create email service: %w", err)
 	}
-	// Register the email service with its interface type
-	reg.Set((*domain.EmailSender)(nil), emailer)
 
+	// Pub/Sub and WebSocket Bridge
 	ps := pubsub.NewWatermillBridge()
-	defer func() {
+	closers = append(closers, func() error {
 		slog.Info("Shutting down Pub/Sub system...")
-		if err := ps.Close(); err != nil {
-			slog.Error("Failed to close Pub/Sub system", "error", err)
-		}
-	}()
-	// Register pubsub services with their interface types
-	reg.Set((*pubsub.Publisher)(nil), ps)
-	reg.Set((*pubsub.Subscriber)(nil), ps)
-
+		return ps.Close()
+	})
 	wsBridge := websocket.NewBridge(ps)
-	reg.Set((*websocket.Bridge)(nil), wsBridge)
 
+	// User Store (depends on the concrete *surrealdb.DB)
+	userStore := database.NewSurrealUserStore(db, cfg.GetDBNs(), cfg.GetDBDb())
+
+	// Renderer and Web Framework
 	renderer := rendering.NewUniversalRenderer()
-	// Register the renderer against both interfaces it implements.
-	reg.Set((*rendering.Renderer)(nil), renderer)
-	reg.Set((*echo.Renderer)(nil), renderer)
+	e := echo.New()
 
-	// 4. Create the server instance.
-	// The server now only needs the registry to get its dependencies.
-	s, err := server.New(reg)
+	// 3. Assemble and Create the Main Server Instance
+	// All core dependencies are explicitly passed to the server's constructor.
+	slog.Info("Creating server instance...")
+	srv, err = server.New(server.Dependencies{
+		Config:    cfg,
+		DB:        dbClient,
+		Emailer:   emailer,
+		UserStore: userStore,
+		Renderer:  renderer,
+		Publisher: ps,
+		Echo:      e,
+		Bridge:    wsBridge,
+	})
 	if err != nil {
-		slog.Error("Failed to create server", "error", err)
-		os.Exit(1)
+		return nil, nil, fmt.Errorf("failed to create server: %w", err)
 	}
 
-	// 5. Define the list of active modules for the application.
-	modules := []module.Module{
-		wargame.New(),
-		chat.New(),
+	// 4. Initialize Application Modules
+	// Core services are passed to the module container, which then wires up
+	// all active application features.
+	slog.Info("Initializing application modules...")
+	moduleDeps := app.Dependencies{
+		Publisher:  ps,
+		Subscriber: ps,
+		Bridge:     wsBridge,
+		Renderer:   renderer,
+	}
+	modules := app.NewModules(moduleDeps)
+	srv.InitModules(modules, reg)
+	srv.RegisterRoutes()
+
+	// 5. Define the master cleanup function.
+	cleanup = func() {
+		slog.Info("Shutting down application...")
+		var errs error
+		for _, closeFn := range closers {
+			errs = errors.Join(errs, closeFn())
+		}
+		if errs != nil {
+			slog.Error("Errors during shutdown", "errors", errs)
+		}
+		slog.Info("Shutdown process complete.")
 	}
 
-	// 6. Run the two-phase module initialization.
-	s.InitModules(modules, reg)
-	s.RegisterRoutes()
-
-	// 7. Start the server and its background processes.
-	s.Start()
+	return srv, cleanup, nil
 }

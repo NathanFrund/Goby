@@ -57,7 +57,7 @@ func (s *SurrealUserStore) SignUp(ctx context.Context, user *domain.User, passwo
 
 	// Check for a specific duplicate user error from the database driver.
 	if err != nil && strings.Contains(err.Error(), "already exists") {
-		return "", domain.ErrUserAlreadyExists
+		return "", domain.ErrUserAlreadyExists // Return our domain-specific error.
 	}
 
 	if err == nil && token != "" {
@@ -94,17 +94,12 @@ func (s *SurrealUserStore) SignIn(ctx context.Context, user *domain.User, passwo
 
 // Authenticate validates a session token and returns the associated user.
 func (s *SurrealUserStore) Authenticate(ctx context.Context, token string) (*domain.User, error) {
-	// First, ensure we're using the correct namespace and database.
-	if err := s.db.Use(ctx, s.ns, s.dbName); err != nil {
-		return nil, fmt.Errorf("failed to set namespace/database: %w", err)
-	}
-
 	// Authenticate the connection using the provided token.
 	// This validates the token against the 'account' scope.
-	err := s.db.Authenticate(ctx, token)
+	err := s.db.Authenticate(ctx, token) // This sets the auth context for subsequent queries on this connection.
 	if err != nil {
 		// This error indicates the token is invalid or expired.
-		return nil, fmt.Errorf("token authentication failed: %w", err)
+		return nil, domain.ErrInvalidCredentials // Return a domain-specific error.
 	}
 
 	// After successful authentication, get the current user's information

@@ -504,12 +504,28 @@ import (
 
 // YourModule implements the module.Module interface
 type YourModule struct {
-    module.BaseModule  // Embed BaseModule for common functionality
+    module.BaseModule // Embed BaseModule for common functionality
+    publisher         pubsub.Publisher
+    service           YourService
+}
+
+// Dependencies holds all the services that YourModule requires.
+type Dependencies struct {
+	Publisher pubsub.Publisher
+	Service   YourService
 }
 
 // New creates a new instance of the module
-func New() *YourModule {
-    return &YourModule{}
+func New(deps Dependencies) *YourModule {
+	// The service is created here or in main.go and passed in.
+	if deps.Service == nil {
+		deps.Service = NewService()
+	}
+
+	return &YourModule{
+		publisher: deps.Publisher,
+		service:   deps.Service,
+	}
 }
 
 // Name returns the module's unique identifier
@@ -519,21 +535,28 @@ func (m *YourModule) Name() string {
 
 // Boot is called during application startup after all services are registered
 func (m *YourModule) Boot(g *echo.Group, reg *registry.Registry) error {
-    // Resolve dependencies by their interface types
-    publisher := registry.MustGet[pubsub.Publisher](reg)
-
-    // Initialize services
-    service := NewService()
-    handler := NewHandler(service, publisher)
+    // Dependencies are injected via the constructor, so they are available
+    // as fields on the module struct. No need for service location.
+    handler := NewHandler(m.service, m.publisher)
 
     // Register routes
     // The server mounts routes under /app/{moduleName}
     g.GET("/endpoint", handler.HandleEndpoint)
 
     // Start background workers if needed
+    // The registry can still be used to resolve services registered by *other*
+    // modules during the Register phase, but a module should not use it to
+    // resolve its own primary dependencies.
     go func() {
-        subscriber := registry.MustGet[pubsub.Subscriber](reg)
-        worker := NewWorker(service, subscriber)
+        // Example of resolving a service from another module.
+        // For primary dependencies, use constructor injection.
+        someOtherService, err := registry.Get[any](reg) // Replace 'any' with the actual service type
+        if err != nil {
+            slog.Error("Failed to get dependency from another module", "error", err)
+            return
+        }
+
+        worker := NewWorker(m.service, someOtherService)
         if err := worker.Start(context.Background()); err != nil {
             slog.Error("Worker failed", "module", m.Name(), "error", err)
         }
@@ -545,14 +568,18 @@ func (m *YourModule) Boot(g *echo.Group, reg *registry.Registry) error {
 
 #### 4. Register the Module
 
-Add your module to the application in `cmd/server/main.go`:
+Add your module to the application's "Composition Root" in `cmd/server/main.go`. You will instantiate it here, providing all of its required dependencies.
 
 ```go
-modues := []module.Module{
+// in cmd/server/main.go's buildServer function
+modules := []module.Module{
     // Core modules first
-    wargame.New(),
-    chat.New(),
-    yourmodule.New(),  // Add your module here
+    wargame.New(wargame.Dependencies{...}),
+    chat.New(chat.Dependencies{...}),
+    yourmodule.New(yourmodule.Dependencies{ // Add your module here
+        Publisher: ps,
+        // Service can be provided here if needed by other modules.
+    }),
 
     // More modules...
 }
