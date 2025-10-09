@@ -1,12 +1,10 @@
 package server
 
 import (
-	"log/slog"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/middleware" // Your custom middleware
-	"github.com/nfrund/goby/internal/registry"
 	"github.com/nfrund/goby/internal/websocket"
 )
 
@@ -49,34 +47,30 @@ func (s *Server) RegisterRoutes() {
 	protected.Use(authMiddleware)
 
 	// --- Module Loading System ---
+	// This logic has been moved to server.InitModules to be more explicit.
+	// reg := registry.New(s.Cfg)
 
-	// 1. Create a new service locator instance for this request scope.
-	sl := registry.NewServiceLocator()
+	// // 1. Register core framework services that modules might need.
+	// reg.Set((*domain.UserRepository)(nil), s.UserStore)
+	// reg.Set((*domain.EmailSender)(nil), s.Emailer)
+	// reg.Set((*domain.Renderer)(nil), s.Renderer)
+	// reg.Set((*pubsub.Publisher)(nil), s.PubSub)
+	// reg.Set((*pubsub.Subscriber)(nil), s.PubSub)
+	// reg.Set((*websocket.Bridge)(nil), s.bridge)
 
-	// 2. Register core framework services that modules might need.
-	sl.Set(string(registry.DBConnectionKey), s.DB) // Use direct SurrealDB client
-	sl.Set(string(registry.TemplateRendererKey), s.Renderer)
-	sl.Set(string(registry.AppConfigKey), s.Cfg)
-	sl.Set(string(registry.PubSubKey), s.PubSub)
-	sl.Set(string(registry.UserStoreKey), s.UserStore)
-	sl.Set(string(registry.NewWebsocketBridgeKey), s.bridge)
+	// // 2. Register services from all active modules.
+	// for _, mod := range s.modules {
+	// 	if err := mod.Register(reg); err != nil {
+	// 		slog.Error("Failed to register module", "module", mod.Name(), "error", err)
+	// 	}
+	// }
 
-	// 3. Register services from all active modules.
-	// This allows modules to add their services to the container.
-	for _, mod := range AppModules {
-		if err := mod.Register(sl, s.Cfg); err != nil {
-			slog.Error("Failed to register module", "module", mod.Name(), "error", err)
-		}
-	}
-
-	// 4. Boot all active modules.
-	// Now that all services are registered, modules can safely resolve
-	// dependencies and set up their routes.
-	for _, mod := range AppModules {
-		if err := mod.Boot(protected, sl); err != nil {
-			slog.Error("Failed to boot module", "module", mod.Name(), "error", err)
-		}
-	}
+	// // 3. Boot all active modules, setting up their routes.
+	// for _, mod := range s.modules {
+	// 	if err := mod.Boot(protected, reg); err != nil {
+	// 		slog.Error("Failed to boot module", "module", mod.Name(), "error", err)
+	// 	}
+	// }
 
 	// Standard routes
 	protected.GET("/dashboard", s.dashboardHandler.DashboardGet)

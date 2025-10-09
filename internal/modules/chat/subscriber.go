@@ -17,12 +17,12 @@ import (
 // via the WebsocketBridge.
 type ChatSubscriber struct {
 	subscriber pubsub.Subscriber
-	bridge     *websocket.Bridge
+	bridge     websocket.Bridge
 	renderer   rendering.Renderer
 }
 
 // NewChatSubscriber creates a new subscriber service for the chat module.
-func NewChatSubscriber(sub pubsub.Subscriber, bridge *websocket.Bridge, renderer rendering.Renderer) *ChatSubscriber {
+func NewChatSubscriber(sub pubsub.Subscriber, bridge websocket.Bridge, renderer rendering.Renderer) *ChatSubscriber {
 	return &ChatSubscriber{
 		subscriber: sub,
 		bridge:     bridge,

@@ -2,20 +2,26 @@ package module
 
 import (
 	"github.com/labstack/echo/v4"
-	"github.com/nfrund/goby/internal/config"
 	"github.com/nfrund/goby/internal/registry"
 )
 
-// Module defines the contract for a self-registering application module.
+// Module defines the contract for a self-contained application feature.
 type Module interface {
 	// Name returns a unique identifier for the module.
 	Name() string
 
-	// Register is for binding services into the service container.
-	// This method should only be used for registration, not for resolving dependencies.
-	Register(sl registry.ServiceLocator, cfg config.Provider) error
+	// Register is called during application startup to register the module's
+	// services with the central registry.
+	Register(reg *registry.Registry) error
 
-	// Boot is for using services that have been registered, like setting up routes.
-	// This method is called after all modules have been registered.
-	Boot(g *echo.Group, sl registry.ServiceLocator) error
+	// Boot is called after all modules have registered their services.
+	// This is the phase for setting up routes and starting background processes.
+	Boot(router *echo.Group, reg *registry.Registry) error
 }
+
+// BaseModule provides default no-op implementations for Module methods.
+// Modules can embed this to avoid implementing methods they don't need.
+type BaseModule struct{}
+
+func (m *BaseModule) Register(reg *registry.Registry) error                 { return nil }
+func (m *BaseModule) Boot(router *echo.Group, reg *registry.Registry) error { return nil }

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -16,28 +17,31 @@ import (
 	"github.com/nfrund/goby/internal/database"
 	"github.com/nfrund/goby/internal/domain"
 	"github.com/nfrund/goby/internal/handlers"
+	appmiddleware "github.com/nfrund/goby/internal/middleware"
+	"github.com/nfrund/goby/internal/module"
 	"github.com/nfrund/goby/internal/pubsub"
+	"github.com/nfrund/goby/internal/registry"
+	"github.com/nfrund/goby/internal/rendering"
 	"github.com/nfrund/goby/internal/websocket"
 	"github.com/nfrund/goby/web"
-	"github.com/surrealdb/surrealdb.go"
 )
 
 // Server holds the dependencies for the HTTP server.
 type Server struct {
 	E         *echo.Echo
-	DB        *surrealdb.DB
+	DB        database.Client
 	Cfg       config.Provider
 	Emailer   domain.EmailSender
 	UserStore domain.UserRepository
-	Renderer  echo.Renderer
+	Renderer  rendering.Renderer
 
 	homeHandler      *handlers.HomeHandler
 	authHandler      *handlers.AuthHandler
 	dashboardHandler *handlers.DashboardHandler
 	aboutHandler     *handlers.AboutHandler
-
-	bridge *websocket.Bridge
-	PubSub pubsub.Publisher
+	modules          []module.Module
+	bridge           websocket.Bridge
+	PubSub           pubsub.Publisher
 }
 
 func setupErrorHandling(e *echo.Echo) {
@@ -91,78 +95,49 @@ func setupErrorHandling(e *echo.Echo) {
 	}
 }
 
-// ServerOption is a function that configures a Server.
-type ServerOption func(*Server) error
-
-// WithConfig is an option to set the configuration provider.
-func WithConfig(cfg config.Provider) ServerOption {
-	return func(s *Server) error {
-		s.Cfg = cfg
-		return nil
-	}
-}
-
-// WithDB is an option to set the database connection and the UserStore.
-func WithDB(db *surrealdb.DB, ns, dbName string) ServerOption {
-	return func(s *Server) error {
-		s.DB = db
-		s.UserStore = database.NewSurrealUserStore(db, ns, dbName)
-		return nil
-	}
-}
-
-// WithEmailer is an option to set the email sender.
-func WithEmailer(emailer domain.EmailSender) ServerOption {
-	return func(s *Server) error {
-		s.Emailer = emailer
-		return nil
-	}
-}
-
-// WithRenderer is an option to set the component renderer.
-func WithRenderer(renderer echo.Renderer) ServerOption {
-	return func(s *Server) error {
-		s.Renderer = renderer
-		return nil
-	}
-}
-
-// WithPubSub is an option to set the Pub/Sub service.
-func WithPubSub(pubSub pubsub.Publisher) ServerOption {
-	return func(s *Server) error {
-		s.PubSub = pubSub
-		return nil
-	}
-}
-
-// WithWebsocketBridge is an option to set the WebSocket bridge.
-func WithWebsocketBridge(bridge *websocket.Bridge) ServerOption {
-	return func(s *Server) error {
-		s.bridge = bridge
-		return nil
-	}
-}
-
 // New creates a new Server instance by applying functional options.
-func New(opts ...ServerOption) (*Server, error) {
+func New(reg *registry.Registry) (*Server, error) {
 	e := echo.New()
 	setupErrorHandling(e)
 
+	// Resolve core server dependencies from the registry with proper error handling
+	cfg, err := registry.Get[config.Provider](reg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get config: %w", err)
+	}
+
+	db, err := registry.Get[database.Client](reg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get database client: %w", err)
+	}
+
+	emailer, err := registry.Get[domain.EmailSender](reg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get emailer: %w", err)
+	}
+
+	// Get the echo.Renderer for the Echo instance.
+	echoRenderer, err := registry.Get[echo.Renderer](reg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get echo.Renderer: %w", err)
+	}
+	e.Renderer = echoRenderer
+
+	ps, err := registry.Get[pubsub.Publisher](reg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get pubsub: %w", err)
+	}
+
 	s := &Server{
-		E: e,
+		E:       e,
+		Cfg:     cfg,
+		DB:      db,
+		Emailer: emailer,
+		// Get the custom rendering.Renderer for internal use by modules.
+		Renderer:  registry.MustGet[rendering.Renderer](reg),
+		PubSub:    ps,
+		UserStore: registry.MustGet[domain.UserRepository](reg),
 	}
-
-	// Loop through the provided options and apply them.
-	for _, opt := range opts {
-		if err := opt(s); err != nil {
-			return nil, err
-		}
-	}
-
-	s.initHandlers()
-
-	// Set the renderer on the Echo instance so it can be used for page rendering.
-	s.E.Renderer = s.Renderer
 
 	// Configure and use session middleware
 	store := sessions.NewCookieStore([]byte(s.Cfg.GetSessionSecret()))
@@ -172,6 +147,11 @@ func New(opts ...ServerOption) (*Server, error) {
 		HttpOnly: true,
 	}
 	s.E.Use(session.Middleware(store))
+
+	s.initHandlers()
+
+	// This will be populated by InitModules now.
+	s.initCoreServices()
 
 	// Serve static files from disk or embedded FS based on APP_STATIC.
 	if os.Getenv("APP_STATIC") == "embed" {
@@ -186,10 +166,44 @@ func New(opts ...ServerOption) (*Server, error) {
 		s.E.Static("/static", "web/static")
 	}
 
-	// Register all application routes, including those from modules.
-	s.RegisterRoutes()
-
 	return s, nil
+}
+
+// initCoreServices initializes services that are part of the server itself.
+func (s *Server) initCoreServices() {
+	// The bridge is a core part of the server's real-time architecture.
+	if s.PubSub != nil {
+		s.bridge = websocket.NewBridge(s.PubSub)
+		slog.Info("WebSocket bridge initialized.")
+	}
+}
+
+func (s *Server) InitModules(modules []module.Module, reg *registry.Registry) {
+	s.modules = modules
+
+	// The bridge is now retrieved from the registry, where it was placed by main.go
+	s.bridge = registry.MustGet[websocket.Bridge](reg)
+
+	// --- Phase 1: Register all module services ---
+	for _, mod := range modules {
+		if err := mod.Register(reg); err != nil {
+			slog.Error("Failed to register module", "module", mod.Name(), "error", err)
+			// In a real app, you might want to os.Exit(1) here.
+		}
+	}
+
+	// --- Phase 2: Boot all modules ---
+	// Now that all services are registered, modules can safely resolve dependencies.
+	protected := s.E.Group("/app")
+	protected.Use(appmiddleware.Auth(s.UserStore)) // Auth middleware for all module routes
+
+	for _, mod := range modules {
+		// Create a dedicated sub-group for each module under the /app prefix.
+		group := protected.Group("/" + mod.Name())
+		if err := mod.Boot(group, reg); err != nil {
+			slog.Error("Failed to boot module", "module", mod.Name(), "error", err)
+		}
+	}
 }
 
 // initHandlers initializes all handler structs using the Server's dependencies.
@@ -228,7 +242,9 @@ func (s *Server) Start() {
 	defer cancel()
 
 	// Close the database connection.
-	s.DB.Close(ctx)
+	if s.DB != nil {
+		s.DB.Close()
+	}
 
 	if err := s.E.Shutdown(ctx); err != nil {
 		slog.Error("Server shutdown failed", "error", err)
