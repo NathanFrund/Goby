@@ -406,11 +406,11 @@ Goby's UI components are organized in the following structure:
    - Templ files (via `templ generate --watch`)
    - CSS/JS (via Tailwind's JIT compiler)
 
-#### Module System
+## The Module System
 
 Goby's architecture is built around the concept of modules - self-contained packages that encapsulate related functionality. Each module is responsible for its own routes, services, and UI components, making it easy to add, remove, or modify features without affecting other parts of the application.
 
-#### Core Concepts
+### Core Concepts
 
 1. **Module Structure**
 
@@ -643,6 +643,8 @@ This approach offers several benefits:
 
 See `internal/modules/chat` for a complete implementation reference.
 
+## Production Deployment
+
 ### Static Assets
 
 Static assets (CSS, JS, images) are managed in the `web/` directory:
@@ -651,9 +653,7 @@ Static assets (CSS, JS, images) are managed in the `web/` directory:
 - `web/src/`: Source files that need processing (Sass, TypeScript, etc.)
 - `web/dist/`: Compiled assets (managed by build tools)
 
-#### Production Deployment
-
-##### Building for Production
+### Building for Production
 
 To create a production-ready, self-contained binary with all assets embedded:
 
@@ -669,7 +669,7 @@ This will:
 
 The resulting binary includes all templates and static files using Go's `embed` package.
 
-#### Systemd Service
+### Systemd Service
 
 For production deployments, you can use this systemd service file as a reference. Save it to `/etc/systemd/system/goby.service`:
 
@@ -716,7 +716,7 @@ The application is configured using environment variables. For local development
 | **`SURREAL_USER`** | The user for authenticating with SurrealDB.     | `app`                     | **Yes**  |
 | **`SURREAL_PASS`** | The password for authenticating with SurrealDB. | `secret`                  | **Yes**  |
 
-#### Email
+### Email
 
 | Variable             | Description                                                              | Default | Required                         |
 | :------------------- | :----------------------------------------------------------------------- | :------ | :------------------------------- |
