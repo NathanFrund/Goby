@@ -143,6 +143,9 @@ func New(deps Dependencies) (*Server, error) {
 	}
 	s.E.Use(session.Middleware(store))
 
+	// Add the RequestID middleware to assign a unique ID to every request.
+	s.E.Use(middleware.RequestID())
+
 	s.initHandlers()
 
 	// Serve static files from disk or embedded FS based on APP_STATIC.
