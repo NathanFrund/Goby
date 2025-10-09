@@ -15,12 +15,12 @@ import (
 // renders them to HTML, and broadcasts them to HTML clients.
 type Subscriber struct {
 	subscriber pubsub.Subscriber
-	bridge     *websocket.Bridge
+	bridge     websocket.Bridge
 	renderer   rendering.Renderer
 }
 
 // NewSubscriber creates a new subscriber for the wargame module.
-func NewSubscriber(sub pubsub.Subscriber, bridge *websocket.Bridge, renderer rendering.Renderer) *Subscriber {
+func NewSubscriber(sub pubsub.Subscriber, bridge websocket.Bridge, renderer rendering.Renderer) *Subscriber {
 	return &Subscriber{
 		subscriber: sub,
 		bridge:     bridge,

@@ -2,12 +2,11 @@ package wargame
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
-	"github.com/nfrund/goby/internal/config"
+	"github.com/nfrund/goby/internal/module"
 	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/registry"
 	"github.com/nfrund/goby/internal/rendering"
@@ -15,7 +14,14 @@ import (
 )
 
 // WargameModule implements the module.Module interface.
-type WargameModule struct{}
+type WargameModule struct {
+	module.BaseModule
+}
+
+// New creates a new instance of the WargameModule.
+func New() *WargameModule {
+	return &WargameModule{}
+}
 
 // Name returns the unique name for the module.
 func (m *WargameModule) Name() string {
@@ -23,50 +29,34 @@ func (m *WargameModule) Name() string {
 }
 
 // Register creates the Wargame Engine and registers it in the service locator.
-func (m *WargameModule) Register(sl registry.ServiceLocator, cfg config.Provider) error {
-	pubSubVal, ok := sl.Get(string(registry.PubSubKey))
-	if !ok {
-		return fmt.Errorf("pub/sub service not found for wargame module")
-	}
-	publisher := pubSubVal.(pubsub.Publisher)
+func (m *WargameModule) Register(reg *registry.Registry) error {
+	publisher := registry.MustGet[pubsub.Publisher](reg)
 
 	slog.Info("Initializing wargame engine")
 	wargameEngine := NewEngine(publisher)
-	sl.Set(string(registry.WargameEngineKey), wargameEngine)
+	// Register the concrete *Engine type
+	reg.Set((**Engine)(nil), wargameEngine)
 
 	return nil
 }
 
 // Boot registers the HTTP routes for the wargame module.
-func (m *WargameModule) Boot(g *echo.Group, sl registry.ServiceLocator) error {
+func (m *WargameModule) Boot(g *echo.Group, reg *registry.Registry) error {
 	// --- Start Background Services ---
-	pubSubVal, _ := sl.Get(string(registry.PubSubKey))
-	bridgeVal, _ := sl.Get(string(registry.NewWebsocketBridgeKey))
-	rendererVal, _ := sl.Get(string(registry.TemplateRendererKey))
-
-	sub, ok1 := pubSubVal.(pubsub.Subscriber)
-	bridge, ok2 := bridgeVal.(*websocket.Bridge)
-	renderer, ok3 := rendererVal.(rendering.Renderer)
-
-	if !ok1 || !ok2 || !ok3 || bridge == nil {
-		return fmt.Errorf("wargame module subscriber could not resolve dependencies")
-	}
+	sub := registry.MustGet[pubsub.Subscriber](reg)
+	bridge := registry.MustGet[websocket.Bridge](reg)
+	renderer := registry.MustGet[rendering.Renderer](reg)
 
 	// Create and start the subscriber in a goroutine.
 	wargameSubscriber := NewSubscriber(sub, bridge, renderer)
 	go wargameSubscriber.Start(context.Background())
 
 	// --- Register HTTP Handlers ---
-	slog.Info("Booting WargameModule: Setting up routes")
+	slog.Info("Booting WargameModule: Setting up routes...")
 
-	// This logic is moved from the old init-based route registration.
-	wargameEngineVal, ok := sl.Get(string(registry.WargameEngineKey))
-	if !ok {
-		slog.Warn("Wargame engine not found in service locator, skipping route registration.")
-		return nil
-	}
-	wargameEngine := wargameEngineVal.(*Engine)
+	wargameEngine := registry.MustGet[*Engine](reg)
 
+	// The server mounts us under /app/wargame, so we use relative paths
 	g.GET("/debug/hit", func(c echo.Context) error {
 		go wargameEngine.SimulateHit()
 		return c.String(http.StatusOK, "Hit event triggered.")

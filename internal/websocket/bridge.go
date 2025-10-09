@@ -37,7 +37,7 @@ type Client struct {
 	// connType is the type of connection (HTML or Data).
 	connType ConnectionType
 	// bridge is a reference back to the bridge that manages this client.
-	bridge *Bridge
+	bridge *bridge
 }
 
 // IncomingMessage represents a message received from a client, destined for the pub/sub system.
@@ -62,9 +62,17 @@ type DirectMessage struct {
 	targetTypes map[ConnectionType]bool
 }
 
-// Bridge manages all WebSocket connections and routes messages
+// Bridge defines the interface for the WebSocket manager.
+type Bridge interface {
+	Run()
+	Handler(connType ConnectionType) echo.HandlerFunc
+	Broadcast(payload []byte, connTypes ...ConnectionType)
+	SendDirect(userID string, payload []byte, connTypes ...ConnectionType)
+}
+
+// bridge manages all WebSocket connections and routes messages
 // between connected clients and the Pub/Sub message bus.
-type Bridge struct {
+type bridge struct {
 	publisher pubsub.Publisher
 
 	// clients is a map of user IDs to a list of their active clients.
@@ -92,8 +100,8 @@ type Bridge struct {
 }
 
 // NewBridge initializes a new Bridge, ready to handle connections.
-func NewBridge(pub pubsub.Publisher) *Bridge {
-	return &Bridge{
+func NewBridge(pub pubsub.Publisher) Bridge {
+	return &bridge{
 		publisher:  pub,
 		clients:    make(map[string][]*Client),
 		register:   make(chan *Client),
@@ -105,7 +113,7 @@ func NewBridge(pub pubsub.Publisher) *Bridge {
 }
 
 // Run starts the main bridge goroutine for managing client lifecycle and message routing.
-func (b *Bridge) Run() {
+func (b *bridge) Run() {
 	slog.Info("New WebSocket bridge runner started.")
 	for {
 		select {
@@ -199,7 +207,7 @@ func (b *Bridge) Run() {
 }
 
 // Handler returns an echo.HandlerFunc that handles WebSocket upgrade requests for a given connection type.
-func (b *Bridge) Handler(connType ConnectionType) echo.HandlerFunc {
+func (b *bridge) Handler(connType ConnectionType) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		user, ok := c.Get(middleware.UserContextKey).(*domain.User)
 		if !ok || user == nil {
@@ -298,12 +306,12 @@ func (c *Client) writePump() {
 }
 
 // Incoming returns the channel for messages received from clients.
-func (b *Bridge) Incoming() <-chan *IncomingMessage {
+func (b *bridge) Incoming() <-chan *IncomingMessage {
 	return b.incoming
 }
 
 // Broadcast sends a message to all clients of the specified connection types.
-func (b *Bridge) Broadcast(payload []byte, connTypes ...ConnectionType) {
+func (b *bridge) Broadcast(payload []byte, connTypes ...ConnectionType) {
 	targets := make(map[ConnectionType]bool)
 	for _, t := range connTypes {
 		targets[t] = true
@@ -316,7 +324,7 @@ func (b *Bridge) Broadcast(payload []byte, connTypes ...ConnectionType) {
 }
 
 // SendDirect sends a message directly to all connections for a specific user.
-func (b *Bridge) SendDirect(userID string, payload []byte, connTypes ...ConnectionType) {
+func (b *bridge) SendDirect(userID string, payload []byte, connTypes ...ConnectionType) {
 	targets := make(map[ConnectionType]bool)
 	for _, t := range connTypes {
 		targets[t] = true
