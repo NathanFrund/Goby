@@ -504,12 +504,28 @@ import (
 
 // YourModule implements the module.Module interface
 type YourModule struct {
-    module.BaseModule  // Embed BaseModule for common functionality
+    module.BaseModule // Embed BaseModule for common functionality
+    publisher         pubsub.Publisher
+    service           YourService
+}
+
+// Dependencies holds all the services that YourModule requires.
+type Dependencies struct {
+	Publisher pubsub.Publisher
+	Service   YourService
 }
 
 // New creates a new instance of the module
-func New() *YourModule {
-    return &YourModule{}
+func New(deps Dependencies) *YourModule {
+	// The service is created here or in main.go and passed in.
+	if deps.Service == nil {
+		deps.Service = NewService()
+	}
+
+	return &YourModule{
+		publisher: deps.Publisher,
+		service:   deps.Service,
+	}
 }
 
 // Name returns the module's unique identifier
@@ -519,21 +535,28 @@ func (m *YourModule) Name() string {
 
 // Boot is called during application startup after all services are registered
 func (m *YourModule) Boot(g *echo.Group, reg *registry.Registry) error {
-    // Resolve dependencies by their interface types
-    publisher := registry.MustGet[pubsub.Publisher](reg)
-
-    // Initialize services
-    service := NewService()
-    handler := NewHandler(service, publisher)
+    // Dependencies are injected via the constructor, so they are available
+    // as fields on the module struct. No need for service location.
+    handler := NewHandler(m.service, m.publisher)
 
     // Register routes
     // The server mounts routes under /app/{moduleName}
     g.GET("/endpoint", handler.HandleEndpoint)
 
     // Start background workers if needed
+    // The registry can still be used to resolve services registered by *other*
+    // modules during the Register phase, but a module should not use it to
+    // resolve its own primary dependencies.
     go func() {
-        subscriber := registry.MustGet[pubsub.Subscriber](reg)
-        worker := NewWorker(service, subscriber)
+        // Example of resolving a service from another module.
+        // For primary dependencies, use constructor injection.
+        someOtherService, err := registry.Get[any](reg) // Replace 'any' with the actual service type
+        if err != nil {
+            slog.Error("Failed to get dependency from another module", "error", err)
+            return
+        }
+
+        worker := NewWorker(m.service, someOtherService)
         if err := worker.Start(context.Background()); err != nil {
             slog.Error("Worker failed", "module", m.Name(), "error", err)
         }
@@ -545,14 +568,18 @@ func (m *YourModule) Boot(g *echo.Group, reg *registry.Registry) error {
 
 #### 4. Register the Module
 
-Add your module to the application in `cmd/server/main.go`:
+Add your module to the application's "Composition Root" in `cmd/server/main.go`. You will instantiate it here, providing all of its required dependencies.
 
 ```go
-modues := []module.Module{
+// in cmd/server/main.go's buildServer function
+modules := []module.Module{
     // Core modules first
-    wargame.New(),
-    chat.New(),
-    yourmodule.New(),  // Add your module here
+    wargame.New(wargame.Dependencies{...}),
+    chat.New(chat.Dependencies{...}),
+    yourmodule.New(yourmodule.Dependencies{ // Add your module here
+        Publisher: ps,
+        // Service can be provided here if needed by other modules.
+    }),
 
     // More modules...
 }
@@ -621,7 +648,58 @@ This approach offers several benefits:
    }
    ```
 
-4. **Testing**
+4. **Structured Logging**
+
+   The framework is configured for structured logging using Go's standard `slog` library. This provides a consistent, machine-readable logging format that is essential for production environments. The logging system supports two primary contexts: request-scoped logging and global (background) logging.
+
+   #### Request-Scoped Logging (For HTTP Handlers)
+
+   For any code that executes as part of an HTTP request, it is critical to use the request-scoped logger. This logger is automatically enriched with a unique `request_id`, allowing you to trace the entire lifecycle of a single request through the system.
+
+   - A middleware automatically assigns a `request_id` to every incoming request.
+   - A special logger instance, pre-configured with this `request_id`, is injected into the request's `context`.
+
+   To use it, retrieve the logger from the context using the `middleware.FromContext` helper.
+
+   ```go
+   import "github.com/nfrund/goby/internal/middleware"
+
+   func (h *YourHandler) HandleSomething(c echo.Context) error {
+       // Get the request-scoped logger from the context.
+       logger := middleware.FromContext(c.Request().Context())
+
+       // Any logs made with this logger will automatically include the `request_id`.
+       logger.Info("Handling the request for a specific user", "user_id", "123")
+
+       return c.String(http.StatusOK, "Done")
+   }
+   ```
+
+   **Resulting Log Output:**
+
+   ```log
+   level=INFO source=... msg="Handling the request for a specific user" request_id=abc-123 user_id=123
+   ```
+
+   #### Global Logging (For Background Services)
+
+   For background services, long-running tasks, or any code that runs outside of an HTTP request (e.g., in a module's `Boot` or `Shutdown` method), use the standard global logger. These logs will not have a `request_id` as they are not associated with a specific user request.
+
+   It is best practice to use the `...Context` variants of the `slog` functions (e.g., `slog.InfoContext`) and pass the context you were given.
+
+   ```go
+   import "log/slog"
+
+   func (m *YourModule) Boot(ctx context.Context, g *echo.Group, reg *registry.Registry) error {
+       // Use the global logger with the provided context for application-level events.
+       slog.InfoContext(ctx, "Booting YourModule: Setting up routes...")
+
+       // ...
+       return nil
+   }
+   ```
+
+5. **Testing**
 
    - Write unit tests for business logic
    - Test HTTP handlers with echo's test utilities

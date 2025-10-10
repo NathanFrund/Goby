@@ -9,13 +9,11 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/labstack/echo/v4"
+	"github.com/nfrund/goby/internal/app"
 	"github.com/nfrund/goby/internal/config"
 	"github.com/nfrund/goby/internal/database"
 	"github.com/nfrund/goby/internal/domain"
 	"github.com/nfrund/goby/internal/email"
-	"github.com/nfrund/goby/internal/module"
-	"github.com/nfrund/goby/internal/modules/chat"
-	"github.com/nfrund/goby/internal/modules/wargame"
 	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/registry"
 	"github.com/nfrund/goby/internal/rendering"
@@ -23,12 +21,6 @@ import (
 	"github.com/nfrund/goby/internal/websocket"
 	"github.com/stretchr/testify/require"
 )
-
-// testModules defines the list of modules to be loaded for integration tests.
-var testModules = []module.Module{
-	wargame.New(),
-	chat.New(),
-}
 
 // TestMain runs once for the entire package before any tests are run.
 // It's the perfect place to load test-specific environment variables.
@@ -80,12 +72,26 @@ func setupIntegrationTest(t *testing.T) (*server.Server, *httptest.Server, func(
 	reg.Set((*rendering.Renderer)(nil), renderer)
 	reg.Set((*echo.Renderer)(nil), renderer)
 
+	e := echo.New()
+
 	// 3. Create the server instance using the populated registry.
-	s, err := server.New(reg)
+	s, err := server.New(server.Dependencies{
+		Config:    cfg,
+		DB:        dbClient,
+		Emailer:   emailer,
+		UserStore: userStore,
+		Renderer:  renderer,
+		Publisher: ps,
+		Echo:      e,
+		Bridge:    wsBridge,
+	})
 	require.NoError(t, err)
 
 	// 4. Initialize modules and register all routes, just like in main.go
-	s.InitModules(testModules, reg)
+	moduleDeps := app.Dependencies{Publisher: ps, Subscriber: ps, Bridge: wsBridge, Renderer: renderer}
+	modules := app.NewModules(moduleDeps)
+	s.InitModules(context.Background(), modules, reg)
+
 	s.RegisterRoutes()
 
 	testServer := httptest.NewServer(s.E)
