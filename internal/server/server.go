@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"runtime/debug"
 
 	"github.com/gorilla/sessions"
 	"github.com/labstack/echo-contrib/session"
@@ -82,6 +83,7 @@ func setupErrorHandling(e *echo.Echo) {
 				"method", c.Request().Method,
 				"path", c.Path(),
 				"remote_ip", c.RealIP(),
+				"stack_trace", string(debug.Stack()),
 			)
 			// Ensure we still return a standard 500 response
 			he = &echo.HTTPError{Code: http.StatusInternalServerError, Message: http.StatusText(http.StatusInternalServerError)}
