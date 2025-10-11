@@ -886,3 +886,44 @@ cp .env .env.test
 
 - **Unit Tests**: These tests focus on small, isolated pieces of code, like a single function or method. They do not require a database or other external services and are typically very fast.
 - **Integration Tests**: These tests verify that different parts of the application work together correctly. For example, an integration test might check that an HTTP handler correctly interacts with the database. These tests are tagged with `//go:build integration` and require a live test database to run.
+
+## Security Configuration
+
+The framework includes secure defaults, but you may need to adjust these based on your application's needs.
+
+### HTTP Headers
+
+- Default security headers are enabled via `middleware.Secure()`
+- To customize, replace with your own middleware:
+
+```go
+e.Use(middleware.SecureWithConfig(middleware.SecureConfig{
+    XSSProtection:      "1; mode=block",
+    ContentTypeNosniff: "nosniff",
+    XFrameOptions:      "SAMEORIGIN",
+}))
+```
+
+### Content Security Policy (CSP)
+
+For stricter security, implement a CSP:
+
+```go
+e.Use(middleware.CSPWithConfig(middleware.CSPConfig{
+    ContentSecurityPolicy: "default-src 'self'",
+}))
+```
+### Session Security
+
+Configure sessions in server.go.
+
+```go
+store := sessions.NewCookieStore([]byte("your-secret-key"))
+store.Options = &sessions.Options{
+    Path:     "/",
+    MaxAge:   86400 * 7, // 7 days
+    HttpOnly: true,
+    Secure:   true, // Enable in production with HTTPS
+    SameSite: http.SameSiteLaxMode,
+}
+```
