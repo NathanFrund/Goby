@@ -112,7 +112,7 @@ Goby is built around a presentation-first architecture that makes building moder
 
 ### Flexible Architecture
 
-- Serve both HTML and JSON from the same endpoints
+- Serve HTML fragments and JSON from dedicated websocket endpoints
 - Event-driven architecture with Watermill message bus
 - Modular design that grows with your application
 
@@ -568,20 +568,20 @@ func (m *YourModule) Boot(g *echo.Group, reg *registry.Registry) error {
 
 #### 4. Register the Module
 
-Add your module to the application's "Composition Root" in `cmd/server/main.go`. You will instantiate it here, providing all of its required dependencies.
+Add your module to the application's module list in `internal/app/modules.go`. This is the central place where all application features are registered.
 
 ```go
-// in cmd/server/main.go's buildServer function
-modules := []module.Module{
-    // Core modules first
-    wargame.New(wargame.Dependencies{...}),
-    chat.New(chat.Dependencies{...}),
-    yourmodule.New(yourmodule.Dependencies{ // Add your module here
-        Publisher: ps,
-        // Service can be provided here if needed by other modules.
-    }),
+// in internal/app/modules.go
 
-    // More modules...
+// NewModules creates and returns a slice of all active application modules.
+func NewModules(deps Dependencies) []module.Module {
+	return []module.Module{
+		// Core application modules
+		chat.New(deps),
+
+		// Add your new module here
+		yourmodule.New(yourmodule.Dependencies{Publisher: deps.Publisher}),
+	}
 }
 ```
 
