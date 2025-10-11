@@ -80,6 +80,11 @@ func TestUserStore_CRUD(t *testing.T) {
 	require.NotNil(t, fetchedByEmail)
 	assert.Equal(t, createdUser.ID, fetchedByEmail.ID)
 
+	// Test FindUserByEmail with empty string
+	fetchedByEmptyEmail, err := store.FindUserByEmail(ctx, "")
+	require.NoError(t, err, "FindUserByEmail with empty string should not return an error")
+	assert.Nil(t, fetchedByEmptyEmail, "FindUserByEmail with empty string should return a nil user")
+
 	// 3. Test Update
 	updatedName := "Updated CRUD User"
 	createdUser.Name = &updatedName
@@ -108,35 +113,48 @@ func TestUserStore_Authentication(t *testing.T) {
 	defer cancel()
 
 	// Test data
-	email := fmt.Sprintf("auth-%d@example.com", time.Now().UnixNano())
-	name := "Auth User"
-	password := "S3cureP@ssw0rd!"
-	user := &domain.User{Name: &name, Email: email}
+	t.Run("SignUp and SignIn Flow", func(t *testing.T) {
+		email := fmt.Sprintf("auth-%d@example.com", time.Now().UnixNano())
+		name := "Auth User"
+		password := "S3cureP@ssw0rd!"
+		user := &domain.User{Name: &name, Email: email}
 
-	// 1. Test SignUp
-	token, err := store.SignUp(ctx, user, password)
-	require.NoError(t, err)
-	assert.NotEmpty(t, token)
-	t.Cleanup(func() { _ = store.Delete(ctx, user.ID.String()) })
+		// 1. Test Successful SignUp
+		token, err := store.SignUp(ctx, user, password)
+		require.NoError(t, err, "SignUp should succeed for a new user")
+		assert.NotEmpty(t, token, "SignUp should return a session token")
+		t.Cleanup(func() {
+			// The user ID is not populated by the current SignUp flow, so we find by email to delete.
+			if u, _ := store.FindUserByEmail(context.Background(), email); u != nil && u.ID != nil {
+				_ = store.Delete(context.Background(), u.ID.String())
+			}
+		})
 
-	// 2. Test duplicate sign up
-	_, err = store.SignUp(ctx, user, password)
-	assert.ErrorIs(t, err, domain.ErrUserAlreadyExists)
+		// 2. Test Duplicate SignUp
+		_, err = store.SignUp(ctx, user, password)
+		assert.ErrorIs(t, err, domain.ErrUserAlreadyExists, "SignUp should fail for an existing user")
 
-	// 3. Test SignIn
-	signInToken, err := store.SignIn(ctx, user, password)
-	require.NoError(t, err)
-	assert.NotEmpty(t, signInToken)
+		// 3. Test Successful SignIn
+		signInToken, err := store.SignIn(ctx, user, password)
+		require.NoError(t, err, "SignIn should succeed with correct credentials")
+		assert.NotEmpty(t, signInToken, "SignIn should return a token")
 
-	// 4. Test wrong password
-	_, err = store.SignIn(ctx, user, "wrongpassword")
-	assert.Error(t, err)
+		// 4. Test Failed SignIn (Wrong Password)
+		_, err = store.SignIn(ctx, user, "wrongpassword")
+		assert.Error(t, err, "SignIn should fail with an incorrect password")
 
-	// 5. Test Authenticate
-	authedUser, err := store.Authenticate(ctx, signInToken)
-	require.NoError(t, err)
-	require.NotNil(t, authedUser)
-	assert.Equal(t, email, authedUser.Email)
+		// 5. Test Successful Authenticate
+		authedUser, err := store.Authenticate(ctx, signInToken)
+		require.NoError(t, err, "Authenticate should succeed with a valid token")
+		require.NotNil(t, authedUser, "Authenticated user should not be nil")
+		assert.Equal(t, email, authedUser.Email, "Authenticated user's email should match")
+	})
+
+	t.Run("Authentication with invalid token", func(t *testing.T) {
+		// Test Authenticate with a completely invalid token
+		_, err := store.Authenticate(ctx, "this-is-not-a-valid-token")
+		assert.Error(t, err, "Authenticate should fail with an invalid token")
+	})
 }
 
 func TestUserStore_PasswordReset(t *testing.T) {
@@ -144,7 +162,7 @@ func TestUserStore_PasswordReset(t *testing.T) {
 		t.Skip("skipping integration test in short mode")
 	}
 
-	store, _, cleanup := setupUserStoreTest(t)
+	store, client, cleanup := setupUserStoreTest(t)
 	defer cleanup()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -154,10 +172,16 @@ func TestUserStore_PasswordReset(t *testing.T) {
 	email := fmt.Sprintf("reset-%d@example.com", time.Now().UnixNano())
 	name := "Reset User"
 	initialPassword := "initial-pw-123"
-	user := &domain.User{Name: &name, Email: email}
-	_, err := store.SignUp(ctx, user, initialPassword)
+
+	// Use the test client to create the user directly, avoiding SignUp's side effects.
+	userToCreate := TestUser{
+		User:     domain.User{Name: &name, Email: email},
+		Password: fmt.Sprintf("crypto::argon2::generate('%s')", initialPassword),
+	}
+	createdUser, err := client.Create(ctx, "user", &userToCreate)
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = store.Delete(ctx, user.ID.String()) })
+	require.NotNil(t, createdUser.ID, "Created user should have an ID")
+	t.Cleanup(func() { _ = store.Delete(ctx, createdUser.ID.String()) })
 
 	// 2. Generate Token
 	resetToken, err := store.GenerateResetToken(ctx, email)
@@ -169,13 +193,39 @@ func TestUserStore_PasswordReset(t *testing.T) {
 	resetUser, err := store.ResetPassword(ctx, resetToken, newPassword)
 	require.NoError(t, err)
 	require.NotNil(t, resetUser)
-	assert.Equal(t, user.ID, resetUser.ID)
+	assert.Equal(t, createdUser.ID, resetUser.ID)
 
 	// 4. Verify token is invalidated by trying to use it again
 	_, err = store.ResetPassword(ctx, resetToken, "another-new-password")
 	assert.Error(t, err, "Resetting password with the same token should fail")
 
 	// 5. Verify the new password works by signing in
-	_, err = store.SignIn(ctx, user, newPassword)
+	// Create a new user object for sign-in, as the createdUser object doesn't contain the password.
+	signInUser := &domain.User{Email: email}
+	_, err = store.SignIn(ctx, signInUser, newPassword)
 	require.NoError(t, err, "Should be able to sign in with the new password")
+
+	t.Run("fails with expired token", func(t *testing.T) {
+		// Generate a new token
+		expiredToken, err := store.GenerateResetToken(ctx, email)
+		require.NoError(t, err)
+
+		// Manually expire the token in the database
+		expiredTime := time.Now().UTC().Add(-24 * time.Hour).Format(time.RFC3339)
+		_, err = client.Query(ctx, "UPDATE user SET resetTokenExpires = $expires WHERE email = $email", map[string]any{
+			"email":   email,
+			"expires": expiredTime,
+		})
+		require.NoError(t, err, "failed to manually expire token")
+
+		// Attempt to reset password with the expired token
+		_, err = store.ResetPassword(ctx, expiredToken, "password-from-expired-token")
+		require.Error(t, err, "ResetPassword should fail with an expired token")
+		assert.Contains(t, err.Error(), "invalid or expired reset link")
+	})
+
+	t.Run("fails with invalid token", func(t *testing.T) {
+		_, err := store.ResetPassword(ctx, "this-is-a-fake-token", "some-password")
+		require.Error(t, err, "ResetPassword should fail with a fake token")
+	})
 }

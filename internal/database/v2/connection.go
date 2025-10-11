@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/rand"
 	"net/url"
 	"strings"
 	"sync"
@@ -64,7 +65,7 @@ func (c *Connection) WithConnection(ctx context.Context, fn func(*surrealdb.DB) 
 
 	// If we get here, the operation failed due to a likely connection issue.
 	// Attempt to reconnect and retry the operation once.
-	slog.WarnContext(ctx, "Database operation failed, attempting to reconnect...", "error", err, "db_url", c.cfg.GetDBUrl())
+	slog.WarnContext(ctx, "Database operation failed, attempting to reconnect...", "event", "db_reconnect_triggered", "version", "1.0", "error", err, "db_url", redactDBURL(c.cfg.GetDBUrl()))
 	if reconnectErr := c.forceReconnect(ctx); reconnectErr != nil {
 		return fmt.Errorf("reconnection failed: %w (original error: %v)", reconnectErr, err)
 	}
@@ -119,10 +120,12 @@ func (c *Connection) reconnect(ctx context.Context) error {
 		c.conn.Close(ctx)
 	}
 
+	slog.DebugContext(ctx, "Attempting to connect to database", "event", "db_connect_attempt", "version", "1.0", "db_url", redactDBURL(c.cfg.GetDBUrl()))
+
 	// Create new connection
 	conn, err := surrealdb.FromEndpointURLString(ctx, c.cfg.GetDBUrl())
 	if err != nil {
-		slog.ErrorContext(ctx, "failed to connect to database",
+		slog.ErrorContext(ctx, "Failed to create database connection", "event", "db_connect_failure", "version", "1.0",
 			"db_url", redactDBURL(c.cfg.GetDBUrl()),
 			"error", err,
 		)
@@ -138,6 +141,11 @@ func (c *Connection) reconnect(ctx context.Context) error {
 
 	if _, err = conn.SignIn(ctx, authData); err != nil {
 		conn.Close(ctx)
+		slog.ErrorContext(ctx, "Failed to sign in to database", "event", "db_auth_failure", "version", "1.0",
+			"db_url", redactDBURL(c.cfg.GetDBUrl()),
+			"user", c.cfg.GetDBUser(),
+			"error", err,
+		)
 		c.healthy = false
 		return fmt.Errorf("failed to sign in: %w", err)
 	}
@@ -145,6 +153,12 @@ func (c *Connection) reconnect(ctx context.Context) error {
 	// Select namespace/database
 	if err = conn.Use(ctx, c.cfg.GetDBNs(), c.cfg.GetDBDb()); err != nil {
 		conn.Close(ctx)
+		slog.ErrorContext(ctx, "Failed to use namespace/database", "event", "db_namespace_failure", "version", "1.0",
+			"db_url", redactDBURL(c.cfg.GetDBUrl()),
+			"namespace", c.cfg.GetDBNs(),
+			"database", c.cfg.GetDBDb(),
+			"error", err,
+		)
 		c.healthy = false
 		return fmt.Errorf("failed to use namespace/db: %w", err)
 	}
@@ -152,7 +166,7 @@ func (c *Connection) reconnect(ctx context.Context) error {
 	// Update connection and health status
 	c.conn = conn
 	c.healthy = true
-	slog.InfoContext(ctx, "database connection established",
+	slog.DebugContext(ctx, "Database connection established", "event", "db_connect_success", "version", "1.0",
 		"db_url", redactDBURL(c.cfg.GetDBUrl()),
 		"namespace", c.cfg.GetDBNs(),
 		"database", c.cfg.GetDBDb(),
@@ -174,10 +188,10 @@ func (c *Connection) monitorConnection() {
 		select {
 		case <-ticker.C:
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			if err := c.checkHealth(ctx); err != nil { // Pass the timed context
-				slog.WarnContext(ctx, "Database health check failed, reconnecting...", "error", err, "db_url", c.cfg.GetDBUrl())
-				if reconnectErr := c.forceReconnect(ctx); reconnectErr != nil { // Reuse the same timed context
-					slog.ErrorContext(ctx, "Failed to reconnect to database", "error", reconnectErr, "db_url", c.cfg.GetDBUrl())
+			if err := c.checkHealth(ctx); err != nil {
+				slog.WarnContext(ctx, "Database health check failed, reconnecting...", "event", "db_health_check_failure", "version", "1.0", "error", err, "db_url", redactDBURL(c.cfg.GetDBUrl()))
+				if reconnectErr := c.forceReconnect(ctx); reconnectErr != nil {
+					slog.ErrorContext(ctx, "Failed to reconnect to database after health check failure", "event", "db_reconnect_failure", "version", "1.0", "error", reconnectErr, "db_url", redactDBURL(c.cfg.GetDBUrl()))
 				}
 			}
 			cancel()
@@ -200,9 +214,13 @@ func (c *Connection) checkHealth(ctx context.Context) error {
 	// The Version method performs a lightweight check on the connection by asking the server for its version.
 	if _, err := conn.Version(ctx); err != nil {
 		c.healthy = false
-		return fmt.Errorf("database health check failed for %s: %w", c.cfg.GetDBUrl(), err)
+		return fmt.Errorf("database health check failed for %s: %w", redactDBURL(c.cfg.GetDBUrl()), err)
 	}
 
+	// Sample successful health checks to reduce log volume in production.
+	if rand.Float32() < 0.1 { // Log only 10% of successful health checks.
+		slog.DebugContext(ctx, "Database health check successful", "event", "db_health_check_success", "version", "1.0", "db_url", redactDBURL(c.cfg.GetDBUrl()))
+	}
 	c.healthy = true
 	return nil
 }

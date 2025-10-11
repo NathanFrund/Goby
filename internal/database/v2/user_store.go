@@ -82,52 +82,50 @@ func (s *UserStore) GetUserWithPassword(ctx context.Context, email string) (*dom
 
 // --- Authentication Methods ---
 
-// SignUp uses the underlying SurrealDB driver's built-in method for user registration.
+// SignUp registers a new user atomically. It checks for an existing user and
+// creates a new one with a hashed password in a single query.
 func (s *UserStore) SignUp(ctx context.Context, user *domain.User, password string) (string, error) {
 	db, err := s.client.DB()
 	if err != nil {
 		return "", fmt.Errorf("could not get database connection for sign up: %w", err)
 	}
 
-	// The data format must match what the surrealdb.go driver expects for SignUp.
-	data := map[string]interface{}{
-		"ns":       s.ns,      // lowercase 'ns' to match JS SDK
-		"db":       s.dbName,  // lowercase 'db' to match JS SDK
-		"ac":       "account", // access control namespace
+	// Use the driver's built-in SignUp method. It handles the scope-based user creation.
+	// The returned token is discarded here; signing in is a separate, explicit step.
+	// Format matches the JavaScript SDK's implementation
+	_, err = db.SignUp(ctx, map[string]interface{}{
+		"ns":       s.ns,
+		"db":       s.dbName,
+		"ac":       "account", // 'ac' for access control, as expected by the driver
 		"email":    user.Email,
 		"password": password,
+	})
+
+	if err != nil {
+		// The driver returns a generic "signup query failed" error for duplicates.
+		// We also check for the older messages for backward compatibility.
+		if strings.Contains(err.Error(), "signup query failed") || strings.Contains(err.Error(), "already exists") || strings.Contains(err.Error(), "record with the ID") {
+			return "", domain.ErrUserAlreadyExists
+		}
+		return "", fmt.Errorf("failed to sign up user: %w", err)
 	}
 
-	token, signUpErr := db.SignUp(ctx, data)
-	if signUpErr != nil && (strings.Contains(signUpErr.Error(), "already exists") || strings.Contains(signUpErr.Error(), "signup query failed")) {
-		return "", domain.ErrUserAlreadyExists
-	}
-	if signUpErr != nil {
-		return "", err
-	}
-
-	// After a successful sign-up, the user object is not populated with the ID.
-	// We need to fetch the user to get the ID for further operations.
-	createdUser, findErr := s.FindUserByEmail(ctx, user.Email)
-	if findErr != nil {
-		return "", fmt.Errorf("failed to fetch user after sign-up: %w", findErr)
-	}
-	user.ID = createdUser.ID // Populate the ID on the original user object.
-
-	return token, nil
+	// After successful creation, sign the user in to get a session token.
+	return s.SignIn(ctx, user, password)
 }
 
-// SignIn uses the underlying SurrealDB driver's built-in method for user authentication.
+// SignIn validates user credentials and returns a session token.
 func (s *UserStore) SignIn(ctx context.Context, user *domain.User, password string) (string, error) {
 	db, err := s.client.DB()
 	if err != nil {
 		return "", fmt.Errorf("could not get database connection for sign in: %w", err)
 	}
 
+	// Use the driver's built-in SignIn method, which is the most reliable way.
 	data := map[string]interface{}{
-		"ns":       s.ns,      // lowercase 'ns' to match JS SDK
-		"db":       s.dbName,  // lowercase 'db' to match JS SDK
-		"ac":       "account", // access control namespace
+		"ns":       s.ns,
+		"db":       s.dbName,
+		"ac":       "account", // 'ac' for access control, as expected by the driver
 		"email":    user.Email,
 		"password": password,
 	}
@@ -141,20 +139,14 @@ func (s *UserStore) Authenticate(ctx context.Context, token string) (*domain.Use
 	if err != nil {
 		return nil, fmt.Errorf("could not get database connection for authentication: %w", err)
 	}
+
+	// Use the driver's Authenticate method to validate the token and set the session.
 	if err := db.Authenticate(ctx, token); err != nil {
 		return nil, domain.ErrInvalidCredentials
 	}
 
-	// After successful authentication, get the current user's information.
-	user, err := s.client.QueryOne(ctx, "SELECT * FROM $auth", nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get authenticated user: %w", err)
-	}
-	if user == nil {
-		return nil, NewDBError(ErrNotFound, "no authenticated user found")
-	}
-
-	return user, nil
+	// After successful authentication, get the current user's information from $auth.
+	return s.client.QueryOne(ctx, "SELECT * FROM $auth", nil)
 }
 
 // --- Password Reset Methods ---
@@ -197,7 +189,7 @@ func (s *UserStore) ResetPassword(ctx context.Context, token, newPassword string
 			password = crypto::argon2::generate($password),
 			resetToken = NONE,
 			resetTokenExpires = NONE
-		WHERE resetToken = $target_token AND type::datetime(resetTokenExpires) > time::now()
+		WHERE resetToken = $target_token AND type::datetime(resetTokenExpires) > time::now() RETURN AFTER
 	`
 	params := map[string]any{
 		"target_token": token,
