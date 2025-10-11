@@ -63,7 +63,7 @@ func (c *Connection) WithConnection(ctx context.Context, fn func(*surrealdb.DB) 
 
 	// If we get here, the operation failed due to a likely connection issue.
 	// Attempt to reconnect and retry the operation once.
-	slog.WarnContext(ctx, "Database operation failed, attempting to reconnect...", "error", err)
+	slog.WarnContext(ctx, "Database operation failed, attempting to reconnect...", "error", err, "db_url", c.cfg.GetDBUrl())
 	if reconnectErr := c.forceReconnect(ctx); reconnectErr != nil {
 		return fmt.Errorf("reconnection failed: %w (original error: %v)", reconnectErr, err)
 	}
@@ -147,7 +147,7 @@ func (c *Connection) reconnect(ctx context.Context) error {
 	// Update connection and health status
 	c.conn = conn
 	c.healthy = true
-	slog.InfoContext(ctx, "Successfully connected to database")
+	slog.InfoContext(ctx, "Successfully connected to database", "db_url", c.cfg.GetDBUrl())
 	return nil
 }
 
@@ -166,9 +166,9 @@ func (c *Connection) monitorConnection() {
 		case <-ticker.C:
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			if err := c.checkHealth(ctx); err != nil {
-				slog.WarnContext(ctx, "Database health check failed, reconnecting...", "error", err)
+				slog.WarnContext(ctx, "Database health check failed, reconnecting...", "error", err, "db_url", c.cfg.GetDBUrl())
 				if reconnectErr := c.forceReconnect(context.Background()); reconnectErr != nil {
-					slog.ErrorContext(ctx, "Failed to reconnect to database", "error", reconnectErr)
+					slog.ErrorContext(ctx, "Failed to reconnect to database", "error", reconnectErr, "db_url", c.cfg.GetDBUrl())
 				}
 			}
 			cancel()
