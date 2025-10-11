@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 )
 
 // ModuleConfigLoader is a function that loads configuration for a specific module.
@@ -14,7 +15,7 @@ type ModuleConfigLoader func() interface{}
 var (
 	moduleConfigLoaders = make(map[string]ModuleConfigLoader)
 	_                   = make(map[string]interface{}) // moduleConfigs is used in Config struct
-	configMutex        sync.RWMutex
+	configMutex         sync.RWMutex
 )
 
 // RegisterModuleConfig registers a configuration loader for a module.
@@ -39,6 +40,8 @@ type Provider interface {
 	GetEmailSender() string
 	GetAppBaseURL() string
 	GetSessionSecret() string
+	GetDBQueryTimeout() time.Duration
+	GetDBExecuteTimeout() time.Duration
 	// GetModuleConfig retrieves the configuration for a specific module.
 	// Returns the config and a boolean indicating if it was found.
 	GetModuleConfig(moduleName string) (interface{}, bool)
@@ -46,42 +49,56 @@ type Provider interface {
 
 // Config holds all configuration for the application.
 type Config struct {
-	ServerAddr    string
-	DBUrl         string
-	DBNs          string
-	DBDb          string
-	DBUser        string
-	DBPass        string
-	EmailProvider string
-	EmailAPIKey   string
-	EmailSender   string
-	AppBaseURL    string
-	SessionSecret string
+	ServerAddr       string
+	DBUrl            string
+	DBNs             string
+	DBDb             string
+	DBUser           string
+	DBPass           string
+	DBQueryTimeout   time.Duration
+	DBExecuteTimeout time.Duration
+	EmailProvider    string
+	EmailAPIKey      string
+	EmailSender      string
+	AppBaseURL       string
+	SessionSecret    string
 	// ModuleConfigs holds configuration for registered modules.
 	moduleConfigs map[string]interface{}
 }
 
 // New loads configuration from environment variables.
 func New() Provider {
+	queryTimeout, err := time.ParseDuration(os.Getenv("DB_QUERY_TIMEOUT"))
+	if err != nil {
+		queryTimeout = 5 * time.Second // Default value
+	}
+
+	executeTimeout, err := time.ParseDuration(os.Getenv("DB_EXECUTE_TIMEOUT"))
+	if err != nil {
+		executeTimeout = 10 * time.Second // Default value
+	}
+
 	cfg := &Config{
-		ServerAddr:    os.Getenv("SERVER_ADDR"),
-		DBUrl:         os.Getenv("SURREAL_URL"),
-		DBUser:        os.Getenv("SURREAL_USER"),
-		DBPass:        os.Getenv("SURREAL_PASS"),
-		DBNs:          os.Getenv("SURREAL_NS"),
-		DBDb:          os.Getenv("SURREAL_DB"),
-		EmailProvider: os.Getenv("EMAIL_PROVIDER"),
-		EmailAPIKey:   os.Getenv("EMAIL_API_KEY"),
-		EmailSender:   os.Getenv("EMAIL_SENDER"),
-		AppBaseURL:    os.Getenv("APP_BASE_URL"),
-		SessionSecret: os.Getenv("SESSION_SECRET"),
-		moduleConfigs: make(map[string]interface{}),
+		ServerAddr:       os.Getenv("SERVER_ADDR"),
+		DBUrl:            os.Getenv("SURREAL_URL"),
+		DBUser:           os.Getenv("SURREAL_USER"),
+		DBPass:           os.Getenv("SURREAL_PASS"),
+		DBNs:             os.Getenv("SURREAL_NS"),
+		DBDb:             os.Getenv("SURREAL_DB"),
+		DBQueryTimeout:   queryTimeout,
+		DBExecuteTimeout: executeTimeout,
+		EmailProvider:    os.Getenv("EMAIL_PROVIDER"),
+		EmailAPIKey:      os.Getenv("EMAIL_API_KEY"),
+		EmailSender:      os.Getenv("EMAIL_SENDER"),
+		AppBaseURL:       os.Getenv("APP_BASE_URL"),
+		SessionSecret:    os.Getenv("SESSION_SECRET"),
+		moduleConfigs:    make(map[string]interface{}),
 	}
 
 	// Load all registered module configurations
 	configMutex.RLock()
 	defer configMutex.RUnlock()
-	
+
 	for moduleName, loader := range moduleConfigLoaders {
 		cfg.moduleConfigs[moduleName] = loader()
 	}
@@ -181,12 +198,22 @@ func (c *Config) GetSessionSecret() string {
 	return c.SessionSecret
 }
 
+// GetDBQueryTimeout returns the default timeout for database read queries.
+func (c *Config) GetDBQueryTimeout() time.Duration {
+	return c.DBQueryTimeout
+}
+
+// GetDBExecuteTimeout returns the default timeout for database write operations.
+func (c *Config) GetDBExecuteTimeout() time.Duration {
+	return c.DBExecuteTimeout
+}
+
 // GetModuleConfig retrieves the configuration for a specific module.
 // Returns the config and a boolean indicating if it was found.
 func (c *Config) GetModuleConfig(moduleName string) (interface{}, bool) {
 	configMutex.RLock()
 	defer configMutex.RUnlock()
-	
+
 	cfg, exists := c.moduleConfigs[moduleName]
 	return cfg, exists
 }
