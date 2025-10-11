@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -121,8 +122,12 @@ func (c *Connection) reconnect(ctx context.Context) error {
 	// Create new connection
 	conn, err := surrealdb.FromEndpointURLString(ctx, c.cfg.GetDBUrl())
 	if err != nil {
+		slog.ErrorContext(ctx, "failed to connect to database",
+			"db_url", redactDBURL(c.cfg.GetDBUrl()),
+			"error", err,
+		)
 		c.healthy = false
-		return fmt.Errorf("failed to connect to database: %w", err)
+		return fmt.Errorf("failed to connect to database at %s: %w", c.cfg.GetDBUrl(), err)
 	}
 
 	// Authenticate
@@ -147,7 +152,11 @@ func (c *Connection) reconnect(ctx context.Context) error {
 	// Update connection and health status
 	c.conn = conn
 	c.healthy = true
-	slog.InfoContext(ctx, "Successfully connected to database", "db_url", c.cfg.GetDBUrl())
+	slog.InfoContext(ctx, "database connection established",
+		"db_url", redactDBURL(c.cfg.GetDBUrl()),
+		"namespace", c.cfg.GetDBNs(),
+		"database", c.cfg.GetDBDb(),
+	)
 	return nil
 }
 
@@ -165,9 +174,9 @@ func (c *Connection) monitorConnection() {
 		select {
 		case <-ticker.C:
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			if err := c.checkHealth(ctx); err != nil {
+			if err := c.checkHealth(ctx); err != nil { // Pass the timed context
 				slog.WarnContext(ctx, "Database health check failed, reconnecting...", "error", err, "db_url", c.cfg.GetDBUrl())
-				if reconnectErr := c.forceReconnect(context.Background()); reconnectErr != nil {
+				if reconnectErr := c.forceReconnect(ctx); reconnectErr != nil { // Reuse the same timed context
 					slog.ErrorContext(ctx, "Failed to reconnect to database", "error", reconnectErr, "db_url", c.cfg.GetDBUrl())
 				}
 			}
@@ -191,7 +200,7 @@ func (c *Connection) checkHealth(ctx context.Context) error {
 	// The Version method performs a lightweight check on the connection by asking the server for its version.
 	if _, err := conn.Version(ctx); err != nil {
 		c.healthy = false
-		return fmt.Errorf("database health check failed: %w", err)
+		return fmt.Errorf("database health check failed for %s: %w", c.cfg.GetDBUrl(), err)
 	}
 
 	c.healthy = true
@@ -215,4 +224,16 @@ func isConnectionError(err error) bool {
 	return strings.Contains(errMsg, "connection refused") ||
 		strings.Contains(errMsg, "broken pipe") ||
 		strings.Contains(errMsg, "unexpected eof")
+}
+
+// redactDBURL parses a database URL and returns it with the password redacted.
+// This is a security best practice to avoid logging sensitive credentials.
+func redactDBURL(dbURL string) string {
+	parsedURL, err := url.Parse(dbURL)
+	if err != nil {
+		return "invalid-url" // Return a placeholder if the URL is malformed
+	}
+	// The `Redacted()` method on url.URL safely returns the URL string
+	// with the password replaced by "xxxxx".
+	return parsedURL.Redacted()
 }
