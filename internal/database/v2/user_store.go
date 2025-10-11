@@ -11,7 +11,6 @@ import (
 
 	"github.com/nfrund/goby/internal/config"
 	"github.com/nfrund/goby/internal/domain"
-	"github.com/surrealdb/surrealdb.go"
 )
 
 // UserStore implements the domain.UserRepository interface using the new
@@ -207,28 +206,6 @@ func (s *UserStore) ResetPassword(ctx context.Context, token, newPassword string
 	}
 
 	return user, nil
-}
-
-// WithTransaction is not yet implemented for the v2 client.
-// This is a placeholder to satisfy the interface.
-func (s *UserStore) WithTransaction(ctx context.Context, fn func(repo domain.UserRepository) error) error {
-	// Begin a new transaction from the main DB connection.
-	if _, err := surrealdb.Query[any](ctx, s.client.DB(), "BEGIN TRANSACTION;", nil); err != nil {
-		return fmt.Errorf("failed to begin transaction: %w", err)
-	}
-
-	// Execute the provided function.
-	if err := fn(s); err != nil {
-		// Rollback on error
-		if _, cancelErr := surrealdb.Query[any](ctx, s.client.DB(), "CANCEL TRANSACTION;", nil); cancelErr != nil {
-			return fmt.Errorf("failed to rollback transaction after error: %w (original error: %v)", cancelErr, err)
-		}
-		return err
-	}
-
-	// Commit the transaction if the function succeeds.
-	_, err := surrealdb.Query[any](ctx, s.client.DB(), "COMMIT TRANSACTION;", nil)
-	return err
 }
 
 // generateSecureToken creates a cryptographically secure random token.
