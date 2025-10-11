@@ -12,16 +12,8 @@ import (
 	"github.com/nfrund/goby/web/src/templates/pages"
 )
 
-// HomeHandler handles requests for the home page.
-type HomeHandler struct{}
-
-// NewHomeHandler creates a new HomeHandler.
-func NewHomeHandler() *HomeHandler {
-	return &HomeHandler{}
-}
-
-// HomeGet handles the GET request for the home page.
-func (h *HomeHandler) HomeGet(c echo.Context) error {
+// HomeGet is a handler function that renders the home page.
+func HomeGet(c echo.Context) error {
 	// Check if the user is authenticated by looking for the auth cookie.
 	cookie, err := c.Cookie("auth_token")
 	isAuthenticated := err == nil && cookie.Value != ""

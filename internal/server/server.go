@@ -16,7 +16,6 @@ import (
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/nfrund/goby/internal/config"
 	"github.com/nfrund/goby/internal/domain"
-	"github.com/nfrund/goby/internal/handlers"
 	appmiddleware "github.com/nfrund/goby/internal/middleware"
 	"github.com/nfrund/goby/internal/module"
 	"github.com/nfrund/goby/internal/pubsub"
@@ -34,13 +33,9 @@ type Server struct {
 	UserStore domain.UserRepository
 	Renderer  rendering.Renderer
 
-	homeHandler      *handlers.HomeHandler
-	authHandler      *handlers.AuthHandler
-	dashboardHandler *handlers.DashboardHandler
-	aboutHandler     *handlers.AboutHandler
-	modules          []module.Module
-	bridge           websocket.Bridge
-	PubSub           pubsub.Publisher
+	modules []module.Module
+	bridge  websocket.Bridge
+	PubSub  pubsub.Publisher
 }
 
 // Dependencies holds all the services that the Server requires to operate.
@@ -149,7 +144,8 @@ func New(deps Dependencies) (*Server, error) {
 	// Add our custom logger middleware to inject a request-scoped logger.
 	s.E.Use(appmiddleware.Logger)
 
-	s.initHandlers()
+	// Add security headers middleware for production hardening.
+	s.E.Use(middleware.Secure())
 
 	// Serve static files from disk or embedded FS based on APP_STATIC.
 	if os.Getenv("APP_STATIC") == "embed" {
@@ -198,14 +194,6 @@ func (s *Server) InitModules(ctx context.Context, modules []module.Module, reg *
 			slog.Error("Failed to boot module", "module", mod.Name(), "error", err)
 		}
 	}
-}
-
-// initHandlers initializes all handler structs using the Server's dependencies.
-func (s *Server) initHandlers() {
-	s.homeHandler = handlers.NewHomeHandler()
-	s.authHandler = handlers.NewAuthHandler(s.UserStore, s.Emailer, s.Cfg.GetAppBaseURL())
-	s.dashboardHandler = handlers.NewDashboardHandler()
-	s.aboutHandler = &handlers.AboutHandler{}
 }
 
 // Start runs the HTTP server with graceful shutdown.
