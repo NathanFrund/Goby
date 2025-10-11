@@ -46,7 +46,7 @@ type Client[T any] interface {
 	// DB returns the raw underlying database connection.
 	// Use this method sparingly, only when you need to perform operations
 	// not supported by the generic client interface.
-	DB() *surrealdb.DB
+	DB() (*surrealdb.DB, error)
 
 	// Close releases any resources associated with the client.
 	// Always call this when the client is no longer needed.

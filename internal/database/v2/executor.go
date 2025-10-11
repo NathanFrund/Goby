@@ -10,12 +10,12 @@ import (
 
 // surrealExecutor implements the QueryExecutor interface for SurrealDB
 type surrealExecutor[T any] struct {
-	db *surrealdb.DB
+	conn *Connection
 }
 
 // NewSurrealExecutor creates a new SurrealDB query executor
-func NewSurrealExecutor[T any](db *surrealdb.DB) QueryExecutor[T] {
-	return &surrealExecutor[T]{db: db}
+func NewSurrealExecutor[T any](conn *Connection) QueryExecutor[T] {
+	return &surrealExecutor[T]{conn: conn}
 }
 
 // Query executes a query and returns multiple results
@@ -31,19 +31,24 @@ func (e *surrealExecutor[T]) Query(ctx context.Context, query string, params map
 		"params", params,
 	)
 
-	// Execute the query with context using the package-level Query function
-	results, err := surrealdb.Query[[]T](ctx, e.db, query, params)
-	if err != nil {
-		return nil, NewDBError(err, "query execution failed")
-	}
+	var finalResults []T
+	err := e.conn.WithConnection(ctx, func(db *surrealdb.DB) error {
+		// Execute the query with context using the package-level Query function
+		results, err := surrealdb.Query[[]T](ctx, db, query, params)
+		if err != nil {
+			return NewDBError(err, "query execution failed")
+		}
 
-	// Check if we got any results
-	if results == nil || len(*results) == 0 {
-		return nil, nil // Return nil slice if no results
-	}
+		// Check if we got any results
+		if results == nil || len(*results) == 0 {
+			finalResults = nil // Ensure nil slice if no results
+			return nil
+		}
 
-	// Return the first result set
-	return (*results)[0].Result, nil
+		finalResults = (*results)[0].Result
+		return nil
+	})
+	return finalResults, err
 }
 
 // QueryOne executes a query and returns a single result
@@ -77,13 +82,14 @@ func (e *surrealExecutor[T]) Execute(ctx context.Context, query string, params m
 		"params", params,
 	)
 
-	// Execute the query using the package-level Query function
-	_, err := surrealdb.Query[any](ctx, e.db, query, params)
-	if err != nil {
-		return NewDBError(err, "query execution failed")
-	}
-
-	return nil
+	return e.conn.WithConnection(ctx, func(db *surrealdb.DB) error {
+		// Execute the query using the package-level Query function
+		_, err := surrealdb.Query[any](ctx, db, query, params)
+		if err != nil {
+			return NewDBError(err, "query execution failed")
+		}
+		return nil
+	})
 }
 
 // hasLimitClause checks if the query already has a LIMIT clause

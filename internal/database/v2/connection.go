@@ -1,0 +1,218 @@
+package v2
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/nfrund/goby/internal/config"
+	"github.com/surrealdb/surrealdb.go"
+)
+
+// Connection manages a SurrealDB connection with reconnection support
+type Connection struct {
+	cfg     config.Provider
+	conn    *surrealdb.DB
+	mu      sync.RWMutex
+	healthy bool
+	done    chan struct{}
+}
+
+// NewConnection creates a new managed database connection
+func NewConnection(cfg config.Provider) *Connection {
+	return &Connection{
+		cfg:  cfg,
+		done: make(chan struct{}),
+	}
+}
+
+// Connect establishes the initial database connection
+func (c *Connection) Connect(ctx context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.conn != nil {
+		return nil // Already connected
+	}
+
+	return c.reconnect(ctx)
+}
+
+// WithConnection executes a function with a database connection, handling reconnections
+func (c *Connection) WithConnection(ctx context.Context, fn func(*surrealdb.DB) error) error {
+	// Get the current connection
+	conn := c.getConnection()
+	if conn == nil {
+		return NewDBError(ErrNotConnected, "database not connected")
+	}
+
+	// Try the operation first
+	err := fn(conn)
+	if err == nil {
+		return nil
+	}
+
+	// If the error is not a connection-related issue, just return it immediately.
+	if !isConnectionError(err) {
+		return err
+	}
+
+	// If we get here, the operation failed due to a likely connection issue.
+	// Attempt to reconnect and retry the operation once.
+	slog.WarnContext(ctx, "Database operation failed, attempting to reconnect...", "error", err)
+	if reconnectErr := c.forceReconnect(ctx); reconnectErr != nil {
+		return fmt.Errorf("reconnection failed: %w (original error: %v)", reconnectErr, err)
+	}
+
+	return fn(c.getConnection())
+}
+
+// StartMonitoring begins health checks and automatic reconnection
+func (c *Connection) StartMonitoring() {
+	go c.monitorConnection()
+}
+
+// Close shuts down the connection and monitoring
+func (c *Connection) Close(ctx context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	close(c.done)
+	if c.conn != nil {
+		return c.conn.Close(ctx)
+	}
+	return nil
+}
+
+// DB returns the underlying database connection if it's healthy.
+// It returns an error if the connection is not available.
+func (c *Connection) DB() (*surrealdb.DB, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.conn == nil || !c.healthy {
+		return nil, NewDBError(ErrNotConnected, "database not connected or unhealthy")
+	}
+	return c.conn, nil
+}
+
+// IsHealthy returns the current connection status
+func (c *Connection) IsHealthy() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.healthy
+}
+
+func (c *Connection) getConnection() *surrealdb.DB {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.conn
+}
+
+func (c *Connection) reconnect(ctx context.Context) error {
+	// Close existing connection if any
+	if c.conn != nil {
+		c.conn.Close(ctx)
+	}
+
+	// Create new connection
+	conn, err := surrealdb.FromEndpointURLString(ctx, c.cfg.GetDBUrl())
+	if err != nil {
+		c.healthy = false
+		return fmt.Errorf("failed to connect to database: %w", err)
+	}
+
+	// Authenticate
+	authData := &surrealdb.Auth{
+		Username: c.cfg.GetDBUser(),
+		Password: c.cfg.GetDBPass(),
+	}
+
+	if _, err = conn.SignIn(ctx, authData); err != nil {
+		conn.Close(ctx)
+		c.healthy = false
+		return fmt.Errorf("failed to sign in: %w", err)
+	}
+
+	// Select namespace/database
+	if err = conn.Use(ctx, c.cfg.GetDBNs(), c.cfg.GetDBDb()); err != nil {
+		conn.Close(ctx)
+		c.healthy = false
+		return fmt.Errorf("failed to use namespace/db: %w", err)
+	}
+
+	// Update connection and health status
+	c.conn = conn
+	c.healthy = true
+	slog.InfoContext(ctx, "Successfully connected to database")
+	return nil
+}
+
+func (c *Connection) forceReconnect(ctx context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.reconnect(ctx)
+}
+
+func (c *Connection) monitorConnection() {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			if err := c.checkHealth(ctx); err != nil {
+				slog.WarnContext(ctx, "Database health check failed, reconnecting...", "error", err)
+				if reconnectErr := c.forceReconnect(context.Background()); reconnectErr != nil {
+					slog.ErrorContext(ctx, "Failed to reconnect to database", "error", reconnectErr)
+				}
+			}
+			cancel()
+		case <-c.done:
+			return
+		}
+	}
+}
+
+func (c *Connection) checkHealth(ctx context.Context) error {
+	c.mu.RLock()
+	conn := c.conn
+	c.mu.RUnlock()
+
+	if c.conn == nil {
+		c.healthy = false
+		return errors.New("no active database connection")
+	}
+
+	// The Version method performs a lightweight check on the connection by asking the server for its version.
+	if _, err := conn.Version(ctx); err != nil {
+		c.healthy = false
+		return fmt.Errorf("database health check failed: %w", err)
+	}
+
+	c.healthy = true
+	return nil
+}
+
+// isConnectionError checks if an error is likely due to a lost or failed connection.
+// This helps prevent unnecessary reconnection attempts for application-level errors.
+func isConnectionError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	// Check for context cancellation errors, which often wrap network issues.
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+
+	// Check for common network error substrings. This is not exhaustive but covers many cases.
+	errMsg := strings.ToLower(err.Error())
+	return strings.Contains(errMsg, "connection refused") ||
+		strings.Contains(errMsg, "broken pipe") ||
+		strings.Contains(errMsg, "unexpected eof")
+}

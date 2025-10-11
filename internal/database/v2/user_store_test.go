@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/nfrund/goby/internal/database"
 	"github.com/nfrund/goby/internal/domain"
 	"github.com/nfrund/goby/internal/testutils"
 	"github.com/stretchr/testify/assert"
@@ -24,21 +23,23 @@ type TestUser struct {
 // and returns a fully initialized UserStore along with a cleanup function.
 func setupUserStoreTest(t *testing.T) (*UserStore, Client[TestUser], func()) {
 	cfg := testutils.ConfigForTests(t)
-	db, err := database.NewDB(context.Background(), cfg)
-	require.NoError(t, err, "Failed to connect to test database")
+	conn := NewConnection(cfg)
+	err := conn.Connect(context.Background())
+	require.NoError(t, err, "Failed to connect to test database with new connection manager")
+	conn.StartMonitoring()
 
 	// Client for the UserStore, typed to the domain model.
-	domainClient, err := NewClient[domain.User](db, cfg)
+	domainClient, err := NewClient[domain.User](conn, cfg)
 	require.NoError(t, err)
 
 	// Client for the test functions, typed to the test model to handle the password field.
-	testClient, err := NewClient[TestUser](db, cfg)
+	testClient, err := NewClient[TestUser](conn, cfg)
 	require.NoError(t, err)
 
 	store := NewUserStore(domainClient, cfg).(*UserStore)
 
 	cleanup := func() {
-		db.Close(context.Background())
+		conn.Close(context.Background())
 	}
 	return store, testClient, cleanup
 }

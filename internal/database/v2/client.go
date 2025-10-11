@@ -10,16 +10,16 @@ import (
 )
 
 type client[T any] struct {
-	db             *surrealdb.DB
+	conn           *Connection
 	executor       QueryExecutor[T]
 	queryTimeout   time.Duration
 	executeTimeout time.Duration
 }
 
 // NewClient creates a new type-safe database client
-func NewClient[T any](db *surrealdb.DB, cfg config.Provider, opts ...ClientOption[T]) (Client[T], error) {
-	if db == nil {
-		return nil, NewDBError(ErrInvalidInput, "db cannot be nil")
+func NewClient[T any](conn *Connection, cfg config.Provider, opts ...ClientOption[T]) (Client[T], error) {
+	if conn == nil {
+		return nil, NewDBError(ErrInvalidInput, "connection cannot be nil")
 	}
 	if cfg == nil {
 		return nil, NewDBError(ErrInvalidInput, "config provider cannot be nil")
@@ -36,8 +36,8 @@ func NewClient[T any](db *surrealdb.DB, cfg config.Provider, opts ...ClientOptio
 	}
 
 	c := &client[T]{
-		db:             db,
-		executor:       NewSurrealExecutor[T](db),
+		conn:           conn,
+		executor:       NewSurrealExecutor[T](conn),
 		queryTimeout:   cfg.GetDBQueryTimeout(),
 		executeTimeout: cfg.GetDBExecuteTimeout(),
 	}
@@ -72,8 +72,8 @@ func (c *client[T]) Execute(ctx context.Context, query string, params map[string
 }
 
 // DB implements the Client interface
-func (c *client[T]) DB() *surrealdb.DB {
-	return c.db
+func (c *client[T]) DB() (*surrealdb.DB, error) {
+	return c.conn.DB()
 }
 
 // Create implements the Client interface
@@ -158,5 +158,9 @@ func (c *client[T]) Delete(ctx context.Context, id string) error {
 
 // Close implements the Client interface
 func (c *client[T]) Close() error {
-	return c.db.Close(context.Background())
+	// The connection manager owns the close logic
+	if c.conn != nil {
+		return c.conn.Close(context.Background())
+	}
+	return nil
 }

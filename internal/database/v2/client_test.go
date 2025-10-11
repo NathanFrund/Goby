@@ -7,26 +7,27 @@ import (
 	"time"
 
 	"github.com/nfrund/goby/internal/config"
-	"github.com/nfrund/goby/internal/database"
 	"github.com/nfrund/goby/internal/domain"
 	"github.com/nfrund/goby/internal/testutils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/surrealdb/surrealdb.go"
 )
 
 // setupTestDB is a test helper that creates a connection to the test database
 // and returns the connection along with a cleanup function.
-func setupTestDB(t *testing.T) (*surrealdb.DB, config.Provider, func()) {
+func setupTestDB(t *testing.T) (*Connection, config.Provider, func()) {
 	cfg := testutils.ConfigForTests(t)
-	// Use the existing, authoritative NewDB function to set up the connection.
-	// This avoids manually handling config values and ensures consistency.
-	db, err := database.NewDB(context.Background(), cfg)
-	require.NoError(t, err, "Failed to connect to test database")
+
+	// Use the new Connection manager for tests
+	conn := NewConnection(cfg)
+	err := conn.Connect(context.Background())
+	require.NoError(t, err, "Failed to connect to test database with new connection manager")
+	conn.StartMonitoring()
+
 	cleanup := func() {
-		db.Close(context.Background())
+		conn.Close(context.Background())
 	}
-	return db, cfg, cleanup
+	return conn, cfg, cleanup
 }
 
 func TestClient(t *testing.T) {
@@ -37,10 +38,10 @@ func TestClient(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	db, cfg, cleanup := setupTestDB(t)
+	conn, cfg, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	client, err := NewClient[TestUser](db, cfg)
+	client, err := NewClient[TestUser](conn, cfg)
 	require.NoError(t, err)
 
 	t.Run("Create and Select", func(t *testing.T) {
@@ -170,11 +171,11 @@ func TestClient_Timeouts(t *testing.T) {
 		t.Skip("skipping integration test in short mode")
 	}
 
-	db, cfg, cleanup := setupTestDB(t)
+	conn, cfg, cleanup := setupTestDB(t)
 	defer cleanup()
 
 	// Use a generic client for this test
-	client, err := NewClient[any](db, cfg)
+	client, err := NewClient[any](conn, cfg)
 	require.NoError(t, err)
 
 	// Retrieve the configured execution timeout to use as the test boundary.

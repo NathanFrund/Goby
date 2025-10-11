@@ -24,6 +24,9 @@ var (
 
 	// ErrMultipleResults is returned when a query that expects a single result returns multiple.
 	ErrMultipleResults = errors.New("multiple results found when one was expected")
+
+	// ErrNotConnected is returned when a database operation is attempted before a connection is established.
+	ErrNotConnected = errors.New("database not connected")
 )
 
 // DBError represents a database error with additional context.

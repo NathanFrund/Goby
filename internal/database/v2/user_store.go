@@ -84,7 +84,10 @@ func (s *UserStore) GetUserWithPassword(ctx context.Context, email string) (*dom
 
 // SignUp uses the underlying SurrealDB driver's built-in method for user registration.
 func (s *UserStore) SignUp(ctx context.Context, user *domain.User, password string) (string, error) {
-	db := s.client.DB()
+	db, err := s.client.DB()
+	if err != nil {
+		return "", fmt.Errorf("could not get database connection for sign up: %w", err)
+	}
 
 	// The data format must match what the surrealdb.go driver expects for SignUp.
 	data := map[string]interface{}{
@@ -95,11 +98,11 @@ func (s *UserStore) SignUp(ctx context.Context, user *domain.User, password stri
 		"password": password,
 	}
 
-	token, err := db.SignUp(ctx, data)
-	if err != nil && (strings.Contains(err.Error(), "already exists") || strings.Contains(err.Error(), "signup query failed")) {
+	token, signUpErr := db.SignUp(ctx, data)
+	if signUpErr != nil && (strings.Contains(signUpErr.Error(), "already exists") || strings.Contains(signUpErr.Error(), "signup query failed")) {
 		return "", domain.ErrUserAlreadyExists
 	}
-	if err != nil {
+	if signUpErr != nil {
 		return "", err
 	}
 
@@ -111,12 +114,15 @@ func (s *UserStore) SignUp(ctx context.Context, user *domain.User, password stri
 	}
 	user.ID = createdUser.ID // Populate the ID on the original user object.
 
-	return token, err
+	return token, nil
 }
 
 // SignIn uses the underlying SurrealDB driver's built-in method for user authentication.
 func (s *UserStore) SignIn(ctx context.Context, user *domain.User, password string) (string, error) {
-	db := s.client.DB()
+	db, err := s.client.DB()
+	if err != nil {
+		return "", fmt.Errorf("could not get database connection for sign in: %w", err)
+	}
 
 	data := map[string]interface{}{
 		"ns":       s.ns,      // lowercase 'ns' to match JS SDK
@@ -131,7 +137,10 @@ func (s *UserStore) SignIn(ctx context.Context, user *domain.User, password stri
 
 // Authenticate validates a session token and returns the associated user.
 func (s *UserStore) Authenticate(ctx context.Context, token string) (*domain.User, error) {
-	db := s.client.DB()
+	db, err := s.client.DB()
+	if err != nil {
+		return nil, fmt.Errorf("could not get database connection for authentication: %w", err)
+	}
 	if err := db.Authenticate(ctx, token); err != nil {
 		return nil, domain.ErrInvalidCredentials
 	}
