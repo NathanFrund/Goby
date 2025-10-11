@@ -12,7 +12,6 @@ import (
 	"github.com/gorilla/sessions"
 	"github.com/labstack/echo-contrib/session"
 	"github.com/labstack/echo/v4"
-	"github.com/nfrund/goby/internal/config"
 	"github.com/nfrund/goby/internal/domain"
 	"github.com/nfrund/goby/internal/email"
 	"github.com/nfrund/goby/internal/handlers"
@@ -22,6 +21,9 @@ import (
 )
 
 const testSessionSecret = "a-very-secret-key-for-testing-!"
+
+// Create a single session store to be used by all tests in this file.
+var testCookieStore = sessions.NewCookieStore([]byte(testSessionSecret))
 
 // MockUserStore provides a mock implementation of the UserStore for testing.
 type MockUserStore struct {
@@ -44,15 +46,13 @@ func (m *MockUserStore) SignIn(ctx context.Context, user *domain.User, password 
 }
 
 func (m *MockUserStore) GenerateResetToken(ctx context.Context, email string) (string, error) {
-	return "reset-token", nil
+	return "test-reset-token", nil
 }
 
 func (m *MockUserStore) ResetPassword(ctx context.Context, token, password string) (*domain.User, error) {
 	// Create a valid RecordID for the mock user.
 	// In a real scenario, this would come from the database.
-	parts := strings.Split("user:1", ":")
-	table, id := parts[0], parts[1]
-	recordID := surrealmodels.NewRecordID(table, id)
+	recordID := surrealmodels.NewRecordID("user", "1")
 
 	return &domain.User{ID: &recordID, Email: "test@example.com"}, nil
 }
@@ -60,13 +60,15 @@ func (m *MockUserStore) ResetPassword(ctx context.Context, token, password strin
 func (m *MockUserStore) Authenticate(ctx context.Context, token string) (*domain.User, error) {
 	// In a real mock, you might check the token and return different users.
 	// For this test, a simple successful authentication is sufficient.
-	return &domain.User{Email: "test@example.com"}, nil
+	recordID := surrealmodels.NewRecordID("user", "1")
+	return &domain.User{ID: &recordID, Email: "test@example.com"}, nil
 }
 
 func (m *MockUserStore) FindUserByEmail(ctx context.Context, email string) (*domain.User, error) {
 	// This mock can assume the user is found for handler tests.
 	// Error cases can be tested at the store level.
-	return &domain.User{Email: email}, nil
+	recordID := surrealmodels.NewRecordID("user", "1")
+	return &domain.User{ID: &recordID, Email: email}, nil
 }
 
 func (m *MockUserStore) WithTransaction(ctx context.Context, fn func(repo domain.UserRepository) error) error {
@@ -79,43 +81,34 @@ func (m *MockUserStore) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
-// mockConfigProvider is a simple mock for the config.Provider interface.
-type mockConfigProvider struct {
-	config.Provider
-	baseURL string
+// setupAuthTest creates an AuthHandler for testing.
+func setupAuthTest(store domain.UserRepository) *handlers.AuthHandler {
+	// For unit tests, it's better to create the mock emailer directly.
+	mockEmailer := &email.LogSender{}
+	authHandler := handlers.NewAuthHandler(store, mockEmailer, "http://test.local")
+	return authHandler
 }
 
-func (m *mockConfigProvider) GetAppBaseURL() string { return m.baseURL }
-
-func setupAuthTest(store domain.UserRepository) (*echo.Echo, *handlers.AuthHandler) {
+// newTestContext creates a minimal echo.Context for unit testing handlers.
+// It includes an initialized session, which is required by handlers that use flash messages.
+func newTestContext(req *http.Request) (echo.Context, *httptest.ResponseRecorder) {
 	e := echo.New()
-	// Use a mock config provider for tests, though it's not strictly needed here.
-	mockCfg := &mockConfigProvider{baseURL: "http://localhost:8080"}
-	// For unit tests, it's better to create the mock emailer directly
-	// instead of relying on the factory and a real config struct.
-	mockEmailer := &email.LogSender{}
-	// The handler now correctly depends only on interfaces and primitives.
-	authHandler := handlers.NewAuthHandler(store, mockEmailer, mockCfg.GetAppBaseURL())
-
-	// Setup session middleware
-	cookieStore := sessions.NewCookieStore([]byte(testSessionSecret))
-	e.Use(session.Middleware(cookieStore))
-
-	return e, authHandler
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	// Manually apply session middleware to the context for this unit test.
+	// This ensures `session.Get` will work inside the handler.
+	_ = session.Middleware(testCookieStore)(func(c echo.Context) error { return nil })(c)
+	return c, rec
 }
 
 // assertFlashMessage is a test helper to check for a specific flash message in the session.
-func assertFlashMessage(t *testing.T, req *http.Request, key, expectedMessage string) {
+func assertFlashMessage(t *testing.T, c echo.Context, key, expectedMessage string) {
 	t.Helper() // Marks this function as a test helper.
-
-	// To check the session, we need to read the cookie set in the response.
-	// We can then use the session store to decode it.
-	cookieStore := sessions.NewCookieStore([]byte(testSessionSecret))
-	sess, _ := cookieStore.Get(req, "flash-session")
-
+	sess, err := session.Get("flash-session", c)
+	require.NoError(t, err, "Failed to get session from context")
 	flashes := sess.Flashes(key)
 	assert.NotEmpty(t, flashes, "expected flash message but found none for key: %s", key)
-	assert.Equal(t, expectedMessage, flashes[0])
+	assert.Equal(t, expectedMessage, flashes[0].(string))
 }
 
 // --- Pure Unit Tests ---
@@ -152,19 +145,6 @@ func (m *unitTestUserRepo) GenerateResetToken(ctx context.Context, email string)
 	return "unit-test-token", nil
 }
 
-// newUnitTextContext creates a minimal echo.Context for unit testing handlers.
-// It includes an initialized session, which is required by handlers that use flash messages.
-func newUnitTextContext(req *http.Request) (echo.Context, *httptest.ResponseRecorder) {
-	e := echo.New()
-	rec := httptest.NewRecorder()
-	c := e.NewContext(req, rec)
-
-	// Manually apply session middleware to the context for this unit test.
-	// This ensures `session.Get` will work inside the handler.
-	_ = session.Middleware(sessions.NewCookieStore([]byte(testSessionSecret)))(func(c echo.Context) error { return nil })(c)
-	return c, rec
-}
-
 func TestAuthHandler_ForgotPasswordPost_Unit(t *testing.T) {
 	// 1. Setup: Create mocks and instantiate the handler directly.
 	mockRepo := &unitTestUserRepo{}
@@ -176,10 +156,10 @@ func TestAuthHandler_ForgotPasswordPost_Unit(t *testing.T) {
 	form.Set("email", "user@example.com")
 	req := httptest.NewRequest(http.MethodPost, "/auth/forgot-password", strings.NewReader(form.Encode()))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
-	c, rec := newUnitTextContext(req)
+	c, rec := newTestContext(req) // Use the test helper for consistency
 
-	// 3. Act: Call the handler method directly.
-	err := authHandler.ForgotPasswordPost(c)
+	// 3. Act: Call the handler method directly, wrapped in the session middleware.
+	err := session.Middleware(testCookieStore)(authHandler.ForgotPasswordPost)(c)
 
 	// 4. Assert: Verify the behavior.
 	require.NoError(t, err)
@@ -193,25 +173,27 @@ func TestAuthHandler_ForgotPasswordPost_Unit(t *testing.T) {
 
 func TestRegisterPost_FlashMessages(t *testing.T) {
 	// Use the setup helper with a standard, non-erroring mock store.
-	e, authHandler := setupAuthTest(&MockUserStore{})
-	e.POST("/auth/register", authHandler.RegisterPost)
+	authHandler := setupAuthTest(&MockUserStore{})
 
 	t.Run("sets success flash on successful registration", func(t *testing.T) {
 		form := url.Values{}
 		form.Set("email", "test@example.com")
 		form.Set("password", "password123")
 		form.Set("password_confirm", "password123")
-
 		req := httptest.NewRequest(http.MethodPost, "/auth/register", strings.NewReader(form.Encode()))
 		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
-		rec := httptest.NewRecorder()
-		e.ServeHTTP(rec, req)
+		c, rec := newTestContext(req)
+
+		// Wrap the handler call in the session middleware. The middleware will handle
+		// the redirect error, so we expect a nil error from the middleware itself.
+		err := session.Middleware(testCookieStore)(authHandler.RegisterPost)(c)
+		require.NoError(t, err, "session middleware should handle the redirect and not return an error")
 
 		// Check for redirect
 		assert.Equal(t, http.StatusSeeOther, rec.Code)
 
 		// Check session for flash message
-		assertFlashMessage(t, req, "success", "Account created successfully!")
+		assertFlashMessage(t, c, "flash_success", "Account created successfully!")
 	})
 
 	t.Run("sets error flash on password mismatch", func(t *testing.T) {
@@ -219,37 +201,37 @@ func TestRegisterPost_FlashMessages(t *testing.T) {
 		form.Set("email", "test2@example.com")
 		form.Set("password", "password123")
 		form.Set("password_confirm", "wrongpassword")
-
 		req := httptest.NewRequest(http.MethodPost, "/auth/register", strings.NewReader(form.Encode()))
 		req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
-		rec := httptest.NewRecorder()
-		e.ServeHTTP(rec, req)
+		c, rec := newTestContext(req)
+
+		err := session.Middleware(testCookieStore)(authHandler.RegisterPost)(c)
+		require.NoError(t, err, "session middleware should handle the redirect and not return an error")
 
 		// Check for redirect
 		assert.Equal(t, http.StatusSeeOther, rec.Code)
 
 		// Check session for flash message
-		assertFlashMessage(t, req, "error", "Passwords do not match.")
+		assertFlashMessage(t, c, "flash_error", "Passwords do not match.")
 	})
 }
 
 func TestLoginPost_RepopulatesEmailOnError(t *testing.T) {
 	// Create a mock store configured to return an error on SignIn
 	mockStore := &MockUserStore{SignInShouldError: true}
-	// Use the setup helper, passing in our configured mock store.
-	e, authHandler := setupAuthTest(mockStore)
-	e.POST("/auth/login", authHandler.LoginPost)
+	authHandler := setupAuthTest(mockStore)
 
 	// --- Test ---
 	form := url.Values{}
 	submittedEmail := "test@example.com"
 	form.Set("email", submittedEmail)
 	form.Set("password", "wrongpassword")
-
 	req := httptest.NewRequest(http.MethodPost, "/auth/login", strings.NewReader(form.Encode()))
 	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationForm)
-	rec := httptest.NewRecorder()
-	e.ServeHTTP(rec, req)
+	c, rec := newTestContext(req)
+
+	err := session.Middleware(testCookieStore)(authHandler.LoginPost)(c)
+	require.NoError(t, err, "session middleware should handle the redirect and not return an error")
 
 	// --- Assertions ---
 	// Assert it redirects back to the login page
@@ -257,8 +239,8 @@ func TestLoginPost_RepopulatesEmailOnError(t *testing.T) {
 	assert.Equal(t, "/auth/login", rec.Header().Get("Location"))
 
 	// Assert that the error flash message is set
-	assertFlashMessage(t, req, "error", "Invalid email or password.")
+	assertFlashMessage(t, c, "flash_error", "Invalid email or password.")
 
 	// Assert that the submitted email was also flashed to the session
-	assertFlashMessage(t, req, "form_email", submittedEmail)
+	assertFlashMessage(t, c, "form_email", submittedEmail)
 }
