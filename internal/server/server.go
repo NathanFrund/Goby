@@ -15,7 +15,6 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/nfrund/goby/internal/config"
-	"github.com/nfrund/goby/internal/database"
 	"github.com/nfrund/goby/internal/domain"
 	"github.com/nfrund/goby/internal/handlers"
 	appmiddleware "github.com/nfrund/goby/internal/middleware"
@@ -30,7 +29,6 @@ import (
 // Server holds the dependencies for the HTTP server.
 type Server struct {
 	E         *echo.Echo
-	DB        database.Client
 	Cfg       config.Provider
 	Emailer   domain.EmailSender
 	UserStore domain.UserRepository
@@ -49,7 +47,6 @@ type Server struct {
 // This struct is used for constructor injection to make dependencies explicit.
 type Dependencies struct {
 	Config    config.Provider
-	DB        database.Client
 	Emailer   domain.EmailSender
 	UserStore domain.UserRepository
 	Renderer  echo.Renderer // The renderer for the Echo framework
@@ -60,6 +57,7 @@ type Dependencies struct {
 
 func setupErrorHandling(e *echo.Echo) {
 	// 1. Recover Middleware: CRITICAL for Panics
+	// 1. Recover Middleware: CRITICAL for Panics.
 	// This catches any panic that occurs during request handling, prevents the Go app
 	// from crashing, and logs the full stack trace to your console.
 	e.Use(middleware.Recover())
@@ -129,7 +127,6 @@ func New(deps Dependencies) (*Server, error) {
 	s := &Server{
 		E:         e,
 		Cfg:       deps.Config,
-		DB:        deps.DB,
 		Emailer:   deps.Emailer,
 		Renderer:  appRenderer,
 		PubSub:    deps.Publisher,

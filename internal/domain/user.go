@@ -26,4 +26,5 @@ type UserRepository interface {
 	FindUserByEmail(ctx context.Context, email string) (*User, error)
 	GenerateResetToken(ctx context.Context, email string) (string, error)
 	ResetPassword(ctx context.Context, token, newPassword string) (*User, error)
+	Delete(ctx context.Context, id string) error
 }

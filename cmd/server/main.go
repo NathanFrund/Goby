@@ -16,6 +16,7 @@ import (
 	"github.com/nfrund/goby/internal/app"
 	"github.com/nfrund/goby/internal/config"
 	"github.com/nfrund/goby/internal/database"
+	"github.com/nfrund/goby/internal/domain"
 	"github.com/nfrund/goby/internal/email"
 	"github.com/nfrund/goby/internal/logging"
 	"github.com/nfrund/goby/internal/pubsub"
@@ -70,15 +71,19 @@ func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Serve
 	slog.Info("Initializing core services...")
 
 	// Database
-	db, err := database.NewDB(context.Background(), cfg)
+	dbConn := database.NewConnection(cfg)
+	err = dbConn.Connect(context.Background())
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
+	dbConn.StartMonitoring()
+
 	closers = append(closers, func() error {
 		slog.Info("Closing database connection...")
-		return db.Close(context.Background())
+		return dbConn.Close(context.Background())
 	})
-	dbClient := database.NewClient(db)
+	// Register the core connection manager in the registry so modules can access it.
+	reg.Set((*database.Connection)(nil), dbConn)
 
 	// Email
 	emailer, err := email.NewEmailService(cfg)
@@ -94,8 +99,12 @@ func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Serve
 	})
 	wsBridge := websocket.NewBridge(ps)
 
-	// User Store (depends on the concrete *surrealdb.DB)
-	userStore := database.NewSurrealUserStore(db, cfg.GetDBNs(), cfg.GetDBDb())
+	// User Store (using the new v2 client)
+	userDBClient, err := database.NewClient[domain.User](dbConn, cfg)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create user db client: %w", err)
+	}
+	userStore := database.NewUserStore(userDBClient, cfg)
 
 	// Renderer and Web Framework
 	renderer := rendering.NewUniversalRenderer()
@@ -106,7 +115,6 @@ func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Serve
 	slog.Info("Creating server instance...")
 	srv, err = server.New(server.Dependencies{
 		Config:    cfg,
-		DB:        dbClient,
 		Emailer:   emailer,
 		UserStore: userStore,
 		Renderer:  renderer,
