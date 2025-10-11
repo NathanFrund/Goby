@@ -2,82 +2,165 @@ package database
 
 import (
 	"context"
-
 	"fmt"
+	"time"
 
+	"github.com/nfrund/goby/internal/config"
 	"github.com/surrealdb/surrealdb.go"
 )
 
-// Client defines the interface for database operations. It abstracts the underlying
-// database implementation, allowing for easier testing and potential future database migrations.
-type Client interface {
-	// Query executes a raw query and unmarshals multiple results into a slice of type T.
-	Query(ctx context.Context, query string, params map[string]any) ([]any, error)
-	// QueryOne executes a raw query and unmarshals a single result into a pointer of type T.
-	QueryOne(ctx context.Context, query string, params map[string]any) (any, error)
-	// Execute runs a query that doesn't return rows (e.g., INSERT, UPDATE, DELETE).
-	Execute(ctx context.Context, query string, params map[string]any) error
-
-	// Create creates a new record in the specified table.
-	Create(ctx context.Context, table string, data any) (any, error)
-	// Select retrieves a record by its full ID (e.g., "user:123").
-	Select(ctx context.Context, id string) (any, error)
-	// Update merges data into an existing record by its full ID.
-	Update(ctx context.Context, id string, data any) (any, error)
-	// Delete removes a record by its full ID.
-	Delete(ctx context.Context, id string) error
-
-	// DB returns the raw underlying database connection, useful for specific driver features.
-	DB() *surrealdb.DB
-	// Close closes the database connection.
-	Close() error
+type client[T any] struct {
+	conn           *Connection
+	executor       QueryExecutor[T]
+	queryTimeout   time.Duration
+	executeTimeout time.Duration
 }
 
-// NewClient creates a new database client that wraps the SurrealDB connection.
-func NewClient(db *surrealdb.DB) Client {
-	return &surrealClient{db: db}
+// NewClient creates a new type-safe database client
+func NewClient[T any](conn *Connection, cfg config.Provider, opts ...ClientOption[T]) (Client[T], error) {
+	if conn == nil {
+		return nil, NewDBError(ErrInvalidInput, "connection cannot be nil")
+	}
+	if cfg == nil {
+		return nil, NewDBError(ErrInvalidInput, "config provider cannot be nil")
+	}
+
+	// Validate configuration values
+	queryTimeout := cfg.GetDBQueryTimeout()
+	if queryTimeout <= 0 {
+		return nil, NewDBError(ErrInvalidInput, "DB_QUERY_TIMEOUT must be a positive duration")
+	}
+	executeTimeout := cfg.GetDBExecuteTimeout()
+	if executeTimeout <= 0 {
+		return nil, NewDBError(ErrInvalidInput, "DB_EXECUTE_TIMEOUT must be a positive duration")
+	}
+
+	c := &client[T]{
+		conn:           conn,
+		executor:       NewSurrealExecutor[T](conn),
+		queryTimeout:   cfg.GetDBQueryTimeout(),
+		executeTimeout: cfg.GetDBExecuteTimeout(),
+	}
+
+	// Apply options
+	for _, opt := range opts {
+		opt(c)
+	}
+
+	return c, nil
 }
 
-type surrealClient struct {
-	db *surrealdb.DB
+// Query implements the Client interface
+func (c *client[T]) Query(ctx context.Context, query string, params map[string]any) ([]T, error) {
+	ctx, cancel := getTimeoutFromContext(ctx, c.queryTimeout, ContextKeyQueryTimeout)
+	defer cancel()
+	return c.executor.Query(ctx, query, params)
 }
 
-func (c *surrealClient) Query(ctx context.Context, query string, params map[string]any) ([]any, error) {
-	return Query[any](ctx, c.db, query, params)
+// QueryOne implements the Client interface
+func (c *client[T]) QueryOne(ctx context.Context, query string, params map[string]any) (*T, error) {
+	ctx, cancel := getTimeoutFromContext(ctx, c.queryTimeout, ContextKeyQueryTimeout)
+	defer cancel()
+	return c.executor.QueryOne(ctx, query, params)
 }
 
-func (c *surrealClient) QueryOne(ctx context.Context, query string, params map[string]any) (any, error) {
-	return QueryOne[any](ctx, c.db, query, params)
+// Execute implements the Client interface
+func (c *client[T]) Execute(ctx context.Context, query string, params map[string]any) error {
+	ctx, cancel := getTimeoutFromContext(ctx, c.executeTimeout, ContextKeyExecuteTimeout)
+	defer cancel()
+	return c.executor.Execute(ctx, query, params)
 }
 
-func (c *surrealClient) Execute(ctx context.Context, query string, params map[string]any) error {
-	return Execute(ctx, c.db, query, params)
+// DB implements the Client interface
+func (c *client[T]) DB() (*surrealdb.DB, error) {
+	return c.conn.DB()
 }
 
-func (c *surrealClient) Create(ctx context.Context, table string, data any) (any, error) {
-	query := fmt.Sprintf("CREATE %s CONTENT $data", table)
-	return QueryOne[any](ctx, c.db, query, map[string]any{"data": data})
+// Create implements the Client interface
+func (c *client[T]) Create(ctx context.Context, table string, data any) (*T, error) {
+	if table == "" {
+		return nil, NewDBError(ErrInvalidInput, "table cannot be empty")
+	}
+	if data == nil {
+		return nil, NewDBError(ErrInvalidInput, "data cannot be nil")
+	}
+
+	ctx, cancel := getTimeoutFromContext(ctx, c.executeTimeout, ContextKeyExecuteTimeout)
+	defer cancel()
+
+	// Use a raw query for create
+	query := "CREATE type::table($table) CONTENT $data"
+	result, err := c.QueryOne(ctx, query, map[string]any{"table": table, "data": data})
+	if err != nil {
+		return nil, NewDBError(err, "create operation failed")
+	}
+	return result, nil
 }
 
-func (c *surrealClient) Select(ctx context.Context, id string) (any, error) {
+// Select implements the Client interface
+func (c *client[T]) Select(ctx context.Context, id string) (*T, error) {
+	if id == "" {
+		return nil, NewDBError(ErrInvalidInput, "id cannot be empty")
+	}
+
+	ctx, cancel := getTimeoutFromContext(ctx, c.queryTimeout, ContextKeyQueryTimeout)
+	defer cancel()
+
+	// Use a raw query for select
 	query := fmt.Sprintf("SELECT * FROM %s", id)
-	return QueryOne[any](ctx, c.db, query, nil)
+	result, err := c.QueryOne(ctx, query, nil)
+	if err != nil {
+		return nil, NewDBError(err, "select operation failed")
+	}
+	if result == nil {
+		return nil, NewDBError(ErrNotFound, "record not found")
+	}
+	return result, nil
 }
 
-func (c *surrealClient) Update(ctx context.Context, id string, data any) (any, error) {
-	query := fmt.Sprintf("UPDATE %s MERGE $data", id)
-	return QueryOne[any](ctx, c.db, query, map[string]any{"data": data})
+// Update implements the Client interface
+func (c *client[T]) Update(ctx context.Context, id string, data any) (*T, error) {
+	if id == "" {
+		return nil, NewDBError(ErrInvalidInput, "id cannot be empty")
+	}
+	if data == nil {
+		return nil, NewDBError(ErrInvalidInput, "data cannot be nil")
+	}
+
+	ctx, cancel := getTimeoutFromContext(ctx, c.executeTimeout, ContextKeyExecuteTimeout)
+	defer cancel()
+
+	// Use a raw query for update
+	query := "UPDATE type::thing($id) MERGE $data"
+	result, err := c.QueryOne(ctx, query, map[string]any{"id": id, "data": data})
+	if err != nil {
+		return nil, NewDBError(err, "update operation failed")
+	}
+	if result == nil {
+		return nil, NewDBError(ErrNotFound, "record not found")
+	}
+	return result, nil
 }
 
-func (c *surrealClient) Delete(ctx context.Context, id string) error {
-	query := fmt.Sprintf("DELETE %s", id)
-	return Execute(ctx, c.db, query, nil)
+// Delete implements the Client interface
+func (c *client[T]) Delete(ctx context.Context, id string) error {
+	if id == "" {
+		return NewDBError(ErrInvalidInput, "id cannot be empty")
+	}
+
+	ctx, cancel := getTimeoutFromContext(ctx, c.executeTimeout, ContextKeyExecuteTimeout)
+	defer cancel()
+
+	// Use a raw query for delete
+	query := "DELETE type::thing($id)"
+	return c.Execute(ctx, query, map[string]any{"id": id})
 }
 
-func (c *surrealClient) DB() *surrealdb.DB {
-	return c.db
-}
-
-func (c *surrealClient) Close() error {
-	return c.db.Close(context.Background())
+// Close implements the Client interface
+func (c *client[T]) Close() error {
+	// The connection manager owns the close logic
+	if c.conn != nil {
+		return c.conn.Close(context.Background())
+	}
+	return nil
 }

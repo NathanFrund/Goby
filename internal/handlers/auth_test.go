@@ -74,6 +74,11 @@ func (m *MockUserStore) WithTransaction(ctx context.Context, fn func(repo domain
 	return fn(m)
 }
 
+func (m *MockUserStore) Delete(ctx context.Context, id string) error {
+	// This is a mock implementation and can be empty for these tests.
+	return nil
+}
+
 // mockConfigProvider is a simple mock for the config.Provider interface.
 type mockConfigProvider struct {
 	config.Provider

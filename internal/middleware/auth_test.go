@@ -12,7 +12,6 @@ import (
 	"github.com/nfrund/goby/internal/testutils"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/surrealdb/surrealdb.go"
 )
 
 func TestAuthMiddleware(t *testing.T) {
@@ -23,16 +22,23 @@ func TestAuthMiddleware(t *testing.T) {
 	// Setup
 	ctx := context.Background()
 	cfg := testutils.ConfigForTests(t)
-	db, err := database.NewDB(ctx, cfg)
-	require.NoError(t, err, "failed to connect to test database")
+
+	// Use the new connection manager
+	conn := database.NewConnection(cfg)
+	err := conn.Connect(ctx)
+	require.NoError(t, err)
+	conn.StartMonitoring()
 
 	cleanup := func() {
-		_, _ = surrealdb.Query[any](context.Background(), db, "DELETE user", nil)
-		db.Close(context.Background())
+		conn.Close(context.Background())
 	}
 	defer cleanup()
 
-	userStore := database.NewSurrealUserStore(db, cfg.GetDBNs(), cfg.GetDBDb())
+	// Create a client and user store
+	userDBClient, err := database.NewClient[domain.User](conn, cfg)
+	require.NoError(t, err)
+	userStore := database.NewUserStore(userDBClient, cfg)
+
 	authMiddleware := Auth(userStore)
 
 	// Create Echo instance for testing
@@ -77,7 +83,10 @@ func TestAuthMiddleware(t *testing.T) {
 
 		// Cleanup the user after the test
 		t.Cleanup(func() {
-			_, _ = surrealdb.Query[any](ctx, db, "DELETE user WHERE email = $email", map[string]any{"email": testEmail})
+			u, findErr := userStore.FindUserByEmail(ctx, testEmail)
+			if findErr == nil && u != nil {
+				_ = userStore.Delete(ctx, u.ID.String())
+			}
 		})
 
 		// 2. Create a request with the auth cookie

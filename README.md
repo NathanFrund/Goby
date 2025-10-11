@@ -648,6 +648,39 @@ This approach offers several benefits:
    }
    ```
 
+#### Database Access
+
+Modules that need to interact with the database can do so by resolving the core, resilient `database.Connection` manager from the registry during their `Boot` phase. This allows a module to create its own type-safe clients or executors for its specific data models without modifying `main.go`.
+
+This pattern provides both flexibility and type safety, empowering module authors to choose the right level of abstraction for their needs.
+
+**Example: Using a Type-Safe Query Executor (Recommended)**
+
+For most modules that need to run custom queries, the `database.QueryExecutor[T]` provides the ideal balance of flexibility and resilience.
+
+```go
+// in your module's Boot method
+func (m *YourModule) Boot(ctx context.Context, g *echo.Group, reg *registry.Registry) error {
+    // 1. Resolve the core connection manager.
+    conn, err := registry.Get[*database.Connection](reg)
+    if err != nil {
+        return fmt.Errorf("failed to get database connection: %w", err)
+    }
+
+    // 2. Create a type-safe executor for this module's specific data model.
+    // This is a lightweight operation.
+    productExecutor := database.NewSurrealExecutor[domain.Product](conn)
+
+    // 3. Use the executor in your handlers.
+    handler := NewHandler(productExecutor)
+    g.GET("/products", handler.HandleListProducts)
+
+    return nil
+}
+```
+
+For modules that only need to run custom queries, resolving the connection and creating a `v2.QueryExecutor[T]` provides a more lightweight and flexible alternative.
+
 4. **Structured Logging**
 
    The framework is configured for structured logging using Go's standard `slog` library. This provides a consistent, machine-readable logging format that is essential for production environments. The logging system supports two primary contexts: request-scoped logging and global (background) logging.

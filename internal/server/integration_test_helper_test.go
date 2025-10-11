@@ -47,37 +47,33 @@ func setupIntegrationTest(t *testing.T) (*server.Server, *httptest.Server, func(
 	reg := registry.New(cfg)
 
 	// 2. Initialize and register all core services for the test environment.
-	surrealDB, err := database.NewDB(context.Background(), cfg)
+	dbConn := database.NewConnection(cfg)
+	err = dbConn.Connect(context.Background())
+	require.NoError(t, err)
+	dbConn.StartMonitoring()
+
+	userDBClient, err := database.NewClient[domain.User](dbConn, cfg)
 	require.NoError(t, err)
 
-	dbClient := database.NewClient(surrealDB)
-	reg.Set((*database.Client)(nil), dbClient)
-	reg.Set((*config.Provider)(nil), cfg)
+	userStore := database.NewUserStore(userDBClient, cfg)
 
-	userStore := database.NewSurrealUserStore(surrealDB, cfg.GetDBNs(), cfg.GetDBDb())
+	reg.Set((*config.Provider)(nil), cfg)
 	reg.Set((*domain.UserRepository)(nil), userStore)
 
 	emailer, err := email.NewEmailService(cfg)
 	require.NoError(t, err)
-	reg.Set((*domain.EmailSender)(nil), emailer)
 
 	ps := pubsub.NewWatermillBridge()
-	reg.Set((*pubsub.Publisher)(nil), ps)
-	reg.Set((*pubsub.Subscriber)(nil), ps)
 
 	wsBridge := websocket.NewBridge(ps)
-	reg.Set((*websocket.Bridge)(nil), wsBridge)
 
 	renderer := rendering.NewUniversalRenderer()
-	reg.Set((*rendering.Renderer)(nil), renderer)
-	reg.Set((*echo.Renderer)(nil), renderer)
 
 	e := echo.New()
 
 	// 3. Create the server instance using the populated registry.
 	s, err := server.New(server.Dependencies{
 		Config:    cfg,
-		DB:        dbClient,
 		Emailer:   emailer,
 		UserStore: userStore,
 		Renderer:  renderer,
@@ -99,7 +95,7 @@ func setupIntegrationTest(t *testing.T) (*server.Server, *httptest.Server, func(
 	cleanup := func() {
 		_ = ps.Close() // Cleanly shut down the pub/sub system.
 		testServer.Close()
-		surrealDB.Close(context.Background()) // Close the database connection.
+		dbConn.Close(context.Background()) // Close the database connection.
 		_ = os.Chdir(originalWD)
 	}
 
