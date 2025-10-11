@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/labstack/echo-contrib/session"
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/domain"
+	appmiddleware "github.com/nfrund/goby/internal/middleware"
 	"github.com/nfrund/goby/internal/view"
 	"github.com/nfrund/goby/internal/view/dto/auth"
 	"github.com/nfrund/goby/web/src/templates/layouts"
@@ -35,34 +35,23 @@ func NewAuthHandler(userStore domain.UserRepository, emailer domain.EmailSender,
 // RegisterGetHandler renders the registration page (GET /auth/register).
 // It retrieves flash messages and any pre-filled data (e.g., from a failed POST).
 func (h *AuthHandler) RegisterGetHandler(c echo.Context) error {
-	// 1. Retrieve the specific flash value for pre-filling the email.
-	var prefilledEmail string
-	if sess, err := session.Get("flash-session", c); err == nil {
-		if flashes := sess.Flashes("form_email"); len(flashes) > 0 {
-			if val, ok := flashes[0].(string); ok {
-				prefilledEmail = val
-			}
-		}
-		// CRITICAL: We must save the session here to clear the consumed "form_email" flash.
-		_ = sess.Save(c.Request(), c.Response())
-	}
+	// 1. Retrieve all flash data (success, error, and form values) in one go.
+	// This function now handles getting the messages and saving the session correctly.
+	flashData := view.GetFlashData(c)
 
-	// 2. Retrieve General Flash Messages (Success/Error)
-	flashes := view.GetFlashData(c)
-
-	// 3. Prepare the View Model (DTO)
+	// 2. Prepare the View Model (DTO)
 	// We use the retrieved email to populate the auth.RegisterData DTO.
 	data := auth.RegisterData{
-		Email: prefilledEmail,
+		Email: flashData.FormEmail,
 	}
 
-	// 4. Render the specific page content (pages.Register) with the DTO.
+	// 3. Render the specific page content (pages.Register) with the DTO.
 	pageContent := pages.Register(data)
 
-	// 5. Wrap the content in the Base layout, passing the flashes.
-	finalComponent := layouts.Base("Register", flashes, pageContent)
+	// 4. Wrap the content in the Base layout, passing the flashes.
+	finalComponent := layouts.Base("Register", flashData.Messages, pageContent)
 
-	// 6. Render the final component using the universal renderer via c.Render().
+	// 5. Render the final component using the universal renderer via c.Render().
 	return c.Render(http.StatusOK, "", finalComponent)
 }
 
@@ -75,11 +64,13 @@ func (h *AuthHandler) RegisterPost(c echo.Context) error {
 	// --- Validation ---
 	if password != passwordConfirm {
 		view.SetFlashError(c, "Passwords do not match.")
+		_ = view.SaveFlashes(c)
 		return c.Redirect(http.StatusSeeOther, "/auth/register")
 	}
 
 	if len(password) < 8 {
 		view.SetFlashError(c, "Password must be at least 8 characters long.")
+		_ = view.SaveFlashes(c)
 		return c.Redirect(http.StatusSeeOther, "/auth/register")
 	}
 
@@ -99,54 +90,43 @@ func (h *AuthHandler) RegisterPost(c echo.Context) error {
 		if errors.Is(err, domain.ErrUserAlreadyExists) {
 			view.SetFlashError(c, "A user with this email already exists.")
 		} else {
-			slog.Error("Error creating user", "error", err)
+			// Use the request-scoped logger
+			appmiddleware.FromContext(c.Request().Context()).Error("Error creating user", "error", err)
 			view.SetFlashError(c, "Could not create your account.")
 		}
+		_ = view.SaveFlashes(c)
 		return c.Redirect(http.StatusSeeOther, "/auth/register")
 	}
 
 	// --- Session Management ---
 	setAuthCookie(c, token)
 
-	// On success, redirect to the home page as a logged-in user.
+	// On success, set flash and save before redirecting to the home page.
 	view.SetFlashSuccess(c, "Account created successfully!")
+	_ = view.SaveFlashes(c)
 	return c.Redirect(http.StatusSeeOther, "/")
 }
 
 // LoginGetHandler renders the login page (GET /auth/login).
 // It retrieves flash messages and any pre-filled data (e.g., from a failed POST).
 func (h *AuthHandler) LoginGetHandler(c echo.Context) error {
-	// 1. Retrieve the specific flash value for pre-filling the email (as done in the old function).
-	var prefilledEmail string
-	// Use "flash-session" as per your existing code. session.Get returns the session and no error.
-	if sess, err := session.Get("flash-session", c); err == nil {
-		if flashes := sess.Flashes("form_email"); len(flashes) > 0 {
-			// Ensure we can assert the type safely.
-			if val, ok := flashes[0].(string); ok {
-				prefilledEmail = val
-			}
-		}
-		// CRITICAL: We must save the session here to clear the consumed "form_email" flash.
-		_ = sess.Save(c.Request(), c.Response())
-	}
+	// 1. Retrieve all flash data (success, error, and form values) in one go.
+	// This centralizes session reading and saving, fixing the timing issue.
+	flashData := view.GetFlashData(c)
 
-	// 2. Retrieve General Flash Messages (Success/Error)
-	// This utility function also retrieves flashes and saves the session internally.
-	flashes := view.GetFlashData(c)
-
-	// 3. Prepare the View Model (DTO)
+	// 2. Prepare the View Model (DTO)
 	// We use the retrieved email to populate the DTO.
 	data := auth.LoginData{
-		Email: prefilledEmail,
+		Email: flashData.FormEmail,
 	}
 
-	// 4. Render the specific page content (pages.Login) with the DTO.
+	// 3. Render the specific page content (pages.Login) with the DTO.
 	pageContent := pages.Login(data)
 
-	// 5. Wrap the content in the Base layout, passing the flashes.
-	finalComponent := layouts.Base("Login", flashes, pageContent)
+	// 4. Wrap the content in the Base layout, passing the flashes.
+	finalComponent := layouts.Base("Login", flashData.Messages, pageContent)
 
-	// 6. Render the final component using the universal renderer via c.Render().
+	// 5. Render the final component using the universal renderer via c.Render().
 	return c.Render(http.StatusOK, "", finalComponent)
 }
 
@@ -162,23 +142,26 @@ func (h *AuthHandler) LoginPost(c echo.Context) error {
 	if err != nil {
 		// The SignIn method will fail if credentials are invalid.
 		slog.Warn("Failed login attempt", "email", email, "error", err)
-		view.SetFlashError(c, "Invalid email or password.")
 
-		// Preserve the submitted email address for the next render of the login form.
-		sess, _ := session.Get("flash-session", c)
-		sess.AddFlash(email, "form_email")
-		if err := sess.Save(c.Request(), c.Response()); err != nil {
-			slog.Error("Failed to save session", "error", err)
+		// 1. Set all flash messages that need to be displayed on the next page.
+		view.SetFlashError(c, "Invalid email or password.")
+		view.SetFlashFormData(c, "form_email", email)
+
+		// 2. Save the session once to commit all flash messages.
+		if err := view.SaveFlashes(c); err != nil {
+			slog.Error("Failed to save flash session on login failure", "error", err)
 		}
 
+		// 3. Redirect back to the login page.
 		return c.Redirect(http.StatusSeeOther, "/auth/login")
 	}
 
 	// --- Session Management ---
 	setAuthCookie(c, token)
 
-	// On success, redirect to the home page.
+	// On success, set the flash message and save the session before redirecting.
 	view.SetFlashSuccess(c, "Logged in successfully!")
+	_ = view.SaveFlashes(c) // Error is logged within the function.
 	return c.Redirect(http.StatusSeeOther, "/")
 }
 
@@ -189,13 +172,14 @@ func (h *AuthHandler) Logout(c echo.Context) error {
 	setAuthCookie(c, "") // Set an empty token
 
 	view.SetFlashSuccess(c, "You have been logged out.")
+	_ = view.SaveFlashes(c)
 	return c.Redirect(http.StatusSeeOther, "/auth/login")
 }
 
 // ForgotPasswordGet handles rendering the forgot password page.
 func (h *AuthHandler) ForgotPasswordGetHandler(c echo.Context) error {
 	// 1. Retrieve flash data (errors/success messages) from the session.
-	flashData := view.GetFlashData(c)
+	flashData := view.GetFlashData(c).Messages // We only need the success/error part here.
 
 	// 2. Prepare the view data transfer object (DTO).
 	// For a GET request, the email is usually empty unless retrieved from a flash session.
@@ -235,6 +219,7 @@ func (h *AuthHandler) ForgotPasswordPost(c echo.Context) error {
 	}
 
 	view.SetFlashSuccess(c, "If an account with that email exists, a password reset link has been sent.")
+	_ = view.SaveFlashes(c)
 	return c.Redirect(http.StatusSeeOther, "/auth/forgot-password")
 }
 
@@ -246,12 +231,13 @@ func (h *AuthHandler) ResetPasswordGetHandler(c echo.Context) error {
 		// If no token is provided, redirect to the forgot password page.
 		// Set a flash error to inform the user why they were redirected.
 		view.SetFlashError(c, "A valid reset token is required to change your password.")
+		_ = view.SaveFlashes(c)
 		return c.Redirect(http.StatusSeeOther, "/auth/forgot-password")
 	}
 
 	// 2. Retrieve General Flash Messages (Success/Error)
 	// Note: We don't need to check for form_email flashes here, as this is never a POST redirect target.
-	flashes := view.GetFlashData(c)
+	flashes := view.GetFlashData(c).Messages
 
 	// 3. Prepare the View Model (DTO)
 	// The DTO passes the token back to the template to be included in the hidden form field.
@@ -278,11 +264,13 @@ func (h *AuthHandler) ResetPasswordPostHandler(c echo.Context) error {
 	// --- Input Validation ---
 	if password != passwordConfirm {
 		view.SetFlashError(c, "Passwords do not match.")
+		_ = view.SaveFlashes(c)
 		return c.Redirect(http.StatusSeeOther, "/auth/reset-password?token="+token)
 	}
 
 	if len(password) < 8 {
 		view.SetFlashError(c, "Password must be at least 8 characters long.")
+		_ = view.SaveFlashes(c)
 		return c.Redirect(http.StatusSeeOther, "/auth/reset-password?token="+token)
 	}
 	// --- End Input Validation ---
@@ -296,6 +284,7 @@ func (h *AuthHandler) ResetPasswordPostHandler(c echo.Context) error {
 		slog.Warn("Password reset failed", "error", err)
 		// Return a user-friendly error from the repository.
 		view.SetFlashError(c, err.Error())
+		_ = view.SaveFlashes(c)
 		return c.Redirect(http.StatusSeeOther, "/auth/reset-password?token="+token)
 	}
 
@@ -309,12 +298,14 @@ func (h *AuthHandler) ResetPasswordPostHandler(c echo.Context) error {
 	if err != nil {
 		slog.Error("Failed to sign in user after successful password reset", "error", err)
 		view.SetFlashError(c, "Password reset successful, but failed to log you in automatically. Please log in manually.")
+		_ = view.SaveFlashes(c)
 		return c.Redirect(http.StatusSeeOther, "/auth/login")
 	}
 
 	// STEP 3: Success
 	setAuthCookie(c, sessionToken)
 	view.SetFlashSuccess(c, "Your password has been reset successfully! You are now logged in.")
+	_ = view.SaveFlashes(c)
 	return c.Redirect(http.StatusSeeOther, "/")
 }
 

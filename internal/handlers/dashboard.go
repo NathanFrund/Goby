@@ -55,6 +55,6 @@ func (h *DashboardHandler) DashboardGet(c echo.Context) error {
 	flashData := view.GetFlashData(c) // Use view helper to get flash data
 
 	// 4. Render the final component using the universal renderer via c.Render().
-	finalComponent := layouts.Base("Dashboard", flashData, pageContent)
+	finalComponent := layouts.Base("Dashboard", flashData.Messages, pageContent)
 	return c.Render(http.StatusOK, "", finalComponent)
 }

@@ -28,8 +28,8 @@ func NewHandler(pub pubsub.Publisher) *Handler {
 // ChatGet renders the main chat page using the application's rendering pipeline.
 func (h *Handler) ChatGet(c echo.Context) error {
 	pageContent := pages.ChatPage()
-	// The renderer expects a templ.Component, so we wrap it.
-	finalComponent := templ.Component(layouts.Base("Chat", view.GetFlashData(c), pageContent))
+	// The renderer expects a templ.Component, so we wrap it. We pass .FlashData to get the embedded struct.
+	finalComponent := templ.Component(layouts.Base("Chat", view.GetFlashData(c).Messages, pageContent))
 	return c.Render(http.StatusOK, "", finalComponent)
 }
 

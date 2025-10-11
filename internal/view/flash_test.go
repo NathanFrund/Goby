@@ -10,6 +10,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/view"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 const testSessionSecret = "a-very-secret-key-for-testing-!"
@@ -39,18 +40,21 @@ func TestFlashMessages(t *testing.T) {
 
 		// Set a success flash
 		view.SetFlashSuccess(c, "It worked!")
+		// We must now explicitly save the flashes, just like in the handlers.
+		err := view.SaveFlashes(c)
+		require.NoError(t, err)
 
 		// Get flashes
 		flashes := view.GetFlashData(c)
 
 		// Assert against the struct fields
-		assert.NotEmpty(t, flashes.Success)
-		assert.Equal(t, "It worked!", flashes.Success[0])
-		assert.Empty(t, flashes.Error)
+		assert.NotEmpty(t, flashes.Messages.Success)
+		assert.Equal(t, "It worked!", flashes.Messages.Success[0])
+		assert.Empty(t, flashes.Messages.Error)
 
 		// Get flashes again to ensure they are cleared
 		flashesAfterRead := view.GetFlashData(c)
-		assert.Empty(t, flashesAfterRead.Success, "Flashes should be cleared after being read")
+		assert.Empty(t, flashesAfterRead.Messages.Success, "Flashes should be cleared after being read")
 	})
 
 	t.Run("Set and Get Error Flash", func(t *testing.T) {
@@ -58,21 +62,23 @@ func TestFlashMessages(t *testing.T) {
 
 		// Set an error flash
 		view.SetFlashError(c, "It failed!")
+		err := view.SaveFlashes(c)
+		require.NoError(t, err)
 
 		// Get flashes
 		flashes := view.GetFlashData(c)
 
 		// Assert against the struct fields
-		assert.NotEmpty(t, flashes.Error)
-		assert.Equal(t, "It failed!", flashes.Error[0])
-		assert.Empty(t, flashes.Success)
+		assert.NotEmpty(t, flashes.Messages.Error)
+		assert.Equal(t, "It failed!", flashes.Messages.Error[0])
+		assert.Empty(t, flashes.Messages.Success)
 	})
 
 	t.Run("GetFlashes with no flashes set", func(t *testing.T) {
 		c, _ := setupTestContext()
 
 		flashes := view.GetFlashData(c)
-		assert.Empty(t, flashes.Success, "Success flashes should be empty")
-		assert.Empty(t, flashes.Error, "Error flashes should be empty")
+		assert.Empty(t, flashes.Messages.Success, "Success flashes should be empty")
+		assert.Empty(t, flashes.Messages.Error, "Error flashes should be empty")
 	})
 }
