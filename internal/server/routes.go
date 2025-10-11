@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/labstack/echo/v4"
+	"github.com/nfrund/goby/internal/handlers"
 	"github.com/nfrund/goby/internal/middleware" // Your custom middleware
 	"github.com/nfrund/goby/internal/websocket"
 )
@@ -15,10 +16,14 @@ func (s *Server) RegisterRoutes() {
 	// The auth middleware needs the userStore, which is now a dependency of the server.
 	authMiddleware := middleware.Auth(s.UserStore)
 
+	// Instantiate handlers that have dependencies directly within the routing setup.
+	// This co-locates handler creation with its routes and keeps the Server struct clean.
+	authHandler := handlers.NewAuthHandler(s.UserStore, s.Emailer, s.Cfg.GetAppBaseURL())
+
 	// Public routes
 	public := s.E.Group("")
-	public.GET("/", s.homeHandler.HomeGet)
-	public.GET("/about", s.aboutHandler.HandleGet)
+	public.GET("/", handlers.HomeGet)
+	public.GET("/about", handlers.AboutGet)
 	public.GET("/health", func(c echo.Context) error {
 		return c.String(http.StatusOK, "OK")
 	})
@@ -32,15 +37,15 @@ func (s *Server) RegisterRoutes() {
 	auth.GET("", redirectLogin)
 	auth.GET("/", redirectLogin)
 
-	auth.GET("/register", s.authHandler.RegisterGetHandler)
-	auth.POST("/register", s.authHandler.RegisterPost, rateLimiter)
-	auth.GET("/login", s.authHandler.LoginGetHandler)
-	auth.POST("/login", s.authHandler.LoginPost, rateLimiter)
-	auth.GET("/logout", s.authHandler.Logout)
-	auth.GET("/forgot-password", s.authHandler.ForgotPasswordGetHandler)
-	auth.POST("/forgot-password", s.authHandler.ForgotPasswordPost, rateLimiter)
-	auth.GET("/reset-password", s.authHandler.ResetPasswordGetHandler)
-	auth.POST("/reset-password", s.authHandler.ResetPasswordPostHandler)
+	auth.GET("/register", authHandler.RegisterGetHandler)
+	auth.POST("/register", authHandler.RegisterPost, rateLimiter)
+	auth.GET("/login", authHandler.LoginGetHandler)
+	auth.POST("/login", authHandler.LoginPost, rateLimiter)
+	auth.GET("/logout", authHandler.Logout)
+	auth.GET("/forgot-password", authHandler.ForgotPasswordGetHandler)
+	auth.POST("/forgot-password", authHandler.ForgotPasswordPost, rateLimiter)
+	auth.GET("/reset-password", authHandler.ResetPasswordGetHandler)
+	auth.POST("/reset-password", authHandler.ResetPasswordPostHandler)
 
 	// Protected routes (require authentication)
 	protected := s.E.Group("/app")
@@ -73,7 +78,7 @@ func (s *Server) RegisterRoutes() {
 	// }
 
 	// Standard routes
-	protected.GET("/dashboard", s.dashboardHandler.DashboardGet)
+	protected.GET("/dashboard", handlers.DashboardGet)
 
 	// Register WebSocket endpoints.
 	protected.GET("/ws/html", s.bridge.Handler(websocket.ConnectionTypeHTML))

@@ -13,16 +13,8 @@ import (
 	// Partials
 )
 
-// DashboardHandler handles requests for the user dashboard.
-type DashboardHandler struct{}
-
-// NewDashboardHandler creates a new DashboardHandler without dependencies.
-func NewDashboardHandler() *DashboardHandler {
-	return &DashboardHandler{}
-}
-
-// DashboardGet retrieves the authenticated user from the context and renders the Dashboard page.
-func (h *DashboardHandler) DashboardGet(c echo.Context) error {
+// DashboardGet is a handler function that renders the user dashboard.
+func DashboardGet(c echo.Context) error {
 	// 1. Retrieve the authenticated user from the context (using existing middleware logic).
 	userVal := c.Get(middleware.UserContextKey)
 
