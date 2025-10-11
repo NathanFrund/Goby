@@ -3,7 +3,8 @@
   "dependencies": {
     "@tailwindcss/cli": "^4.1.13",
     "alpinejs": "^3.14.1",
-    "htmx.org": "^2.0.1",
+    "htmx-ext-ws": "^2.0.0",
+    "htmx.org": "^2.0.0",
     "tailwindcss": "^4.1.13"
   },
   "scripts": {

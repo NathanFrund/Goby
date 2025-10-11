@@ -13,7 +13,8 @@ const assets = [
     destination: "web/static/js/alpine.min.js",
   },
   {
-    source: "node_modules/htmx.org/dist/ext/ws.js",
+    // The v2-compatible extension is in its own package.
+    source: "node_modules/htmx-ext-ws/ws.js",
     destination: "web/static/js/ws.js",
   },
 ];

@@ -46,7 +46,7 @@ func Base(title string, flashes partials.FlashData, children templ.Component) te
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "</title><!-- Use SVG for modern browsers, with an ICO fallback --><link rel=\"icon\" type=\"image/svg+xml\" href=\"/static/img/logo.svg\"><link rel=\"alternate icon\" href=\"/static/img/favicon.ico\"><link rel=\"stylesheet\" href=\"/static/css/style.css\"><script src=\"https://cdn.jsdelivr.net/npm/htmx.org@2.0.7/dist/htmx.min.js\"></script><script src=\"https://cdn.jsdelivr.net/npm/htmx-ext-ws@2.0.2\"></script><script defer src=\"https://cdn.jsdelivr.net/npm/alpinejs@3.13.10/dist/cdn.min.js\"></script></head><body>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "</title><!-- Use SVG for modern browsers, with an ICO fallback --><link rel=\"icon\" type=\"image/svg+xml\" href=\"/static/img/logo.svg\"><link rel=\"alternate icon\" href=\"/static/img/favicon.ico\"><link rel=\"stylesheet\" href=\"/static/css/style.css\"><script src=\"/static/js/htmx.min.js\"></script><script src=\"/static/js/ws.js\"></script><script defer src=\"/static/js/alpine.min.js\"></script></head><body>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
