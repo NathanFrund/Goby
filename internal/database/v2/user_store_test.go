@@ -35,7 +35,7 @@ func setupUserStoreTest(t *testing.T) (*UserStore, Client[TestUser], func()) {
 	testClient, err := NewClient[TestUser](db, cfg)
 	require.NoError(t, err)
 
-	store := NewUserStore(domainClient, cfg.GetDBNs(), cfg.GetDBDb()).(*UserStore)
+	store := NewUserStore(domainClient, cfg).(*UserStore)
 
 	cleanup := func() {
 		db.Close(context.Background())

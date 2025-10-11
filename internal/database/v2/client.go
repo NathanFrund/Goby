@@ -25,6 +25,16 @@ func NewClient[T any](db *surrealdb.DB, cfg config.Provider, opts ...ClientOptio
 		return nil, NewDBError(ErrInvalidInput, "config provider cannot be nil")
 	}
 
+	// Validate configuration values
+	queryTimeout := cfg.GetDBQueryTimeout()
+	if queryTimeout <= 0 {
+		return nil, NewDBError(ErrInvalidInput, "DB_QUERY_TIMEOUT must be a positive duration")
+	}
+	executeTimeout := cfg.GetDBExecuteTimeout()
+	if executeTimeout <= 0 {
+		return nil, NewDBError(ErrInvalidInput, "DB_EXECUTE_TIMEOUT must be a positive duration")
+	}
+
 	c := &client[T]{
 		db:             db,
 		executor:       NewSurrealExecutor[T](db),

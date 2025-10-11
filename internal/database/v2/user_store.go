@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/nfrund/goby/internal/config"
 	"github.com/nfrund/goby/internal/domain"
 	"github.com/surrealdb/surrealdb.go"
 )
@@ -22,11 +23,11 @@ type UserStore struct {
 }
 
 // NewUserStore creates a new user repository with a type-safe client.
-func NewUserStore(dbClient Client[domain.User], ns, dbName string) domain.UserRepository {
+func NewUserStore(dbClient Client[domain.User], cfg config.Provider) domain.UserRepository {
 	return &UserStore{
 		client: dbClient,
-		ns:     ns,
-		dbName: dbName,
+		ns:     cfg.GetDBNs(),
+		dbName: cfg.GetDBDb(),
 	}
 }
 
