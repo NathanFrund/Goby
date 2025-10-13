@@ -18,6 +18,7 @@ import (
 	"github.com/nfrund/goby/internal/database"
 	"github.com/nfrund/goby/internal/domain"
 	"github.com/nfrund/goby/internal/email"
+	"github.com/nfrund/goby/internal/handlers"
 	"github.com/nfrund/goby/internal/logging"
 	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/registry"
@@ -128,26 +129,28 @@ func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Serve
 	}
 	fileRepo := database.NewFileStore(fileClient)
 
-	// You will need to add GetMaxUploadSize() and GetAllowedMimeTypes() to your config provider.
 	fileHandler := storage.NewFileHandler(
 		fileStorage,
 		fileRepo,
-		5*1024*1024, // 5MB max upload size
-		[]string{"image/jpeg", "image/png", "application/pdf"},
+		cfg.GetMaxUploadSize(),
+		cfg.GetAllowedMimeTypes(),
 	)
+
+	dashboardHandler := handlers.NewDashboardHandler(fileRepo)
 
 	// 3. Assemble and Create the Main Server Instance
 	// All core dependencies are explicitly passed to the server's constructor.
 	slog.Info("Creating server instance...")
 	srv, err = server.New(server.Dependencies{
-		Config:      cfg,
-		Emailer:     emailer,
-		UserStore:   userStore,
-		Renderer:    renderer,
-		Publisher:   ps,
-		Echo:        e,
-		Bridge:      wsBridge,
-		FileHandler: fileHandler,
+		Config:           cfg,
+		Emailer:          emailer,
+		UserStore:        userStore,
+		Renderer:         renderer,
+		Publisher:        ps,
+		Echo:             e,
+		Bridge:           wsBridge,
+		DashboardHandler: dashboardHandler,
+		FileHandler:      fileHandler,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create server: %w", err)

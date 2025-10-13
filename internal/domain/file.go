@@ -36,4 +36,7 @@ type FileRepository interface {
 
 	// Delete removes a file metadata record.
 	Delete(ctx context.Context, id string) error
+
+	// FindLatestByUser retrieves the most recently created file for a given user.
+	FindLatestByUser(ctx context.Context, userID *surrealmodels.RecordID) (*File, error)
 }

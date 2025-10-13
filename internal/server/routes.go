@@ -52,9 +52,7 @@ func (s *Server) RegisterRoutes() {
 	protected.Use(authMiddleware)
 
 	// Standard routes
-	protected.GET("/dashboard", handlers.DashboardGet)
-
-	// Register WebSocket endpoints.
+	protected.GET("/dashboard", s.DashboardHandler.Get)
 	protected.GET("/ws/html", s.bridge.Handler(websocket.ConnectionTypeHTML))
 	protected.GET("/ws/data", s.bridge.Handler(websocket.ConnectionTypeData))
 

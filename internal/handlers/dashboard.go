@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
@@ -13,40 +14,52 @@ import (
 	// Partials
 )
 
-// DashboardGet is a handler function that renders the user dashboard.
-func DashboardGet(c echo.Context) error {
-	// 1. Retrieve the authenticated user from the context (using existing middleware logic).
-	userVal := c.Get(middleware.UserContextKey)
+// DashboardHandler handles requests for the user dashboard.
+type DashboardHandler struct {
+	fileRepo domain.FileRepository
+}
 
+// NewDashboardHandler creates a new DashboardHandler.
+func NewDashboardHandler(fileRepo domain.FileRepository) *DashboardHandler {
+	return &DashboardHandler{fileRepo: fileRepo}
+}
+
+// Get renders the user dashboard page.
+func (h *DashboardHandler) Get(c echo.Context) error {
+	userVal := c.Get(middleware.UserContextKey)
 	if userVal == nil {
 		c.Logger().Warn("unauthenticated access attempt on protected dashboard")
-		// Redirect to login if unauthenticated (assuming your auth logic handles this)
 		return c.Redirect(http.StatusFound, "/auth/login")
 	}
 
 	user, ok := userVal.(*domain.User)
-	if !ok {
+	if !ok || user.ID == nil {
 		c.Logger().Error("failed to assert context user to *domain.User")
 		return c.String(http.StatusInternalServerError, "Authentication context error.")
 	}
 
-	// 2. Map the complex domain.User object to the simple view.DashboardData DTO.
-	var idString string
-	// Check if the SurrealDB ID is present and convert it to a string for display.
-	if user.ID != nil {
-		idString = user.ID.String()
+	// Find the most recent file uploaded by the user to use as a profile picture.
+	var profilePicURL string
+	if h.fileRepo != nil {
+		latestFile, err := h.fileRepo.FindLatestByUser(c.Request().Context(), user.ID)
+		if err != nil {
+			// Log the error but don't block rendering the page.
+			c.Logger().Warn("could not retrieve latest file for user", "user_id", user.ID.String(), "error", err)
+		}
+		if latestFile != nil && latestFile.ID != nil {
+			profilePicURL = fmt.Sprintf("/app/files/%s/download", latestFile.ID.String())
+		}
 	}
 
 	data := dashboard.Data{
-		ID:    idString,
-		Email: user.Email,
+		ID:                user.ID.String(),
+		Email:             user.Email,
+		ProfilePictureURL: profilePicURL,
 	}
 
-	// 3. Instantiate and render the final Templ component.
 	pageContent := pages.Dashboard(data)
 	flashData := view.GetFlashData(c) // Use view helper to get flash data
 
-	// 4. Render the final component using the universal renderer via c.Render().
 	finalComponent := layouts.Base("Dashboard", flashData.Messages, pageContent)
 	return c.Render(http.StatusOK, "", finalComponent)
 }

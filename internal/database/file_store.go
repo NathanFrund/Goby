@@ -103,3 +103,20 @@ func (s *FileStore) Update(ctx context.Context, file *domain.File) (*domain.File
 func (s *FileStore) Delete(ctx context.Context, id string) error {
 	return s.client.Delete(ctx, id)
 }
+
+// FindLatestByUser retrieves the most recently created file for a given user from the database.
+func (s *FileStore) FindLatestByUser(ctx context.Context, userID *surrealmodels.RecordID) (*domain.File, error) {
+	query := "SELECT * FROM file WHERE user_id = $user ORDER BY created_at DESC LIMIT 1"
+	vars := map[string]interface{}{"user": userID}
+
+	files, err := s.client.Query(ctx, query, vars)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query for latest file: %w", err)
+	}
+
+	if len(files) == 0 {
+		return nil, nil // No file found is not an error
+	}
+
+	return &files[0], nil
+}

@@ -4,6 +4,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -44,6 +45,8 @@ type Provider interface {
 	GetDBExecuteTimeout() time.Duration
 	GetStorageBackend() string
 	GetStoragePath() string
+	GetMaxUploadSize() int64
+	GetAllowedMimeTypes() []string
 	// GetModuleConfig retrieves the configuration for a specific module.
 	// Returns the config and a boolean indicating if it was found.
 	GetModuleConfig(moduleName string) (interface{}, bool)
@@ -66,6 +69,8 @@ type Config struct {
 	SessionSecret    string
 	StorageBackend   string
 	StoragePath      string
+	MaxUploadSizeMB  int64
+	AllowedMimeTypes string
 	// ModuleConfigs holds configuration for registered modules.
 	moduleConfigs map[string]interface{}
 }
@@ -98,6 +103,8 @@ func New() Provider {
 		SessionSecret:    os.Getenv("SESSION_SECRET"),
 		StorageBackend:   os.Getenv("STORAGE_BACKEND"),
 		StoragePath:      os.Getenv("STORAGE_PATH"),
+		MaxUploadSizeMB:  getInt64Env("STORAGE_MAX_UPLOAD_MB", 5),
+		AllowedMimeTypes: os.Getenv("STORAGE_ALLOWED_MIME_TYPES"),
 		moduleConfigs:    make(map[string]interface{}),
 	}
 
@@ -156,6 +163,16 @@ func New() Provider {
 	}
 
 	return cfg
+}
+
+// getInt64Env is a helper to parse an int64 from env with a default.
+func getInt64Env(key string, fallback int64) int64 {
+	if value, ok := os.LookupEnv(key); ok {
+		if i, err := strconv.Atoi(value); err == nil {
+			return int64(i)
+		}
+	}
+	return fallback
 }
 
 // GetServerAddr returns the server address.
@@ -231,6 +248,20 @@ func (c *Config) GetStorageBackend() string {
 // GetStoragePath returns the root path for the file storage.
 func (c *Config) GetStoragePath() string {
 	return c.StoragePath
+}
+
+// GetMaxUploadSize returns the maximum file upload size in bytes.
+func (c *Config) GetMaxUploadSize() int64 {
+	return c.MaxUploadSizeMB * 1024 * 1024
+}
+
+// GetAllowedMimeTypes returns a list of allowed MIME types for uploads.
+func (c *Config) GetAllowedMimeTypes() []string {
+	if c.AllowedMimeTypes == "" {
+		// Return a default list or an empty list to allow all types
+		return []string{"image/jpeg", "image/png", "application/pdf"}
+	}
+	return strings.Split(c.AllowedMimeTypes, ",")
 }
 
 // GetModuleConfig retrieves the configuration for a specific module.
