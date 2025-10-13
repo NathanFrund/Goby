@@ -38,13 +38,22 @@ func (s *FileStore) Create(ctx context.Context, file *domain.File) (*domain.File
 		return nil, errors.New("file storage path is required")
 	}
 
-	// Set timestamps directly on the struct. The SurrealDB driver will handle
-	// marshalling `time.Time` correctly when the struct is passed to `Create`.
+	// Instead of passing the struct directly, create a map to ensure correct
 	now := time.Now().UTC()
-	file.CreatedAt = &surrealmodels.CustomDateTime{Time: now}
-	file.UpdatedAt = &surrealmodels.CustomDateTime{Time: now}
+	file.CreatedAt = &surrealmodels.CustomDateTime{Time: now} // This assumes domain.File.CreatedAt is *CustomDateTime
+	file.UpdatedAt = &surrealmodels.CustomDateTime{Time: now} // This assumes domain.File.UpdatedAt is *CustomDateTime
 
-	createdFile, err := s.client.Create(ctx, fileTable, file)
+	fileData := map[string]interface{}{
+		"user_id":      file.UserID,
+		"filename":     file.Filename,
+		"mime_type":    file.MimeType,
+		"size_bytes":   file.SizeBytes,
+		"storage_path": file.StoragePath,
+		"created_at":   file.CreatedAt,
+		"updated_at":   file.UpdatedAt,
+	}
+
+	createdFile, err := s.client.Create(ctx, fileTable, fileData)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create file: %w", err)
 	}
@@ -79,16 +88,15 @@ func (s *FileStore) Update(ctx context.Context, file *domain.File) (*domain.File
 		return nil, errors.New("file and file ID are required for update")
 	}
 
-	// For updates, it's still best practice to use a map to explicitly control
-	// which fields are being modified. The database schema will automatically
-	// handle updating the `updated_at` field.
+	// Use a map for updates to explicitly control which fields are modified
+	file.UpdatedAt = &surrealmodels.CustomDateTime{Time: time.Now().UTC()}
 	updateData := map[string]interface{}{
 		"filename":   file.Filename,
 		"mime_type":  file.MimeType,
-		"updated_at": &surrealmodels.CustomDateTime{Time: time.Now().UTC()},
+		"updated_at": file.UpdatedAt,
 	}
 
-	return s.client.Update(ctx, file.ID.String(), &updateData)
+	return s.client.Update(ctx, file.ID.String(), updateData)
 }
 
 // Delete removes a file record from the database.
