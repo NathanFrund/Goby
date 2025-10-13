@@ -10,7 +10,6 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/domain"
 	"github.com/nfrund/goby/internal/middleware"
-	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
 )
 
 // FileHandler handles HTTP requests related to files.
@@ -32,11 +31,9 @@ func (h *FileHandler) Upload(c echo.Context) error {
 	ctx := c.Request().Context()
 	logger := middleware.FromContext(ctx)
 
-	// For this example, we'll assume the user is authenticated and their ID is available.
-	// In a real app, this would come from the session or a JWT.
-	// Using a placeholder until auth is integrated here.
-	userID, ok := c.Get("userID").(*surrealmodels.RecordID)
-	if !ok || userID == nil {
+	// Retrieve the authenticated user from the context, set by the Auth middleware.
+	user, ok := c.Get("user").(*domain.User)
+	if !ok || user == nil || user.ID == nil {
 		return c.String(http.StatusUnauthorized, "Unauthorized")
 	}
 
@@ -52,7 +49,7 @@ func (h *FileHandler) Upload(c echo.Context) error {
 	defer src.Close()
 
 	// Create a unique storage path.
-	storagePath := filepath.Join("users", userID.String(), fmt.Sprintf("%d-%s", time.Now().UnixNano(), fileHeader.Filename))
+	storagePath := filepath.Join("users", user.ID.String(), fmt.Sprintf("%d-%s", time.Now().UnixNano(), fileHeader.Filename))
 
 	bytesWritten, err := h.store.Save(ctx, storagePath, src)
 	if err != nil {
@@ -62,7 +59,7 @@ func (h *FileHandler) Upload(c echo.Context) error {
 
 	// Save metadata to the database.
 	fileMetadata := &domain.File{
-		UserID:      userID,
+		UserID:      user.ID,
 		Filename:    fileHeader.Filename,
 		MimeType:    fileHeader.Header.Get("Content-Type"),
 		SizeBytes:   bytesWritten,
@@ -89,10 +86,9 @@ func (h *FileHandler) Delete(c echo.Context) error {
 		return c.String(http.StatusBadRequest, "File ID is required")
 	}
 
-	// In a real app, we would also get the current user's ID to ensure
-	// they have permission to delete this file.
-	userID, ok := c.Get("userID").(*surrealmodels.RecordID)
-	if !ok || userID == nil {
+	// Retrieve the authenticated user from the context.
+	user, ok := c.Get("user").(*domain.User)
+	if !ok || user == nil || user.ID == nil {
 		return c.String(http.StatusUnauthorized, "Unauthorized")
 	}
 
@@ -104,9 +100,9 @@ func (h *FileHandler) Delete(c echo.Context) error {
 	}
 
 	// 2. Authorization check: Ensure the current user owns the file.
-	if file.UserID == nil || file.UserID.String() != userID.String() {
+	if file.UserID == nil || file.UserID.String() != user.ID.String() {
 		logger.Warn("User attempted to delete a file they don't own",
-			slog.String("userID", userID.String()),
+			slog.String("userID", user.ID.String()),
 			slog.String("fileID", fileID),
 			slog.String("ownerID", file.UserID.String()))
 		return c.String(http.StatusForbidden, "You do not have permission to delete this file")
@@ -125,4 +121,47 @@ func (h *FileHandler) Delete(c echo.Context) error {
 	}
 
 	return c.NoContent(http.StatusNoContent)
+}
+
+// Download handles serving a file's content.
+func (h *FileHandler) Download(c echo.Context) error {
+	ctx := c.Request().Context()
+	logger := middleware.FromContext(ctx)
+
+	fileID := c.Param("id")
+	if fileID == "" {
+		return c.String(http.StatusBadRequest, "File ID is required")
+	}
+
+	// Retrieve the authenticated user from the context.
+	user, ok := c.Get("user").(*domain.User)
+	if !ok || user == nil || user.ID == nil {
+		return c.String(http.StatusUnauthorized, "Unauthorized")
+	}
+
+	// 1. Get the file metadata to verify ownership and get content type.
+	file, err := h.fileRepo.GetByID(ctx, fileID)
+	if err != nil {
+		logger.Warn("Failed to get file for download", slog.String("fileID", fileID), slog.String("error", err.Error()))
+		return c.String(http.StatusNotFound, "File not found")
+	}
+
+	// 2. Authorization check: Ensure the current user owns the file.
+	if file.UserID == nil || file.UserID.String() != user.ID.String() {
+		logger.Warn("User attempted to download a file they don't own",
+			slog.String("userID", user.ID.String()),
+			slog.String("fileID", fileID),
+			slog.String("ownerID", file.UserID.String()))
+		return c.String(http.StatusForbidden, "You do not have permission to download this file")
+	}
+
+	// 3. Get the file content from storage.
+	content, err := h.store.Get(ctx, file.StoragePath)
+	if err != nil {
+		logger.Error("Failed to get physical file from storage", slog.String("path", file.StoragePath), slog.String("error", err.Error()))
+		return c.String(http.StatusInternalServerError, "Could not retrieve file")
+	}
+	defer content.Close()
+
+	return c.Stream(http.StatusOK, file.MimeType, content)
 }

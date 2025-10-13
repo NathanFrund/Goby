@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -66,12 +67,13 @@ func TestFileHandler_Upload(t *testing.T) {
 	// Middleware to inject the user ID into the context for the handler
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
-			c.Set("userID", createdUser.ID)
+			c.Set("user", &createdUser.User)
 			return next(c)
 		}
 	})
 	e.POST("/upload", fileHandler.Upload)
 	e.DELETE("/files/:id", fileHandler.Delete)
+	e.GET("/files/:id/download", fileHandler.Download)
 
 	// --- Create Upload Request ---
 	body := new(bytes.Buffer)
@@ -176,11 +178,12 @@ func TestFileHandler_Delete(t *testing.T) {
 	e := echo.New()
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
-			c.Set("userID", createdUser.ID)
+			c.Set("user", &createdUser.User)
 			return next(c)
 		}
 	})
 	e.DELETE("/files/:id", fileHandler.Delete)
+	e.GET("/files/:id/download", fileHandler.Download)
 
 	// --- Execute Delete Request ---
 	req := httptest.NewRequest(http.MethodDelete, "/files/"+createdFile.ID.String(), nil)
@@ -200,4 +203,79 @@ func TestFileHandler_Delete(t *testing.T) {
 	exists, err := afero.Exists(memFs, storagePath)
 	require.NoError(t, err)
 	assert.False(t, exists, "expected physical file to be deleted from storage")
+}
+
+// TestFileHandler_Download tests the file download endpoint.
+func TestFileHandler_Download(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	// --- Setup ---
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	cfg := testutils.ConfigForTests(t)
+	conn := database.NewConnection(cfg)
+	err := conn.Connect(ctx)
+	require.NoError(t, err)
+	defer conn.Close(ctx)
+
+	fileClient, err := database.NewClient[domain.File](conn, cfg)
+	require.NoError(t, err)
+	fileStore := database.NewFileStore(fileClient)
+
+	memFs := afero.NewMemMapFs()
+	aferoStore := storage.NewAferoStore(memFs)
+
+	userClient, err := database.NewClient[testutils.TestUser](conn, cfg)
+	require.NoError(t, err)
+	testUserName := "File Downloader"
+	testUser := testutils.TestUser{
+		User:     domain.User{Name: &testUserName, Email: fmt.Sprintf("downloader-%d@example.com", time.Now().UnixNano())},
+		Password: "password",
+	}
+	createdUser, err := userClient.Create(ctx, "user", &testUser)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = userClient.Delete(ctx, createdUser.ID.String()) })
+
+	// --- Create a file to be downloaded ---
+	storagePath := filepath.Join("users", createdUser.ID.String(), "file-to-download.txt")
+	fileContent := "this is the content of the downloaded file"
+	_, err = aferoStore.Save(ctx, storagePath, bytes.NewReader([]byte(fileContent)))
+	require.NoError(t, err)
+
+	fileToCreate := &domain.File{
+		UserID:      createdUser.ID,
+		Filename:    "file-to-download.txt",
+		MimeType:    "text/plain",
+		StoragePath: storagePath,
+		SizeBytes:   int64(len(fileContent)),
+	}
+	createdFile, err := fileStore.Create(ctx, fileToCreate)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = fileStore.Delete(ctx, createdFile.ID.String()) })
+
+	// --- Setup Handler and Server ---
+	fileHandler := storage.NewFileHandler(aferoStore, fileStore)
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("user", &createdUser.User)
+			return next(c)
+		}
+	})
+	e.GET("/files/:id/download", fileHandler.Download)
+
+	// --- Execute Download Request ---
+	req := httptest.NewRequest(http.MethodGet, "/files/"+createdFile.ID.String()+"/download", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	// --- Assertions ---
+	assert.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "text/plain", rec.Header().Get("Content-Type"))
+	bodyBytes, err := ioutil.ReadAll(rec.Body)
+	require.NoError(t, err)
+	assert.Equal(t, fileContent, string(bodyBytes))
 }

@@ -24,11 +24,11 @@ type Service interface {
 // serviceImpl implements the Service interface.
 type serviceImpl struct {
 	repo    domain.FileRepository
-	storage storage.FileStorage
+	storage storage.Store
 }
 
 // NewService creates a new file service.
-func NewService(repo domain.FileRepository, storage storage.FileStorage) Service {
+func NewService(repo domain.FileRepository, storage storage.Store) Service {
 	return &serviceImpl{
 		repo:    repo,
 		storage: storage,

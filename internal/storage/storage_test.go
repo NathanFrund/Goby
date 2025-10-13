@@ -42,8 +42,8 @@ func TestAferoStore_Unit(t *testing.T) {
 	})
 
 	// 3. Test Open
-	t.Run("Open", func(t *testing.T) {
-		file, err := store.Open(ctx, filePath)
+	t.Run("Get", func(t *testing.T) {
+		file, err := store.Get(ctx, filePath)
 		require.NoError(t, err)
 		defer file.Close()
 
@@ -64,8 +64,8 @@ func TestAferoStore_Unit(t *testing.T) {
 	})
 
 	// 5. Test edge cases
-	t.Run("Open non-existent file", func(t *testing.T) {
-		_, err := store.Open(ctx, "path/to/nothing.txt")
+	t.Run("Get non-existent file", func(t *testing.T) {
+		_, err := store.Get(ctx, "path/to/nothing.txt")
 		assert.Error(t, err, "opening a non-existent file should return an error")
 	})
 }
