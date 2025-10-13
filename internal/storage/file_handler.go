@@ -26,15 +26,24 @@ func NewFileHandler(s Store, fr domain.FileRepository) *FileHandler {
 	}
 }
 
+// getUserFromContext is a helper to retrieve the authenticated user from the context.
+func getUserFromContext(c echo.Context) (*domain.User, error) {
+	user, ok := c.Get("user").(*domain.User)
+	if !ok || user == nil || user.ID == nil {
+		return nil, echo.NewHTTPError(http.StatusUnauthorized, "Unauthorized")
+	}
+	return user, nil
+}
+
 // Upload handles file uploads from a multipart form.
 func (h *FileHandler) Upload(c echo.Context) error {
 	ctx := c.Request().Context()
 	logger := middleware.FromContext(ctx)
 
 	// Retrieve the authenticated user from the context, set by the Auth middleware.
-	user, ok := c.Get("user").(*domain.User)
-	if !ok || user == nil || user.ID == nil {
-		return c.String(http.StatusUnauthorized, "Unauthorized")
+	user, err := getUserFromContext(c)
+	if err != nil {
+		return err
 	}
 
 	fileHeader, err := c.FormFile("file")
@@ -49,7 +58,9 @@ func (h *FileHandler) Upload(c echo.Context) error {
 	defer src.Close()
 
 	// Create a unique storage path.
-	storagePath := filepath.Join("users", user.ID.String(), fmt.Sprintf("%d-%s", time.Now().UnixNano(), fileHeader.Filename))
+	// Sanitize the filename to prevent path traversal attacks.
+	sanitizedFilename := filepath.Base(fileHeader.Filename)
+	storagePath := filepath.Join("users", user.ID.String(), fmt.Sprintf("%d-%s", time.Now().UnixNano(), sanitizedFilename))
 
 	bytesWritten, err := h.store.Save(ctx, storagePath, src)
 	if err != nil {
@@ -60,7 +71,7 @@ func (h *FileHandler) Upload(c echo.Context) error {
 	// Save metadata to the database.
 	fileMetadata := &domain.File{
 		UserID:      user.ID,
-		Filename:    fileHeader.Filename,
+		Filename:    sanitizedFilename,
 		MimeType:    fileHeader.Header.Get("Content-Type"),
 		SizeBytes:   bytesWritten,
 		StoragePath: storagePath,
@@ -87,9 +98,9 @@ func (h *FileHandler) Delete(c echo.Context) error {
 	}
 
 	// Retrieve the authenticated user from the context.
-	user, ok := c.Get("user").(*domain.User)
-	if !ok || user == nil || user.ID == nil {
-		return c.String(http.StatusUnauthorized, "Unauthorized")
+	user, err := getUserFromContext(c)
+	if err != nil {
+		return err
 	}
 
 	// 1. Get the file metadata to find its storage path and verify ownership.
@@ -134,9 +145,9 @@ func (h *FileHandler) Download(c echo.Context) error {
 	}
 
 	// Retrieve the authenticated user from the context.
-	user, ok := c.Get("user").(*domain.User)
-	if !ok || user == nil || user.ID == nil {
-		return c.String(http.StatusUnauthorized, "Unauthorized")
+	user, err := getUserFromContext(c)
+	if err != nil {
+		return err
 	}
 
 	// 1. Get the file metadata to verify ownership and get content type.
