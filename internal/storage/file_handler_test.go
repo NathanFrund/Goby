@@ -71,6 +71,7 @@ func TestFileHandler_Upload(t *testing.T) {
 		}
 	})
 	e.POST("/upload", fileHandler.Upload)
+	e.DELETE("/files/:id", fileHandler.Delete)
 
 	// --- Create Upload Request ---
 	body := new(bytes.Buffer)
@@ -119,4 +120,84 @@ func TestFileHandler_Upload(t *testing.T) {
 	readBytes, err := afero.ReadFile(memFs, storagePath)
 	require.NoError(t, err)
 	assert.Equal(t, fileContent, string(readBytes))
+}
+
+// TestFileHandler_Delete tests the file deletion endpoint.
+func TestFileHandler_Delete(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	// --- Setup ---
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	cfg := testutils.ConfigForTests(t)
+	conn := database.NewConnection(cfg)
+	err := conn.Connect(ctx)
+	require.NoError(t, err)
+	defer conn.Close(ctx)
+
+	fileClient, err := database.NewClient[domain.File](conn, cfg)
+	require.NoError(t, err)
+	fileStore := database.NewFileStore(fileClient)
+
+	memFs := afero.NewMemMapFs()
+	aferoStore := storage.NewAferoStore(memFs)
+
+	userClient, err := database.NewClient[testutils.TestUser](conn, cfg)
+	require.NoError(t, err)
+	testUserName := "File Deleter"
+	testUser := testutils.TestUser{
+		User:     domain.User{Name: &testUserName, Email: fmt.Sprintf("deleter-%d@example.com", time.Now().UnixNano())},
+		Password: "password",
+	}
+	createdUser, err := userClient.Create(ctx, "user", &testUser)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = userClient.Delete(ctx, createdUser.ID.String()) })
+
+	// --- Create a file to be deleted ---
+	storagePath := filepath.Join("users", createdUser.ID.String(), "file-to-delete.txt")
+	fileContent := "this file will be deleted"
+	_, err = aferoStore.Save(ctx, storagePath, bytes.NewReader([]byte(fileContent)))
+	require.NoError(t, err)
+
+	fileToCreate := &domain.File{
+		UserID:      createdUser.ID,
+		Filename:    "file-to-delete.txt",
+		StoragePath: storagePath,
+		SizeBytes:   int64(len(fileContent)),
+	}
+	createdFile, err := fileStore.Create(ctx, fileToCreate)
+	require.NoError(t, err)
+
+	// --- Setup Handler and Server ---
+	fileHandler := storage.NewFileHandler(aferoStore, fileStore)
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("userID", createdUser.ID)
+			return next(c)
+		}
+	})
+	e.DELETE("/files/:id", fileHandler.Delete)
+
+	// --- Execute Delete Request ---
+	req := httptest.NewRequest(http.MethodDelete, "/files/"+createdFile.ID.String(), nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	// --- Assertions ---
+	assert.Equal(t, http.StatusNoContent, rec.Code)
+
+	// Verify metadata was deleted from the database
+	_, err = fileStore.GetByID(ctx, createdFile.ID.String())
+	require.Error(t, err, "expected an error when getting a deleted file")
+	// A more specific check for a "not found" error would be even better.
+	// For now, any error suffices to show it's gone.
+
+	// Verify file content was deleted from storage
+	exists, err := afero.Exists(memFs, storagePath)
+	require.NoError(t, err)
+	assert.False(t, exists, "expected physical file to be deleted from storage")
 }
