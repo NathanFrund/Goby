@@ -9,6 +9,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
 	"path/filepath"
 	"testing"
 	"time"
@@ -62,7 +63,10 @@ func TestFileHandler_Upload(t *testing.T) {
 	t.Cleanup(func() { _ = userClient.Delete(ctx, createdUser.ID.String()) })
 
 	// 4. Handler and Server setup
-	fileHandler := storage.NewFileHandler(aferoStore, fileStore)
+	// For this test, allow any size and type to test the success path.
+	maxSize := int64(10 * 1024 * 1024) // 10MB
+	allowedTypes := []string{"text/plain"}
+	fileHandler := storage.NewFileHandler(aferoStore, fileStore, maxSize, allowedTypes)
 	e := echo.New()
 	// Middleware to inject the user ID into the context for the handler
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
@@ -79,6 +83,7 @@ func TestFileHandler_Upload(t *testing.T) {
 	body := new(bytes.Buffer)
 	writer := multipart.NewWriter(body)
 	part, err := writer.CreateFormFile("file", "test-upload.txt")
+	// part.Header.Set("Content-Type", "text/plain") // This is incorrect, but let's fix it by using CreatePart
 	require.NoError(t, err)
 	fileContent := "this is the content of the uploaded file"
 	_, err = io.WriteString(part, fileContent)
@@ -174,7 +179,9 @@ func TestFileHandler_Delete(t *testing.T) {
 	require.NoError(t, err)
 
 	// --- Setup Handler and Server ---
-	fileHandler := storage.NewFileHandler(aferoStore, fileStore)
+	maxSize := int64(10 * 1024 * 1024) // 10MB
+	allowedTypes := []string{"text/plain"}
+	fileHandler := storage.NewFileHandler(aferoStore, fileStore, maxSize, allowedTypes)
 	e := echo.New()
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
@@ -257,7 +264,9 @@ func TestFileHandler_Download(t *testing.T) {
 	t.Cleanup(func() { _ = fileStore.Delete(ctx, createdFile.ID.String()) })
 
 	// --- Setup Handler and Server ---
-	fileHandler := storage.NewFileHandler(aferoStore, fileStore)
+	maxSize := int64(10 * 1024 * 1024) // 10MB
+	allowedTypes := []string{"text/plain"}
+	fileHandler := storage.NewFileHandler(aferoStore, fileStore, maxSize, allowedTypes)
 	e := echo.New()
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
@@ -278,4 +287,76 @@ func TestFileHandler_Download(t *testing.T) {
 	bodyBytes, err := ioutil.ReadAll(rec.Body)
 	require.NoError(t, err)
 	assert.Equal(t, fileContent, string(bodyBytes))
+}
+
+// TestFileHandler_Upload_Validation tests the security validations on upload.
+func TestFileHandler_Upload_Validation(t *testing.T) {
+	// --- Setup ---
+	// No database needed for these validation tests
+	fileStore := database.NewFileStore(nil)
+	memFs := afero.NewMemMapFs()
+	aferoStore := storage.NewAferoStore(memFs)
+
+	// Create a dummy user, does not need to be in the DB for this test.
+	user := &domain.User{ID: testutils.NewTestRecordID("user")}
+
+	// Configure handler with strict limits
+	maxSize := int64(1024) // 1 KB
+	allowedTypes := []string{"image/png", "image/jpeg"}
+	fileHandler := storage.NewFileHandler(aferoStore, fileStore, maxSize, allowedTypes)
+
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("user", user)
+			return next(c)
+		}
+	})
+	e.POST("/upload", fileHandler.Upload)
+
+	t.Run("rejects unsupported MIME type", func(t *testing.T) {
+		body := new(bytes.Buffer)
+		writer := multipart.NewWriter(body)
+		h := make(textproto.MIMEHeader)
+		h.Set("Content-Disposition", `form-data; name="file"; filename="script.sh"`)
+		h.Set("Content-Type", "application/x-shellscript") // Disallowed type
+		part, err := writer.CreatePart(h)
+		require.NoError(t, err)
+		_, err = io.WriteString(part, "echo 'pwned'")
+		require.NoError(t, err)
+		writer.Close()
+
+		req := httptest.NewRequest(http.MethodPost, "/upload", body)
+		req.Header.Set(echo.HeaderContentType, writer.FormDataContentType())
+		rec := httptest.NewRecorder()
+
+		e.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusUnsupportedMediaType, rec.Code)
+		assert.Contains(t, rec.Body.String(), "File type 'application/x-shellscript' is not allowed")
+	})
+
+	t.Run("rejects file that is too large", func(t *testing.T) {
+		body := new(bytes.Buffer)
+		writer := multipart.NewWriter(body)
+		h := make(textproto.MIMEHeader)
+		h.Set("Content-Disposition", `form-data; name="file"; filename="large-file.png"`)
+		h.Set("Content-Type", "image/png") // Allowed type
+		part, err := writer.CreatePart(h)
+		require.NoError(t, err)
+		// Create content larger than the 1KB limit
+		largeContent := make([]byte, 2048)
+		_, err = part.Write(largeContent)
+		require.NoError(t, err)
+		writer.Close()
+
+		req := httptest.NewRequest(http.MethodPost, "/upload", body)
+		req.Header.Set(echo.HeaderContentType, writer.FormDataContentType())
+		rec := httptest.NewRecorder()
+
+		e.ServeHTTP(rec, req)
+
+		assert.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
+		assert.Contains(t, rec.Body.String(), "File size of 2048 bytes exceeds the limit")
+	})
 }

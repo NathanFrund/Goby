@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -14,15 +15,24 @@ import (
 
 // FileHandler handles HTTP requests related to files.
 type FileHandler struct {
-	store    Store
-	fileRepo domain.FileRepository
+	store            Store
+	fileRepo         domain.FileRepository
+	maxUploadSize    int64
+	allowedMimeTypes map[string]bool
 }
 
 // NewFileHandler creates a new FileHandler.
-func NewFileHandler(s Store, fr domain.FileRepository) *FileHandler {
+func NewFileHandler(s Store, fr domain.FileRepository, maxUploadSize int64, allowedMimeTypes []string) *FileHandler {
+	mimeTypesMap := make(map[string]bool)
+	for _, mimeType := range allowedMimeTypes {
+		mimeTypesMap[strings.TrimSpace(mimeType)] = true
+	}
+
 	return &FileHandler{
-		store:    s,
-		fileRepo: fr,
+		store:            s,
+		fileRepo:         fr,
+		maxUploadSize:    maxUploadSize,
+		allowedMimeTypes: mimeTypesMap,
 	}
 }
 
@@ -51,6 +61,17 @@ func (h *FileHandler) Upload(c echo.Context) error {
 		return c.String(http.StatusBadRequest, "Invalid file upload request")
 	}
 
+	// Security: Validate file size.
+	if h.maxUploadSize > 0 && fileHeader.Size > h.maxUploadSize {
+		return c.String(http.StatusRequestEntityTooLarge, fmt.Sprintf("File size of %d bytes exceeds the limit of %d bytes", fileHeader.Size, h.maxUploadSize))
+	}
+
+	// Security: Validate MIME type.
+	mimeType := fileHeader.Header.Get("Content-Type")
+	if len(h.allowedMimeTypes) > 0 && !h.allowedMimeTypes[mimeType] {
+		return c.String(http.StatusUnsupportedMediaType, fmt.Sprintf("File type '%s' is not allowed", mimeType))
+	}
+
 	src, err := fileHeader.Open()
 	if err != nil {
 		return c.String(http.StatusInternalServerError, "Failed to open uploaded file")
@@ -72,7 +93,7 @@ func (h *FileHandler) Upload(c echo.Context) error {
 	fileMetadata := &domain.File{
 		UserID:      user.ID,
 		Filename:    sanitizedFilename,
-		MimeType:    fileHeader.Header.Get("Content-Type"),
+		MimeType:    mimeType,
 		SizeBytes:   bytesWritten,
 		StoragePath: storagePath,
 	}
