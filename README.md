@@ -816,6 +816,8 @@ The application is configured using environment variables. For local development
 | **`APP_BASE_URL`**   | The public base URL for the application, used for generating links in emails.         | `http://localhost:8080` | No             |
 | **`SESSION_SECRET`** | A long, random string used to secure user sessions.                                   | (none)                  | **Yes (Prod)** |
 | **`APP_STATIC`**     | Controls static asset serving. `disk` for development, `embed` for production builds. | `disk`                  | No             |
+| **`STORAGE_BACKEND`**| The storage backend to use for file uploads (`os` or `mem`).                          | `os`                    | No             |
+| **`STORAGE_PATH`**   | The root directory for the `os` storage backend.                                      | `tmp/uploads`           | No             |
 
 ### Database
 

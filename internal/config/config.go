@@ -42,6 +42,8 @@ type Provider interface {
 	GetSessionSecret() string
 	GetDBQueryTimeout() time.Duration
 	GetDBExecuteTimeout() time.Duration
+	GetStorageBackend() string
+	GetStoragePath() string
 	// GetModuleConfig retrieves the configuration for a specific module.
 	// Returns the config and a boolean indicating if it was found.
 	GetModuleConfig(moduleName string) (interface{}, bool)
@@ -62,6 +64,8 @@ type Config struct {
 	EmailSender      string
 	AppBaseURL       string
 	SessionSecret    string
+	StorageBackend   string
+	StoragePath      string
 	// ModuleConfigs holds configuration for registered modules.
 	moduleConfigs map[string]interface{}
 }
@@ -92,6 +96,8 @@ func New() Provider {
 		EmailSender:      os.Getenv("EMAIL_SENDER"),
 		AppBaseURL:       os.Getenv("APP_BASE_URL"),
 		SessionSecret:    os.Getenv("SESSION_SECRET"),
+		StorageBackend:   os.Getenv("STORAGE_BACKEND"),
+		StoragePath:      os.Getenv("STORAGE_PATH"),
 		moduleConfigs:    make(map[string]interface{}),
 	}
 
@@ -138,6 +144,15 @@ func New() Provider {
 			host = "localhost"
 		}
 		cfg.AppBaseURL = "http://" + net.JoinHostPort(host, port)
+	}
+
+	// Set sensible defaults for storage
+	if cfg.StorageBackend == "" {
+		cfg.StorageBackend = "os" // 'os' for OsFs, 'mem' for MemMapFs
+	}
+
+	if cfg.StoragePath == "" {
+		cfg.StoragePath = "tmp/uploads" // Default local storage path
 	}
 
 	return cfg
@@ -206,6 +221,16 @@ func (c *Config) GetDBQueryTimeout() time.Duration {
 // GetDBExecuteTimeout returns the default timeout for database write operations.
 func (c *Config) GetDBExecuteTimeout() time.Duration {
 	return c.DBExecuteTimeout
+}
+
+// GetStorageBackend returns the configured storage backend ('os' or 'mem').
+func (c *Config) GetStorageBackend() string {
+	return c.StorageBackend
+}
+
+// GetStoragePath returns the root path for the file storage.
+func (c *Config) GetStoragePath() string {
+	return c.StoragePath
 }
 
 // GetModuleConfig retrieves the configuration for a specific module.
