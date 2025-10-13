@@ -58,8 +58,8 @@ func (s *serviceImpl) UploadFile(ctx context.Context, userID, originalFilename, 
 	fileMetadata := &domain.File{
 		UserID:      &userIDRecord,
 		Filename:    originalFilename,
-		MimeType:    mimeType,
-		SizeBytes:   bytesWritten,
+		MIMEType:    mimeType,
+		Size:        bytesWritten,
 		StoragePath: storagePath,
 	}
 

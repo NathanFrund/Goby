@@ -132,7 +132,7 @@ func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Serve
 	fileHandler := storage.NewFileHandler(
 		fileStorage,
 		fileRepo,
-		cfg.GetMaxUploadSize(),
+		cfg.GetMaxFileSize(),
 		cfg.GetAllowedMimeTypes(),
 	)
 

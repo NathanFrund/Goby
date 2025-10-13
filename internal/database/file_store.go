@@ -46,8 +46,8 @@ func (s *FileStore) Create(ctx context.Context, file *domain.File) (*domain.File
 	fileData := map[string]interface{}{
 		"user_id":      file.UserID,
 		"filename":     file.Filename,
-		"mime_type":    file.MimeType,
-		"size_bytes":   file.SizeBytes,
+		"mime_type":    file.MIMEType,
+		"size":         file.Size,
 		"storage_path": file.StoragePath,
 		"created_at":   file.CreatedAt,
 		"updated_at":   file.UpdatedAt,
@@ -62,14 +62,14 @@ func (s *FileStore) Create(ctx context.Context, file *domain.File) (*domain.File
 }
 
 // GetByID retrieves file metadata by its unique ID.
-func (s *FileStore) GetByID(ctx context.Context, id string) (*domain.File, error) {
-	return s.client.Select(ctx, id)
+func (s *FileStore) FindByID(ctx context.Context, fileID string) (*domain.File, error) {
+	return s.client.Select(ctx, fileID)
 }
 
-// GetByStoragePath retrieves file metadata by its storage path.
-func (s *FileStore) GetByStoragePath(ctx context.Context, path string) (*domain.File, error) {
+// FindByStoragePath retrieves file metadata by its storage path.
+func (s *FileStore) FindByStoragePath(ctx context.Context, storagePath string) (*domain.File, error) {
 	query := "SELECT * FROM file WHERE storage_path = $path"
-	vars := map[string]interface{}{"path": path}
+	vars := map[string]interface{}{"path": storagePath}
 
 	file, err := s.client.QueryOne(ctx, query, vars)
 	if err != nil {
@@ -92,7 +92,7 @@ func (s *FileStore) Update(ctx context.Context, file *domain.File) (*domain.File
 	file.UpdatedAt = &surrealmodels.CustomDateTime{Time: time.Now().UTC()}
 	updateData := map[string]interface{}{
 		"filename":   file.Filename,
-		"mime_type":  file.MimeType,
+		"mime_type":  file.MIMEType,
 		"updated_at": file.UpdatedAt,
 	}
 
@@ -100,8 +100,8 @@ func (s *FileStore) Update(ctx context.Context, file *domain.File) (*domain.File
 }
 
 // Delete removes a file record from the database.
-func (s *FileStore) Delete(ctx context.Context, id string) error {
-	return s.client.Delete(ctx, id)
+func (s *FileStore) DeleteByID(ctx context.Context, fileID string) error {
+	return s.client.Delete(ctx, fileID)
 }
 
 // FindLatestByUser retrieves the most recently created file for a given user from the database.
