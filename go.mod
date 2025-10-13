@@ -12,7 +12,7 @@ require (
 	github.com/labstack/echo-contrib v0.17.1
 	github.com/labstack/echo/v4 v4.13.4
 	github.com/spf13/afero v1.15.0
-	github.com/stretchr/testify v1.11.0
+	github.com/stretchr/testify v1.11.1
 	github.com/surrealdb/surrealdb.go v0.9.0
 	maragu.dev/gomponents v1.2.0
 	maragu.dev/gomponents-htmx v0.6.1
