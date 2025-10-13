@@ -2,7 +2,6 @@ package domain
 
 import (
 	"context"
-	"time"
 
 	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
 )
@@ -11,14 +10,14 @@ import (
 // The actual file content is stored on a filesystem (e.g., local disk, S3)
 // and referenced by the StoragePath.
 type File struct {
-	ID          *surrealmodels.RecordID `json:"id,omitempty" surrealdb:"id,omitempty"`
-	UserID      string                 `json:"user_id,omitempty" surrealdb:"user_id,omitempty"` // The user who uploaded the file, e.g., "user:xxxx"
-	Filename    string                 `json:"filename" surrealdb:"filename"`                   // Original name of the file
-	MimeType    string                 `json:"mime_type" surrealdb:"mime_type"`                 // MIME type of the file
-	SizeBytes   int64                  `json:"size_bytes" surrealdb:"size_bytes"`               // Size of the file in bytes
-	StoragePath string                 `json:"storage_path" surrealdb:"storage_path"`           // The path to the file in the storage backend
-	CreatedAt   time.Time              `json:"created_at,omitempty" surrealdb:"created_at,omitempty"`
-	UpdatedAt   time.Time              `json:"updated_at,omitempty" surrealdb:"updated_at,omitempty"`
+	ID          *surrealmodels.RecordID       `json:"id,omitempty" surrealdb:"id,omitempty"`
+	UserID      *surrealmodels.RecordID       `json:"user_id,omitempty" surrealdb:"user_id,omitempty"` // The user who uploaded the file
+	Filename    string                        `json:"filename" surrealdb:"filename"`                   // Original name of the file
+	MimeType    string                        `json:"mime_type" surrealdb:"mime_type"`                 // MIME type of the file
+	SizeBytes   int64                         `json:"size_bytes" surrealdb:"size_bytes"`               // Size of the file in bytes
+	StoragePath string                        `json:"storage_path" surrealdb:"storage_path"`           // The path to the file in the storage backend
+	CreatedAt   *surrealmodels.CustomDateTime `json:"created_at,omitempty" surrealdb:"created_at,omitempty"`
+	UpdatedAt   *surrealmodels.CustomDateTime `json:"updated_at,omitempty" surrealdb:"updated_at,omitempty"`
 }
 
 // FileRepository defines the interface for interacting with file metadata storage.

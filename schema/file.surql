@@ -6,8 +6,6 @@
 -- and is referenced by the `storage_path`.
 -- =============================================================================
 
--- Define the 'file' table with a strict schema.
--- This ensures that only the fields we define can be created.
 DEFINE TABLE file SCHEMAFULL;
 
 -- Define the fields for the 'file' table.
