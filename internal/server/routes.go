@@ -51,36 +51,18 @@ func (s *Server) RegisterRoutes() {
 	protected := s.E.Group("/app")
 	protected.Use(authMiddleware)
 
-	// --- Module Loading System ---
-	// This logic has been moved to server.InitModules to be more explicit.
-	// reg := registry.New(s.Cfg)
-
-	// // 1. Register core framework services that modules might need.
-	// reg.Set((*domain.UserRepository)(nil), s.UserStore)
-	// reg.Set((*domain.EmailSender)(nil), s.Emailer)
-	// reg.Set((*domain.Renderer)(nil), s.Renderer)
-	// reg.Set((*pubsub.Publisher)(nil), s.PubSub)
-	// reg.Set((*pubsub.Subscriber)(nil), s.PubSub)
-	// reg.Set((*websocket.Bridge)(nil), s.bridge)
-
-	// // 2. Register services from all active modules.
-	// for _, mod := range s.modules {
-	// 	if err := mod.Register(reg); err != nil {
-	// 		slog.Error("Failed to register module", "module", mod.Name(), "error", err)
-	// 	}
-	// }
-
-	// // 3. Boot all active modules, setting up their routes.
-	// for _, mod := range s.modules {
-	// 	if err := mod.Boot(protected, reg); err != nil {
-	// 		slog.Error("Failed to boot module", "module", mod.Name(), "error", err)
-	// 	}
-	// }
-
 	// Standard routes
 	protected.GET("/dashboard", handlers.DashboardGet)
 
 	// Register WebSocket endpoints.
 	protected.GET("/ws/html", s.bridge.Handler(websocket.ConnectionTypeHTML))
 	protected.GET("/ws/data", s.bridge.Handler(websocket.ConnectionTypeData))
+
+	// Core File Service Routes are registered under the /app group
+	// and are therefore protected by the authentication middleware.
+	// The FileHandler is constructed in main.go and passed to the server.
+	filesGroup := protected.Group("/files") // e.g., /app/files
+	filesGroup.POST("/upload", s.FileHandler.Upload)
+	filesGroup.DELETE("/:id", s.FileHandler.Delete)
+	filesGroup.GET("/:id/download", s.FileHandler.Download)
 }
