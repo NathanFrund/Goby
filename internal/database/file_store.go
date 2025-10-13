@@ -120,3 +120,22 @@ func (s *FileStore) FindLatestByUser(ctx context.Context, userID *surrealmodels.
 
 	return &files[0], nil
 }
+
+// FindByUser retrieves all file metadata records for a given user, ordered by creation date.
+func (s *FileStore) FindByUser(ctx context.Context, userID *surrealmodels.RecordID) ([]*domain.File, error) {
+	query := "SELECT * FROM file WHERE user_id = $user ORDER BY created_at DESC"
+	vars := map[string]interface{}{"user": userID}
+
+	files, err := s.client.Query(ctx, query, vars)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query files by user: %w", err)
+	}
+
+	// The client.Query method returns a slice of values, but our interface expects a slice of pointers.
+	filePtrs := make([]*domain.File, len(files))
+	for i := range files {
+		filePtrs[i] = &files[i]
+	}
+
+	return filePtrs, nil
+}

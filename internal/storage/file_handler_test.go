@@ -3,6 +3,7 @@ package storage_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -82,8 +83,10 @@ func TestFileHandler_Upload(t *testing.T) {
 	// --- Create Upload Request ---
 	body := new(bytes.Buffer)
 	writer := multipart.NewWriter(body)
-	part, err := writer.CreateFormFile("file", "test-upload.txt")
-	// part.Header.Set("Content-Type", "text/plain") // This is incorrect, but let's fix it by using CreatePart
+	h := make(textproto.MIMEHeader)
+	h.Set("Content-Disposition", `form-data; name="file"; filename="test-upload.txt"`)
+	h.Set("Content-Type", "text/plain") // Set the allowed MIME type
+	part, err := writer.CreatePart(h)
 	require.NoError(t, err)
 	fileContent := "this is the content of the uploaded file"
 	_, err = io.WriteString(part, fileContent)
@@ -359,4 +362,156 @@ func TestFileHandler_Upload_Validation(t *testing.T) {
 		assert.Equal(t, http.StatusRequestEntityTooLarge, rec.Code)
 		assert.Contains(t, rec.Body.String(), "File size of 2048 bytes exceeds the limit")
 	})
+}
+
+// TestFileHandler_Authorization verifies that users cannot access files they don't own.
+func TestFileHandler_Authorization(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	// --- Setup ---
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	cfg := testutils.ConfigForTests(t)
+	conn := database.NewConnection(cfg)
+	err := conn.Connect(ctx)
+	require.NoError(t, err)
+	defer conn.Close(ctx)
+
+	fileClient, err := database.NewClient[domain.File](conn, cfg)
+	require.NoError(t, err)
+	fileStore := database.NewFileStore(fileClient)
+
+	memFs := afero.NewMemMapFs()
+	aferoStore := storage.NewAferoStore(memFs)
+
+	userClient, err := database.NewClient[testutils.TestUser](conn, cfg)
+	require.NoError(t, err)
+
+	// 1. Create two users
+	userA := testutils.TestUser{
+		User:     domain.User{Name: &[]string{"User A"}[0], Email: "usera@example.com"},
+		Password: "password",
+	}
+	createdUserA, err := userClient.Create(ctx, "user", &userA)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = userClient.Delete(ctx, createdUserA.ID.String()) })
+
+	userB := testutils.TestUser{
+		User:     domain.User{Name: &[]string{"User B"}[0], Email: "userb@example.com"},
+		Password: "password",
+	}
+	createdUserB, err := userClient.Create(ctx, "user", &userB)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = userClient.Delete(ctx, createdUserB.ID.String()) })
+
+	// 2. Create a file owned by User A
+	fileToCreate := &domain.File{
+		UserID:      createdUserA.ID,
+		Filename:    "user-a-file.txt",
+		StoragePath: "path/to/user-a-file.txt",
+	}
+	createdFile, err := fileStore.Create(ctx, fileToCreate)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = fileStore.Delete(ctx, createdFile.ID.String()) })
+
+	// 3. Setup Handler and Server
+	fileHandler := storage.NewFileHandler(aferoStore, fileStore, 0, nil)
+	e := echo.New()
+	// This middleware will authenticate the request as User B
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("user", &createdUserB.User)
+			return next(c)
+		}
+	})
+	e.DELETE("/files/:id", fileHandler.Delete)
+	e.GET("/files/:id/download", fileHandler.Download)
+
+	// 4. Assert that User B cannot download User A's file
+	t.Run("forbids downloading another user's file", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/files/"+createdFile.ID.String()+"/download", nil)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		assert.Equal(t, http.StatusForbidden, rec.Code)
+	})
+
+	// 5. Assert that User B cannot delete User A's file
+	t.Run("forbids deleting another user's file", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodDelete, "/files/"+createdFile.ID.String(), nil)
+		rec := httptest.NewRecorder()
+		e.ServeHTTP(rec, req)
+		assert.Equal(t, http.StatusForbidden, rec.Code)
+	})
+}
+
+// TestFileHandler_List tests the file listing endpoint.
+func TestFileHandler_List(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	// --- Setup ---
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	cfg := testutils.ConfigForTests(t)
+	conn := database.NewConnection(cfg)
+	err := conn.Connect(ctx)
+	require.NoError(t, err)
+	defer conn.Close(ctx)
+
+	fileClient, err := database.NewClient[domain.File](conn, cfg)
+	require.NoError(t, err)
+	fileStore := database.NewFileStore(fileClient)
+
+	userClient, err := database.NewClient[testutils.TestUser](conn, cfg)
+	require.NoError(t, err)
+
+	// 1. Create a user
+	userName := "File Lister"
+	user := testutils.TestUser{
+		User:     domain.User{Name: &userName, Email: "lister@example.com"},
+		Password: "password",
+	}
+	createdUser, err := userClient.Create(ctx, "user", &user)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = userClient.Delete(ctx, createdUser.ID.String()) })
+
+	// 2. Create some files for the user
+	file1, err := fileStore.Create(ctx, &domain.File{UserID: createdUser.ID, Filename: "file1.txt", StoragePath: "p1"})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = fileStore.Delete(ctx, file1.ID.String()) })
+
+	file2, err := fileStore.Create(ctx, &domain.File{UserID: createdUser.ID, Filename: "file2.txt", StoragePath: "p2"})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = fileStore.Delete(ctx, file2.ID.String()) })
+
+	// 3. Setup Handler and Server
+	fileHandler := storage.NewFileHandler(nil, fileStore, 0, nil)
+	e := echo.New()
+	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			c.Set("user", &createdUser.User)
+			return next(c)
+		}
+	})
+	e.GET("/files", fileHandler.List)
+
+	// 4. Execute List Request
+	req := httptest.NewRequest(http.MethodGet, "/files", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	// 5. Assertions
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var files []*domain.File
+	err = json.Unmarshal(rec.Body.Bytes(), &files)
+	require.NoError(t, err)
+	require.Len(t, files, 2, "should return two files for the user")
+	assert.Equal(t, "file2.txt", files[0].Filename, "files should be ordered by most recent first")
+	assert.Equal(t, "file1.txt", files[1].Filename)
 }

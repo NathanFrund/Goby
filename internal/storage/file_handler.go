@@ -197,3 +197,22 @@ func (h *FileHandler) Download(c echo.Context) error {
 
 	return c.Stream(http.StatusOK, file.MimeType, content)
 }
+
+// List returns a list of all files owned by the authenticated user.
+func (h *FileHandler) List(c echo.Context) error {
+	ctx := c.Request().Context()
+	logger := middleware.FromContext(ctx)
+
+	user, err := getUserFromContext(c)
+	if err != nil {
+		return err
+	}
+
+	files, err := h.fileRepo.FindByUser(ctx, user.ID)
+	if err != nil {
+		logger.Error("failed to find files for user", "user_id", user.ID.String(), "error", err)
+		return c.String(http.StatusInternalServerError, "Could not retrieve files")
+	}
+
+	return c.JSON(http.StatusOK, files)
+}

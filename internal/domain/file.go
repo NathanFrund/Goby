@@ -39,4 +39,7 @@ type FileRepository interface {
 
 	// FindLatestByUser retrieves the most recently created file for a given user.
 	FindLatestByUser(ctx context.Context, userID *surrealmodels.RecordID) (*File, error)
+
+	// FindByUser retrieves all file metadata records for a given user.
+	FindByUser(ctx context.Context, userID *surrealmodels.RecordID) ([]*File, error)
 }
