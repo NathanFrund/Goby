@@ -18,12 +18,15 @@ import (
 	"github.com/nfrund/goby/internal/database"
 	"github.com/nfrund/goby/internal/domain"
 	"github.com/nfrund/goby/internal/email"
+	"github.com/nfrund/goby/internal/handlers"
 	"github.com/nfrund/goby/internal/logging"
 	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/registry"
 	"github.com/nfrund/goby/internal/rendering"
 	"github.com/nfrund/goby/internal/server"
+	"github.com/nfrund/goby/internal/storage"
 	"github.com/nfrund/goby/internal/websocket"
+	"github.com/spf13/afero"
 )
 
 // AppStatic can be set at build time to force an asset loading strategy.
@@ -110,17 +113,44 @@ func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Serve
 	renderer := rendering.NewUniversalRenderer()
 	e := echo.New()
 
+	// Storage and File Handler
+	var fileStorage storage.Store
+	if cfg.GetStorageBackend() == "mem" {
+		slog.Info("Using in-memory file storage")
+		fileStorage = storage.NewAferoStore(afero.NewMemMapFs())
+	} else {
+		slog.Info("Using OS file storage", "path", cfg.GetStoragePath())
+		fileStorage = storage.NewAferoStore(afero.NewBasePathFs(afero.NewOsFs(), cfg.GetStoragePath()))
+	}
+
+	fileClient, err := database.NewClient[domain.File](dbConn, cfg)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create file db client: %w", err)
+	}
+	fileRepo := database.NewFileStore(fileClient)
+
+	fileHandler := storage.NewFileHandler(
+		fileStorage,
+		fileRepo,
+		cfg.GetMaxUploadSize(),
+		cfg.GetAllowedMimeTypes(),
+	)
+
+	dashboardHandler := handlers.NewDashboardHandler(fileRepo)
+
 	// 3. Assemble and Create the Main Server Instance
 	// All core dependencies are explicitly passed to the server's constructor.
 	slog.Info("Creating server instance...")
 	srv, err = server.New(server.Dependencies{
-		Config:    cfg,
-		Emailer:   emailer,
-		UserStore: userStore,
-		Renderer:  renderer,
-		Publisher: ps,
-		Echo:      e,
-		Bridge:    wsBridge,
+		Config:           cfg,
+		Emailer:          emailer,
+		UserStore:        userStore,
+		Renderer:         renderer,
+		Publisher:        ps,
+		Echo:             e,
+		Bridge:           wsBridge,
+		DashboardHandler: dashboardHandler,
+		FileHandler:      fileHandler,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create server: %w", err)

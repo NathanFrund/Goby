@@ -16,22 +16,26 @@ import (
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/nfrund/goby/internal/config"
 	"github.com/nfrund/goby/internal/domain"
+	"github.com/nfrund/goby/internal/handlers"
 	appmiddleware "github.com/nfrund/goby/internal/middleware"
 	"github.com/nfrund/goby/internal/module"
 	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/registry"
 	"github.com/nfrund/goby/internal/rendering"
+	"github.com/nfrund/goby/internal/storage"
 	"github.com/nfrund/goby/internal/websocket"
 	"github.com/nfrund/goby/web"
 )
 
 // Server holds the dependencies for the HTTP server.
 type Server struct {
-	E         *echo.Echo
-	Cfg       config.Provider
-	Emailer   domain.EmailSender
-	UserStore domain.UserRepository
-	Renderer  rendering.Renderer
+	E                *echo.Echo
+	Cfg              config.Provider
+	Emailer          domain.EmailSender
+	UserStore        domain.UserRepository
+	Renderer         rendering.Renderer
+	FileHandler      *storage.FileHandler
+	DashboardHandler *handlers.DashboardHandler
 
 	modules []module.Module
 	bridge  websocket.Bridge
@@ -41,13 +45,15 @@ type Server struct {
 // Dependencies holds all the services that the Server requires to operate.
 // This struct is used for constructor injection to make dependencies explicit.
 type Dependencies struct {
-	Config    config.Provider
-	Emailer   domain.EmailSender
-	UserStore domain.UserRepository
-	Renderer  echo.Renderer // The renderer for the Echo framework
-	Publisher pubsub.Publisher
-	Echo      *echo.Echo
-	Bridge    websocket.Bridge
+	Config           config.Provider
+	Emailer          domain.EmailSender
+	UserStore        domain.UserRepository
+	Renderer         echo.Renderer // The renderer for the Echo framework
+	Publisher        pubsub.Publisher
+	Echo             *echo.Echo
+	Bridge           websocket.Bridge
+	FileHandler      *storage.FileHandler
+	DashboardHandler *handlers.DashboardHandler
 }
 
 func setupErrorHandling(e *echo.Echo) {
@@ -120,13 +126,15 @@ func New(deps Dependencies) (*Server, error) {
 	}
 
 	s := &Server{
-		E:         e,
-		Cfg:       deps.Config,
-		Emailer:   deps.Emailer,
-		Renderer:  appRenderer,
-		PubSub:    deps.Publisher,
-		UserStore: deps.UserStore,
-		bridge:    deps.Bridge,
+		E:                e,
+		Cfg:              deps.Config,
+		Emailer:          deps.Emailer,
+		Renderer:         appRenderer,
+		PubSub:           deps.Publisher,
+		UserStore:        deps.UserStore,
+		bridge:           deps.Bridge,
+		FileHandler:      deps.FileHandler,
+		DashboardHandler: deps.DashboardHandler,
 	}
 
 	// Configure and use session middleware

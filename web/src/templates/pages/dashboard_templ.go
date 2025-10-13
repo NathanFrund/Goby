@@ -59,7 +59,35 @@ func Dashboard(data dashboard.Data) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "</code></p></div></div>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "</code></p></div><div class=\"divider\"></div><div class=\"mt-8\"><h2 class=\"text-2xl font-bold mb-4\">Profile Picture</h2><div class=\"flex items-center space-x-6\"><div class=\"avatar\"><div id=\"profile-pic-container\" class=\"w-24 rounded-full ring ring-primary ring-offset-base-100 ring-offset-2\">")
+		if templ_7745c5c3_Err != nil {
+			return templ_7745c5c3_Err
+		}
+		if data.ProfilePictureURL != "" {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 4, "<img id=\"profile-pic\" src=\"")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			var templ_7745c5c3_Var4 string
+			templ_7745c5c3_Var4, templ_7745c5c3_Err = templ.JoinStringErrs(data.ProfilePictureURL)
+			if templ_7745c5c3_Err != nil {
+				return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/src/templates/pages/dashboard.templ`, Line: 21, Col: 57}
+			}
+			_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var4))
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 5, "\" alt=\"Profile Picture\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+		} else {
+			templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 6, "<img id=\"profile-pic\" src=\"/static/img/placeholder.svg\" alt=\"Profile Picture Placeholder\">")
+			if templ_7745c5c3_Err != nil {
+				return templ_7745c5c3_Err
+			}
+		}
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 7, "</div></div><div><!-- This form uses htmx to upload the file and then reloads the page on success --><form hx-post=\"/app/files/upload\" hx-encoding=\"multipart/form-data\" hx-swap=\"none\" hx-on=\"htmx:afterRequest: if(event.detail.successful) window.location.reload()\"><input type=\"file\" name=\"file\" class=\"file-input file-input-bordered w-full max-w-xs\"> <button type=\"submit\" class=\"btn btn-primary mt-2\">Upload</button></form></div></div></div></div>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

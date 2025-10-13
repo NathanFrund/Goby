@@ -11,5 +11,32 @@ templ Dashboard(data dashboard.Data) {
 			<p>This is a protected page. You can only see it if you are logged in.</p>
 			<p>Your User ID is: <code>{ data.ID }</code></p>
 		</div>
+		<div class="divider"></div>
+		<div class="mt-8">
+			<h2 class="text-2xl font-bold mb-4">Profile Picture</h2>
+			<div class="flex items-center space-x-6">
+				<div class="avatar">
+					<div id="profile-pic-container" class="w-24 rounded-full ring ring-primary ring-offset-base-100 ring-offset-2">
+						if data.ProfilePictureURL != "" {
+							<img id="profile-pic" src={ data.ProfilePictureURL } alt="Profile Picture"/>
+						} else {
+							<img id="profile-pic" src="/static/img/placeholder.svg" alt="Profile Picture Placeholder"/>
+						}
+					</div>
+				</div>
+				<div>
+					<!-- This form uses htmx to upload the file and then reloads the page on success -->
+					<form
+ 						hx-post="/app/files/upload"
+ 						hx-encoding="multipart/form-data"
+ 						hx-swap="none"
+ 						hx-on="htmx:afterRequest: if(event.detail.successful) window.location.reload()"
+					>
+						<input type="file" name="file" class="file-input file-input-bordered w-full max-w-xs"/>
+						<button type="submit" class="btn btn-primary mt-2">Upload</button>
+					</form>
+				</div>
+			</div>
+		</div>
 	</div>
 }
