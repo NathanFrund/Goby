@@ -237,4 +237,36 @@ func TestFileStore_FindByUser(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "user ID is required", "Expected error about missing user ID")
 	})
+
+	t.Run("returns all files when limit is 0", func(t *testing.T) {
+		files, total, err := store.FindByUser(ctx, createdUser.ID, 0, 0)
+		require.NoError(t, err)
+		// Should return all 3 files regardless of limit/offset when limit is 0
+		assert.Len(t, files, 3)
+		assert.Equal(t, int64(3), total)
+	})
+
+	t.Run("returns all files when limit is negative", func(t *testing.T) {
+		files, total, err := store.FindByUser(ctx, createdUser.ID, -1, 0)
+		require.NoError(t, err)
+		// Should return all 3 files regardless of limit/offset when limit is negative
+		assert.Len(t, files, 3)
+		assert.Equal(t, int64(3), total)
+	})
+
+	t.Run("ignores offset when limit is 0", func(t *testing.T) {
+		files, total, err := store.FindByUser(ctx, createdUser.ID, 0, 10) // Large offset with limit=0
+		require.NoError(t, err)
+		// Should still return all files even with offset when limit is 0
+		assert.Len(t, files, 3)
+		assert.Equal(t, int64(3), total)
+	})
+
+	t.Run("handles offset beyond total count", func(t *testing.T) {
+		files, total, err := store.FindByUser(ctx, createdUser.ID, 10, 100) // Offset beyond total
+		require.NoError(t, err)
+		// Should return empty slice when offset is beyond total count
+		assert.Empty(t, files)
+		assert.Equal(t, int64(3), total)
+	})
 }
