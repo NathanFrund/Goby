@@ -57,17 +57,22 @@ func (h *FileHandler) UploadFile(c echo.Context) error {
 		return err
 	}
 
-	fileHeader, err := c.FormFile("file")
-	if err != nil {
-		return c.String(http.StatusBadRequest, "Invalid file upload request")
+	// 1. Bind and Validate the request to our DTO.
+	var req UploadFileRequest
+	if err := c.Bind(&req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "Invalid request format.")
+	}
+	if err := c.Validate(&req); err != nil {
+		// The validator will return a user-friendly error.
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	// Security: Validate file size.
+	fileHeader := req.File
+	// 2. Security: Validate file size.
 	if h.maxFileSize > 0 && fileHeader.Size > h.maxFileSize {
 		return c.String(http.StatusRequestEntityTooLarge, fmt.Sprintf("File size of %d bytes exceeds the limit of %d bytes", fileHeader.Size, h.maxFileSize))
 	}
-
-	// Security: Validate MIME type.
+	// 3. Security: Validate MIME type.
 	mimeType := fileHeader.Header.Get("Content-Type")
 	if len(h.allowedMimeTypes) > 0 && !h.allowedMimeTypes[mimeType] {
 		return c.String(http.StatusUnsupportedMediaType, fmt.Sprintf("File type '%s' is not allowed", mimeType))
@@ -75,7 +80,7 @@ func (h *FileHandler) UploadFile(c echo.Context) error {
 
 	src, err := fileHeader.Open()
 	if err != nil {
-		return c.String(http.StatusInternalServerError, "Failed to open uploaded file")
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to open uploaded file")
 	}
 	defer src.Close()
 
@@ -99,14 +104,18 @@ func (h *FileHandler) UploadFile(c echo.Context) error {
 		StoragePath: storagePath,
 	}
 
-	if _, err := h.fileRepo.Create(ctx, fileMetadata); err != nil {
+	createdFile, err := h.fileRepo.Create(ctx, fileMetadata)
+	if err != nil {
 		logger.Error("Failed to save file metadata", slog.String("error", err.Error()))
 		// Attempt to clean up the stored file if metadata saving fails.
 		_ = h.fileStore.Delete(ctx, storagePath)
 		return c.String(http.StatusInternalServerError, "Failed to save file metadata")
 	}
 
-	return c.String(http.StatusOK, fmt.Sprintf("File %s uploaded successfully.", fileHeader.Filename))
+	// Map the domain model to the response DTO.
+	response := NewFileResponse(createdFile)
+	// Return the structured JSON response.
+	return c.JSON(http.StatusCreated, response)
 }
 
 // DeleteFile handles the deletion of a file by its ID.
@@ -213,9 +222,15 @@ func (h *FileHandler) ListFiles(c echo.Context) error {
 
 	files, err := h.fileRepo.FindByUser(ctx, user.ID)
 	if err != nil {
-		logger.Error("failed to find files for user", "user_id", user.ID.String(), "error", err)
+		logger.Error("failed to find files for user", "user_id", user.ID.String(), "error", err.Error())
 		return c.String(http.StatusInternalServerError, "Could not retrieve files")
 	}
 
-	return c.JSON(http.StatusOK, files)
+	// Map the slice of domain models to a slice of response DTOs.
+	response := make([]*FileResponse, len(files))
+	for i, file := range files {
+		response[i] = NewFileResponse(file)
+	}
+
+	return c.JSON(http.StatusOK, response)
 }

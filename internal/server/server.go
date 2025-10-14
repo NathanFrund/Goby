@@ -105,7 +105,11 @@ func setupErrorHandling(e *echo.Echo) {
 		}
 
 		// Respond to the client (we'll just use JSON for errors for simplicity)
-		c.JSON(he.Code, map[string]interface{}{"error": he.Message})
+		errResp := handlers.ErrorResponse{
+			Code:    http.StatusText(he.Code), // A simple default code
+			Message: fmt.Sprintf("%v", he.Message),
+		}
+		c.JSON(he.Code, errResp)
 	}
 }
 
@@ -115,6 +119,9 @@ func New(deps Dependencies) (*Server, error) {
 	// This allows us to configure it before the server is created.
 	e := deps.Echo
 	setupErrorHandling(e)
+
+	// Register the custom validator.
+	e.Validator = handlers.NewValidator()
 	e.Renderer = deps.Renderer
 
 	// The server needs the more specific rendering.Renderer for internal use.

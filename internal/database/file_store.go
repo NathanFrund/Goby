@@ -29,13 +29,10 @@ func NewFileStore(client Client[domain.File]) *FileStore {
 // Create inserts a new file metadata record into the database.
 func (s *FileStore) Create(ctx context.Context, file *domain.File) (*domain.File, error) {
 	if file == nil {
-		return nil, errors.New("file cannot be nil")
+		return nil, errors.New("file to create cannot be nil")
 	}
-	if file.Filename == "" {
-		return nil, errors.New("file name is required")
-	}
-	if file.StoragePath == "" {
-		return nil, errors.New("file storage path is required")
+	if err := file.Validate(); err != nil {
+		return nil, fmt.Errorf("validation failed for file: %w", err)
 	}
 
 	// Instead of passing the struct directly, create a map to ensure correct
@@ -88,6 +85,10 @@ func (s *FileStore) Update(ctx context.Context, file *domain.File) (*domain.File
 		return nil, errors.New("file and file ID are required for update")
 	}
 
+	if err := file.Validate(); err != nil {
+		return nil, fmt.Errorf("validation failed for file update: %w", err)
+	}
+
 	// Use a map for updates to explicitly control which fields are modified
 	file.UpdatedAt = &surrealmodels.CustomDateTime{Time: time.Now().UTC()}
 	updateData := map[string]interface{}{
@@ -123,18 +124,20 @@ func (s *FileStore) FindLatestByUser(ctx context.Context, userID *surrealmodels.
 
 // FindByUser retrieves all file metadata records for a given user, ordered by creation date.
 func (s *FileStore) FindByUser(ctx context.Context, userID *surrealmodels.RecordID) ([]*domain.File, error) {
-	query := "SELECT * FROM file WHERE user_id = $user ORDER BY created_at DESC"
-	vars := map[string]interface{}{"user": userID}
-
-	files, err := s.client.Query(ctx, query, vars)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query files by user: %w", err)
+	if userID == nil {
+		return nil, NewDBError(ErrInvalidInput, "user ID is required")
 	}
 
-	// The client.Query method returns a slice of values, but our interface expects a slice of pointers.
-	filePtrs := make([]*domain.File, len(files))
+	query := "SELECT * FROM file WHERE user_id = $userID ORDER BY created_at DESC"
+	files, err := s.client.Query(ctx, query, map[string]any{"userID": userID})
+	if err != nil {
+		return nil, fmt.Errorf("failed to query for user files: %w", err)
+	}
+
+	// Convert the slice of values to a slice of pointers as required by the interface.
+	filePtrs := make([]*domain.File, 0, len(files))
 	for i := range files {
-		filePtrs[i] = &files[i]
+		filePtrs = append(filePtrs, &files[i])
 	}
 
 	return filePtrs, nil

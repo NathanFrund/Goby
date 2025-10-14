@@ -70,6 +70,7 @@ func TestFileHandler_Upload(t *testing.T) {
 	allowedTypes := []string{"text/plain"}
 	fileHandler := handlers.NewFileHandler(aferoStore, fileStore, maxSize, allowedTypes)
 	e := echo.New()
+	e.Validator = handlers.NewValidator() // Register validator for the UploadFileRequest DTO
 	// Middleware to inject the user ID into the context for the handler
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
@@ -102,8 +103,12 @@ func TestFileHandler_Upload(t *testing.T) {
 	e.ServeHTTP(rec, req)
 
 	// --- Assertions ---
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "File test-upload.txt uploaded successfully.")
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var response handlers.FileResponse
+	err = json.Unmarshal(rec.Body.Bytes(), &response)
+	require.NoError(t, err, "failed to unmarshal response")
+	assert.Equal(t, "test-upload.txt", response.Filename)
 
 	// Verify file metadata was saved in the database
 	// We need to find the file by something other than ID, since we don't know it.
@@ -176,6 +181,7 @@ func TestFileHandler_Delete(t *testing.T) {
 	fileToCreate := &domain.File{
 		UserID:      createdUser.ID,
 		Filename:    "file-to-delete.txt",
+		MIMEType:    "text/plain", // Add required MIMEType to pass validation
 		StoragePath: storagePath,
 		Size:        int64(len(fileContent)),
 	}
@@ -310,6 +316,7 @@ func TestFileHandler_Upload_Validation(t *testing.T) {
 	fileHandler := handlers.NewFileHandler(aferoStore, fileStore, maxSize, allowedTypes)
 
 	e := echo.New()
+	e.Validator = handlers.NewValidator() // Register validator for the UploadFileRequest DTO
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			c.Set("user", user)
@@ -413,6 +420,7 @@ func TestFileHandler_Authorization(t *testing.T) {
 	fileToCreate := &domain.File{
 		UserID:      createdUserA.ID,
 		Filename:    "user-a-file.txt",
+		MIMEType:    "text/plain", // Add required MIMEType to pass validation
 		StoragePath: fmt.Sprintf("path/to/user-a-file-%d.txt", time.Now().UnixNano()),
 	}
 	createdFile, err := fileStore.Create(ctx, fileToCreate)
@@ -493,6 +501,7 @@ func TestFileHandler_List(t *testing.T) {
 		UserID:      createdUser.ID,
 		Filename:    "file1.txt",
 		StoragePath: fmt.Sprintf("p1-%d", timestamp),
+		MIMEType:    "application/pdf",
 		CreatedAt:   &surrealmodels.CustomDateTime{Time: now.Add(-1 * time.Hour)}, // Older file
 	})
 	require.NoError(t, err)
@@ -502,6 +511,7 @@ func TestFileHandler_List(t *testing.T) {
 		UserID:      createdUser.ID,
 		Filename:    "file2.txt",
 		StoragePath: fmt.Sprintf("p2-%d", timestamp+1),
+		MIMEType:    "application/pdf",
 		CreatedAt:   &surrealmodels.CustomDateTime{Time: now}, // Newer file
 	})
 	require.NoError(t, err)
@@ -526,7 +536,7 @@ func TestFileHandler_List(t *testing.T) {
 	// 5. Assertions
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	var files []*domain.File
+	var files []*handlers.FileResponse
 	err = json.Unmarshal(rec.Body.Bytes(), &files)
 	require.NoError(t, err)
 	require.Len(t, files, 2, "should return two files for the user")

@@ -2,23 +2,59 @@ package domain
 
 import (
 	"context"
+	"path/filepath"
+	"strings"
 
+	"github.com/go-playground/validator/v10"
 	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
 )
+
+// validatorInstance is a package-level validator instance.
+// Using a single instance is more efficient as it caches struct information.
+var validatorInstance = validator.New()
+
+// init registers custom validation functions with the validator instance.
+func init() {
+	// Register the safepath validator to prevent directory traversal attacks.
+	_ = validatorInstance.RegisterValidation("safepath", validateSafePath)
+}
+
+// validateSafePath ensures the path doesn't contain any directory traversal attempts.
+func validateSafePath(fl validator.FieldLevel) bool {
+	path := fl.Field().String()
+
+	// Check for common path traversal patterns.
+	if strings.Contains(path, "..") ||
+		strings.Contains(path, "~") ||
+		strings.HasPrefix(path, "/") ||
+		strings.Contains(path, "\\") {
+		return false
+	}
+
+	// Clean the path and check if it still matches the original.
+	// This catches more subtle issues like "uploads/./../file".
+	return path == filepath.Clean(path)
+}
 
 // File represents the metadata for a stored file.
 // The actual file content is stored on a filesystem (e.g., local disk, S3)
 // and referenced by the StoragePath.
 type File struct {
-	ID          *surrealmodels.RecordID       `json:"id,omitempty" surrealdb:"id,omitempty"`                 // Unique identifier for the file record.
-	UserID      *surrealmodels.RecordID       `json:"user_id,omitempty" surrealdb:"user_id,omitempty"`       // The user who owns the file.
-	Filename    string                        `json:"filename" surrealdb:"filename"`                         // Original name of the file at the time of upload.
-	MIMEType    string                        `json:"mime_type" surrealdb:"mime_type"`                       // MIME type of the file (e.g., "image/jpeg").
-	Size        int64                         `json:"size" surrealdb:"size"`                                 // Size of the file in bytes.
-	StoragePath string                        `json:"storage_path" surrealdb:"storage_path"`                 // The path to the file in the configured storage backend.
-	CreatedAt   *surrealmodels.CustomDateTime `json:"created_at,omitempty" surrealdb:"created_at,omitempty"` // Timestamp of when the record was created.
-	UpdatedAt   *surrealmodels.CustomDateTime `json:"updated_at,omitempty" surrealdb:"updated_at,omitempty"` // Timestamp of the last update.
+	ID          *surrealmodels.RecordID       `json:"id,omitempty" surrealdb:"id,omitempty"`                               // Unique identifier for the file record.
+	UserID      *surrealmodels.RecordID       `json:"user_id,omitempty" surrealdb:"user_id,omitempty" validate:"required"` // The user who owns the file. Must be a valid user record ID.
+	Filename    string                        `json:"filename" surrealdb:"filename" validate:"required,min=1,max=255"`     // Original name of the file. Length: 1-255 chars.
+	MIMEType    string                        `json:"mime_type" surrealdb:"mime_type" validate:"required"`                 // MIME type of the file. Handler-level validation uses a configurable list.
+	Size        int64                         `json:"size" surrealdb:"size" validate:"gte=0"`                              // Size of the file in bytes. Must be non-negative.
+	StoragePath string                        `json:"storage_path" surrealdb:"storage_path" validate:"required,safepath"`  // The path to the file in the configured storage backend. Must be a safe, relative path.
+	CreatedAt   *surrealmodels.CustomDateTime `json:"created_at,omitempty" surrealdb:"created_at,omitempty"`               // Timestamp of when the record was created.
+	UpdatedAt   *surrealmodels.CustomDateTime `json:"updated_at,omitempty" surrealdb:"updated_at,omitempty"`               // Timestamp of the last update.
 	DeletedAt   *surrealmodels.CustomDateTime `json:"deleted_at,omitempty" surrealdb:"deleted_at,omitempty"`
+}
+
+// Validate runs validation checks on the File struct using the defined tags.
+// This ensures that the domain model is always in a valid state.
+func (f *File) Validate() error {
+	return validatorInstance.Struct(f)
 }
 
 // FileRepository defines the interface for interacting with file metadata storage.
