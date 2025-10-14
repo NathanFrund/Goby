@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -98,7 +99,7 @@ func TestFileStore_CRUD(t *testing.T) {
 	// 5. Test FindByStoragePath with non-existent path
 	_, err = store.FindByStoragePath(ctx, "non/existent/path.txt")
 	require.Error(t, err)
-	assert.Equal(t, "file not found", err.Error())
+	assert.True(t, errors.Is(err, ErrNotFound), "Expected not found error")
 
 	// 5. Test Update
 	updatedFilename := "updated_test.txt"
@@ -119,4 +120,153 @@ func TestFileStore_CRUD(t *testing.T) {
 	deletedFile, err := store.FindByID(ctx, idStr)
 	require.Error(t, err)
 	assert.Nil(t, deletedFile)
+}
+
+func TestFileStore_FindByUser(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+
+	store, fileClient, userClient, cleanup := setupFileStoreTest(t)
+	defer cleanup()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	// 1. Create a test user
+	name := "File Test User"
+	testUser := TestUser{
+		User: domain.User{
+			Name:  &name,
+			Email: fmt.Sprintf("findbyuser-%d@example.com", time.Now().UnixNano()),
+		},
+		Password: "password",
+	}
+	createdUser, err := userClient.Create(ctx, "user", &testUser)
+	require.NoError(t, err, "failed to create test user")
+	t.Cleanup(func() { _ = userClient.Delete(ctx, createdUser.ID.String()) })
+
+	// 2. Create test files with different timestamps
+	now := time.Now()
+	testFiles := []*domain.File{
+		{
+			UserID:   createdUser.ID,
+			Filename: "file1.txt",
+			MIMEType: "text/plain",
+			Size:     100,
+		},
+		{
+			UserID:   createdUser.ID,
+			Filename: "file2.txt",
+			MIMEType: "text/plain",
+			Size:     200,
+		},
+		{
+			UserID:   createdUser.ID,
+			Filename: "file3.txt",
+			MIMEType: "text/plain",
+			Size:     300,
+		},
+	}
+
+	// Create files with staggered timestamps to ensure consistent ordering
+	for i, file := range testFiles {
+		file.StoragePath = fmt.Sprintf("user/files/test-%d-%d.txt", i, time.Now().UnixNano())
+		created, err := store.Create(ctx, file)
+		require.NoError(t, err, "failed to create test file %d", i)
+		t.Cleanup(func() { _ = fileClient.Delete(ctx, created.ID.String()) })
+
+		// Update the created at time to ensure they're in a known order
+		_, err = fileClient.Update(ctx, created.ID.String(), map[string]interface{}{
+			"created_at": now.Add(time.Duration(i) * time.Hour),
+		})
+		require.NoError(t, err, "failed to update file timestamp")
+	}
+
+	t.Run("returns all files for user", func(t *testing.T) {
+		files, total, err := store.FindByUser(ctx, createdUser.ID, 10, 0)
+		require.NoError(t, err)
+		require.Len(t, files, 3)
+		require.Equal(t, int64(3), total)
+
+		// Should be ordered by created_at DESC (newest first)
+		assert.Equal(t, "file3.txt", files[0].Filename)
+		assert.Equal(t, "file2.txt", files[1].Filename)
+		assert.Equal(t, "file1.txt", files[2].Filename)
+	})
+
+	t.Run("respects pagination", func(t *testing.T) {
+		// First page
+		files, total, err := store.FindByUser(ctx, createdUser.ID, 2, 0)
+		require.NoError(t, err)
+		require.Len(t, files, 2)
+		require.Equal(t, int64(3), total)
+		assert.Equal(t, "file3.txt", files[0].Filename)
+		assert.Equal(t, "file2.txt", files[1].Filename)
+
+		// Second page
+		files, total, err = store.FindByUser(ctx, createdUser.ID, 2, 2)
+		require.NoError(t, err)
+		require.Len(t, files, 1)
+		require.Equal(t, int64(3), total)
+		assert.Equal(t, "file1.txt", files[0].Filename)
+	})
+
+	t.Run("returns empty slice for user with no files", func(t *testing.T) {
+		// Create another user with no files
+		otherUserName := "Other User"
+		otherUser := TestUser{
+			User: domain.User{
+				Name:  &otherUserName,
+				Email: fmt.Sprintf("other-%d@example.com", time.Now().UnixNano()),
+			},
+			Password: "password",
+		}
+		createdOtherUser, err := userClient.Create(ctx, "user", &otherUser)
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = userClient.Delete(ctx, createdOtherUser.ID.String()) })
+
+		files, total, err := store.FindByUser(ctx, createdOtherUser.ID, 10, 0)
+		require.NoError(t, err)
+		assert.Empty(t, files)
+		assert.Equal(t, int64(0), total)
+	})
+
+	t.Run("returns error for nil user ID", func(t *testing.T) {
+		_, _, err := store.FindByUser(ctx, nil, 10, 0)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "user ID is required", "Expected error about missing user ID")
+	})
+
+	t.Run("returns all files when limit is 0", func(t *testing.T) {
+		files, total, err := store.FindByUser(ctx, createdUser.ID, 0, 0)
+		require.NoError(t, err)
+		// Should return all 3 files regardless of limit/offset when limit is 0
+		assert.Len(t, files, 3)
+		assert.Equal(t, int64(3), total)
+	})
+
+	t.Run("returns all files when limit is negative", func(t *testing.T) {
+		files, total, err := store.FindByUser(ctx, createdUser.ID, -1, 0)
+		require.NoError(t, err)
+		// Should return all 3 files regardless of limit/offset when limit is negative
+		assert.Len(t, files, 3)
+		assert.Equal(t, int64(3), total)
+	})
+
+	t.Run("ignores offset when limit is 0", func(t *testing.T) {
+		files, total, err := store.FindByUser(ctx, createdUser.ID, 0, 10) // Large offset with limit=0
+		require.NoError(t, err)
+		// Should still return all files even with offset when limit is 0
+		assert.Len(t, files, 3)
+		assert.Equal(t, int64(3), total)
+	})
+
+	t.Run("handles offset beyond total count", func(t *testing.T) {
+		files, total, err := store.FindByUser(ctx, createdUser.ID, 10, 100) // Offset beyond total
+		require.NoError(t, err)
+		// Should return empty slice when offset is beyond total count
+		assert.Empty(t, files)
+		assert.Equal(t, int64(3), total)
+	})
 }

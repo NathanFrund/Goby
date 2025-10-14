@@ -73,7 +73,7 @@ func (s *FileStore) FindByStoragePath(ctx context.Context, storagePath string) (
 		return nil, err
 	}
 	if file == nil {
-		return nil, errors.New("file not found")
+		return nil, ErrNotFound
 	}
 
 	return file, nil
@@ -122,16 +122,71 @@ func (s *FileStore) FindLatestByUser(ctx context.Context, userID *surrealmodels.
 	return &files[0], nil
 }
 
-// FindByUser retrieves all file metadata records for a given user, ordered by creation date.
-func (s *FileStore) FindByUser(ctx context.Context, userID *surrealmodels.RecordID) ([]*domain.File, error) {
+// FindByUser retrieves file metadata records for a given user, ordered by creation date (newest first).
+// 
+// Parameters:
+//   - ctx: The context for the database operation
+//   - userID: The ID of the user whose files to retrieve
+//   - limit: Maximum number of files to return (0 or negative for no limit)
+//   - offset: Number of records to skip before starting to return files (for pagination)
+//
+// Returns:
+//   - []*domain.File: A slice of file pointers matching the criteria
+//   - int64: Total number of files available (not just the returned slice)
+//   - error: Any error that occurred during the operation
+//
+// Example usage:
+//   // Get all files without pagination
+//   files, total, err := fileStore.FindByUser(ctx, userID, 0, 0)
+//
+//   // Get paginated results (first page, 10 items)
+//   files, total, err := fileStore.FindByUser(ctx, userID, 10, 0)
+//
+//   // Get next page
+//   files, total, err = fileStore.FindByUser(ctx, userID, 10, 10)
+//
+// Notes:
+// - Files are always ordered by created_at in descending order (newest first)
+// - If no files are found, returns an empty slice with total=0 and nil error
+// - When limit <= 0, all matching files are returned (no pagination)
+// - The total count reflects all files for the user, not just the returned slice
+func (s *FileStore) FindByUser(ctx context.Context, userID *surrealmodels.RecordID, limit, offset int) ([]*domain.File, int64, error) {
 	if userID == nil {
-		return nil, NewDBError(ErrInvalidInput, "user ID is required")
+		return nil, 0, NewDBError(ErrInvalidInput, "user ID is required")
 	}
 
-	query := "SELECT * FROM file WHERE user_id = $userID ORDER BY created_at DESC"
-	files, err := s.client.Query(ctx, query, map[string]any{"userID": userID})
+	// First, get all files to determine the total count
+	allFiles, err := s.client.Query(ctx, "SELECT * FROM file WHERE user_id = $userID",
+		map[string]any{"userID": userID})
 	if err != nil {
-		return nil, fmt.Errorf("failed to query for user files: %w", err)
+		return nil, 0, fmt.Errorf("failed to get user files: %w", err)
+	}
+
+	total := int64(len(allFiles))
+
+	// If no files, return early
+	if total == 0 {
+		return []*domain.File{}, 0, nil
+	}
+
+	// Build the base query
+	query := "SELECT * FROM file WHERE user_id = $userID ORDER BY created_at DESC"
+	vars := map[string]any{"userID": userID}
+
+	// Add pagination only if limit > 0
+	if limit > 0 {
+		query += " LIMIT $limit"
+		vars["limit"] = limit
+		if offset > 0 {
+			query += " START $offset"
+			vars["offset"] = offset
+		}
+	}
+
+	// Execute the query
+	files, err := s.client.Query(ctx, query, vars)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to query for user files: %w", err)
 	}
 
 	// Convert the slice of values to a slice of pointers as required by the interface.
@@ -140,5 +195,5 @@ func (s *FileStore) FindByUser(ctx context.Context, userID *surrealmodels.Record
 		filePtrs = append(filePtrs, &files[i])
 	}
 
-	return filePtrs, nil
+	return filePtrs, total, nil
 }
