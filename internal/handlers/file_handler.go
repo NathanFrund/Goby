@@ -1,4 +1,4 @@
-package storage
+package handlers
 
 import (
 	"fmt"
@@ -11,18 +11,19 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/domain"
 	"github.com/nfrund/goby/internal/middleware"
+	"github.com/nfrund/goby/internal/storage"
 )
 
 // FileHandler handles HTTP requests related to files.
 type FileHandler struct {
-	fileStore        Store
+	fileStore        storage.Store
 	fileRepo         domain.FileRepository
 	maxFileSize      int64
 	allowedMimeTypes map[string]bool
 }
 
 // NewFileHandler creates a new FileHandler.
-func NewFileHandler(fileStore Store, fileRepo domain.FileRepository, maxFileSize int64, allowedMimeTypes []string) *FileHandler {
+func NewFileHandler(fileStore storage.Store, fileRepo domain.FileRepository, maxFileSize int64, allowedMimeTypes []string) *FileHandler {
 	mimeTypesMap := make(map[string]bool)
 	for _, mimeType := range allowedMimeTypes {
 		mimeTypesMap[strings.TrimSpace(mimeType)] = true

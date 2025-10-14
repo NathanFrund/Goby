@@ -22,7 +22,6 @@ import (
 	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/registry"
 	"github.com/nfrund/goby/internal/rendering"
-	"github.com/nfrund/goby/internal/storage"
 	"github.com/nfrund/goby/internal/websocket"
 	"github.com/nfrund/goby/web"
 )
@@ -34,7 +33,7 @@ type Server struct {
 	Emailer          domain.EmailSender
 	UserStore        domain.UserRepository
 	Renderer         rendering.Renderer
-	FileHandler      *storage.FileHandler
+	FileHandler      *handlers.FileHandler
 	DashboardHandler *handlers.DashboardHandler
 
 	modules []module.Module
@@ -52,7 +51,7 @@ type Dependencies struct {
 	Publisher        pubsub.Publisher
 	Echo             *echo.Echo
 	Bridge           websocket.Bridge
-	FileHandler      *storage.FileHandler
+	FileHandler      *handlers.FileHandler
 	DashboardHandler *handlers.DashboardHandler
 }
 

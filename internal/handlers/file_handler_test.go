@@ -1,4 +1,4 @@
-package storage_test
+package handlers_test
 
 import (
 	"bytes"
@@ -17,6 +17,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/database"
 	"github.com/nfrund/goby/internal/domain"
+	"github.com/nfrund/goby/internal/handlers"
 	"github.com/nfrund/goby/internal/storage"
 	"github.com/nfrund/goby/internal/testutils"
 	"github.com/spf13/afero"
@@ -67,7 +68,7 @@ func TestFileHandler_Upload(t *testing.T) {
 	// For this test, allow any size and type to test the success path.
 	maxSize := int64(10 * 1024 * 1024) // 10MB
 	allowedTypes := []string{"text/plain"}
-	fileHandler := storage.NewFileHandler(aferoStore, fileStore, maxSize, allowedTypes)
+	fileHandler := handlers.NewFileHandler(aferoStore, fileStore, maxSize, allowedTypes)
 	e := echo.New()
 	// Middleware to inject the user ID into the context for the handler
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
@@ -184,7 +185,7 @@ func TestFileHandler_Delete(t *testing.T) {
 	// --- Setup Handler and Server ---
 	maxSize := int64(10 * 1024 * 1024) // 10MB
 	allowedTypes := []string{"text/plain"}
-	fileHandler := storage.NewFileHandler(aferoStore, fileStore, maxSize, allowedTypes)
+	fileHandler := handlers.NewFileHandler(aferoStore, fileStore, maxSize, allowedTypes)
 	e := echo.New()
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
@@ -269,7 +270,7 @@ func TestFileHandler_Download(t *testing.T) {
 	// --- Setup Handler and Server ---
 	maxSize := int64(10 * 1024 * 1024) // 10MB
 	allowedTypes := []string{"text/plain"}
-	fileHandler := storage.NewFileHandler(aferoStore, fileStore, maxSize, allowedTypes)
+	fileHandler := handlers.NewFileHandler(aferoStore, fileStore, maxSize, allowedTypes)
 	e := echo.New()
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
@@ -306,7 +307,7 @@ func TestFileHandler_Upload_Validation(t *testing.T) {
 	// Configure handler with strict limits
 	maxSize := int64(1024) // 1 KB
 	allowedTypes := []string{"image/png", "image/jpeg"}
-	fileHandler := storage.NewFileHandler(aferoStore, fileStore, maxSize, allowedTypes)
+	fileHandler := handlers.NewFileHandler(aferoStore, fileStore, maxSize, allowedTypes)
 
 	e := echo.New()
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
@@ -419,7 +420,7 @@ func TestFileHandler_Authorization(t *testing.T) {
 	t.Cleanup(func() { _ = fileStore.DeleteByID(ctx, createdFile.ID.String()) })
 
 	// 3. Setup Handler and Server
-	fileHandler := storage.NewFileHandler(aferoStore, fileStore, 0, nil)
+	fileHandler := handlers.NewFileHandler(aferoStore, fileStore, 0, nil)
 	e := echo.New()
 	// This middleware will authenticate the request as User B
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
@@ -507,7 +508,7 @@ func TestFileHandler_List(t *testing.T) {
 	t.Cleanup(func() { _ = fileStore.DeleteByID(ctx, file2.ID.String()) })
 
 	// 3. Setup Handler and Server
-	fileHandler := storage.NewFileHandler(nil, fileStore, 0, nil)
+	fileHandler := handlers.NewFileHandler(nil, fileStore, 0, nil)
 	e := echo.New()
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
