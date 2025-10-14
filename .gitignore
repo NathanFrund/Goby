@@ -1,21 +1,18 @@
-# Binaries
-bin/
-
-# Environment files
+# Local environment variables
 .env
-.env.test
+.env.*
+!.env.example
 
-# IDE specific files
-.vscode/
-.idea/
+# Go build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
 
-# OS generated files
-.DS_Store
+# Compiled binary
+/tmp/goby
 
-node_modules
-
-# Build artifacts & temp files
-tmp/
-coverage.out
-coverage.html
-web/static/css/style.css
+# Node dependencies
+/node_modules
+npm-debug.log

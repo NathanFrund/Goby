@@ -326,8 +326,9 @@ func setAuthCookie(c echo.Context, token string) {
 	// which is a crucial security measure against XSS attacks.
 	cookie.HttpOnly = true
 	// Secure flag ensures the cookie is only sent over HTTPS connections.
-	// The check `c.Request().TLS != nil` makes this work in production (with HTTPS)
-	// and local development (without HTTPS).
+	// In production, this should always be true. It's often controlled by an environment
+	// variable to allow for local development over HTTP.
+	// The check `c.Request().TLS != nil` is a good default for dynamic environments.
 	cookie.Secure = c.Request().TLS != nil
 	// SameSite=Lax provides a good balance of security and usability for CSRF protection.
 	cookie.SameSite = http.SameSiteLaxMode

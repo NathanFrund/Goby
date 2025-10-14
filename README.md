@@ -40,7 +40,7 @@ Before you begin, ensure you have the following tools installed:
 1. **Clone the repository**
 
    ```sh
-   git clone https://github.com/yourusername/goby.git
+   git clone https://github.com/nfrund/goby.git
    cd goby
    ```
 
@@ -810,14 +810,14 @@ The application is configured using environment variables. For local development
 
 ## Configuration Reference
 
-| Variable             | Description                                                                           | Default                 | Required       |
-| :------------------- | :------------------------------------------------------------------------------------ | :---------------------- | :------------- |
-| **`SERVER_ADDR`**    | The address and port for the server to listen on.                                     | `:8080`                 | No             |
-| **`APP_BASE_URL`**   | The public base URL for the application, used for generating links in emails.         | `http://localhost:8080` | No             |
-| **`SESSION_SECRET`** | A long, random string used to secure user sessions.                                   | (none)                  | **Yes (Prod)** |
-| **`APP_STATIC`**     | Controls static asset serving. `disk` for development, `embed` for production builds. | `disk`                  | No             |
-| **`STORAGE_BACKEND`**| The storage backend to use for file uploads (`os` or `mem`).                          | `os`                    | No             |
-| **`STORAGE_PATH`**   | The root directory for the `os` storage backend.                                      | `tmp/uploads`           | No             |
+| Variable              | Description                                                                           | Default                 | Required       |
+| :-------------------- | :------------------------------------------------------------------------------------ | :---------------------- | :------------- |
+| **`SERVER_ADDR`**     | The address and port for the server to listen on.                                     | `:8080`                 | No             |
+| **`APP_BASE_URL`**    | The public base URL for the application, used for generating links in emails.         | `http://localhost:8080` | No             |
+| **`SESSION_SECRET`**  | A long, random string used to secure user sessions.                                   | (none)                  | **Yes (Prod)** |
+| **`APP_STATIC`**      | Controls static asset serving. `disk` for development, `embed` for production builds. | `disk`                  | No             |
+| **`STORAGE_BACKEND`** | The storage backend to use for file uploads (`os` or `mem`).                          | `os`                    | No             |
+| **`STORAGE_PATH`**    | The root directory for the `os` storage backend.                                      | `tmp/uploads`           | No             |
 
 ### Database
 
@@ -915,6 +915,7 @@ e.Use(middleware.CSPWithConfig(middleware.CSPConfig{
     ContentSecurityPolicy: "default-src 'self'",
 }))
 ```
+
 ### Session Security
 
 Configure sessions in server.go.

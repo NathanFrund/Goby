@@ -1,0 +1,9 @@
+{
+    "go.testFlags": [
+        "-v"
+    ],
+    "go.testOnSave": true,
+    "go.coverOnSave": false,
+    "go.testExplorer.showCodeLens": true,
+    "go.testExplorer.enable": true
+}

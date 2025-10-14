@@ -216,7 +216,9 @@ func (b *bridge) Handler(connType ConnectionType) echo.HandlerFunc {
 		}
 
 		conn, err := websocket.Accept(c.Response(), c.Request(), &websocket.AcceptOptions{
-			InsecureSkipVerify: true, // In production, check origin.
+			// In production, you should verify the origin of the request against a list of
+			// allowed origins to prevent cross-site WebSocket hijacking.
+			InsecureSkipVerify: true, // TODO: Replace with a proper origin check in production.
 		})
 		if err != nil {
 			slog.Error("Failed to upgrade connection to WebSocket", "error", err)
