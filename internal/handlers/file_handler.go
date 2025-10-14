@@ -210,7 +210,9 @@ func (h *FileHandler) DownloadFile(c echo.Context) error {
 	return c.Stream(http.StatusOK, file.MIMEType, content)
 }
 
-// ListFiles returns a list of all files owned by the authenticated user.
+// ListFiles returns a paginated list of files owned by the authenticated user.
+// Query parameters://   - page: Page number (default: 1)
+//   - page_size: Number of items per page (default: 20, max: 100)
 func (h *FileHandler) ListFiles(c echo.Context) error {
 	ctx := c.Request().Context()
 	logger := middleware.FromContext(ctx)
@@ -220,17 +222,36 @@ func (h *FileHandler) ListFiles(c echo.Context) error {
 		return err
 	}
 
-	files, err := h.fileRepo.FindByUser(ctx, user.ID)
+	// Parse pagination parameters with defaults
+	params := DefaultPagination()
+	if err := c.Bind(&params); err != nil {
+		logger.Warn("invalid pagination parameters, using defaults", "error", err)
+	}
+
+	// Get paginated files
+	files, total, err := h.fileRepo.FindByUser(ctx, user.ID, params.PageSize, params.Offset())
 	if err != nil {
-		logger.Error("failed to find files for user", "user_id", user.ID.String(), "error", err.Error())
+		logger.Error("failed to find files for user", 
+			"user_id", user.ID.String(), 
+			"error", err.Error(),
+			"page", params.Page,
+			"page_size", params.PageSize)
 		return c.String(http.StatusInternalServerError, "Could not retrieve files")
 	}
 
-	// Map the slice of domain models to a slice of response DTOs.
-	response := make([]*FileResponse, len(files))
+	// Map the slice of domain models to a slice of response DTOs
+	fileResponses := make([]*FileResponse, len(files))
 	for i, file := range files {
-		response[i] = NewFileResponse(file)
+		fileResponses[i] = NewFileResponse(file)
 	}
+
+	// Return paginated response
+	response := NewPaginatedResponse(
+		fileResponses,
+		int(total),
+		params.Page,
+		params.PageSize,
+	)
 
 	return c.JSON(http.StatusOK, response)
 }

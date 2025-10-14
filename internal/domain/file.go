@@ -75,8 +75,17 @@ type FileRepository interface {
 	FindLatestByUser(ctx context.Context, userID *surrealmodels.RecordID) (*File, error)
 
 	// FindByUser retrieves all file metadata records for a given user.
-	FindByUser(ctx context.Context, userID *surrealmodels.RecordID) ([]*File, error)
+	// FindByUser retrieves paginated file metadata records for a given user.
+	// Returns the list of files and the total count of files for the user.
+	FindByUser(ctx context.Context, userID *surrealmodels.RecordID, limit, offset int) ([]*File, int64, error)
 
 	// FindByStoragePath retrieves file metadata by its storage path.
 	FindByStoragePath(ctx context.Context, storagePath string) (*File, error)
 }
+
+// Pagination constants
+const (
+	DefaultPage     = 1
+	DefaultPageSize = 20
+	MaxPageSize     = 100
+)
