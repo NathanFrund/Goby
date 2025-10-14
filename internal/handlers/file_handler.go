@@ -1,4 +1,4 @@
-package storage
+package handlers
 
 import (
 	"fmt"
@@ -11,27 +11,28 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/domain"
 	"github.com/nfrund/goby/internal/middleware"
+	"github.com/nfrund/goby/internal/storage"
 )
 
 // FileHandler handles HTTP requests related to files.
 type FileHandler struct {
-	store            Store
+	fileStore        storage.Store
 	fileRepo         domain.FileRepository
-	maxUploadSize    int64
+	maxFileSize      int64
 	allowedMimeTypes map[string]bool
 }
 
 // NewFileHandler creates a new FileHandler.
-func NewFileHandler(s Store, fr domain.FileRepository, maxUploadSize int64, allowedMimeTypes []string) *FileHandler {
+func NewFileHandler(fileStore storage.Store, fileRepo domain.FileRepository, maxFileSize int64, allowedMimeTypes []string) *FileHandler {
 	mimeTypesMap := make(map[string]bool)
 	for _, mimeType := range allowedMimeTypes {
 		mimeTypesMap[strings.TrimSpace(mimeType)] = true
 	}
 
 	return &FileHandler{
-		store:            s,
-		fileRepo:         fr,
-		maxUploadSize:    maxUploadSize,
+		fileStore:        fileStore,
+		fileRepo:         fileRepo,
+		maxFileSize:      maxFileSize,
 		allowedMimeTypes: mimeTypesMap,
 	}
 }
@@ -45,8 +46,8 @@ func getUserFromContext(c echo.Context) (*domain.User, error) {
 	return user, nil
 }
 
-// Upload handles file uploads from a multipart form.
-func (h *FileHandler) Upload(c echo.Context) error {
+// UploadFile handles file uploads from a multipart form.
+func (h *FileHandler) UploadFile(c echo.Context) error {
 	ctx := c.Request().Context()
 	logger := middleware.FromContext(ctx)
 
@@ -56,17 +57,22 @@ func (h *FileHandler) Upload(c echo.Context) error {
 		return err
 	}
 
-	fileHeader, err := c.FormFile("file")
-	if err != nil {
-		return c.String(http.StatusBadRequest, "Invalid file upload request")
+	// 1. Bind and Validate the request to our DTO.
+	var req UploadFileRequest
+	if err := c.Bind(&req); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "Invalid request format.")
+	}
+	if err := c.Validate(&req); err != nil {
+		// The validator will return a user-friendly error.
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	}
 
-	// Security: Validate file size.
-	if h.maxUploadSize > 0 && fileHeader.Size > h.maxUploadSize {
-		return c.String(http.StatusRequestEntityTooLarge, fmt.Sprintf("File size of %d bytes exceeds the limit of %d bytes", fileHeader.Size, h.maxUploadSize))
+	fileHeader := req.File
+	// 2. Security: Validate file size.
+	if h.maxFileSize > 0 && fileHeader.Size > h.maxFileSize {
+		return c.String(http.StatusRequestEntityTooLarge, fmt.Sprintf("File size of %d bytes exceeds the limit of %d bytes", fileHeader.Size, h.maxFileSize))
 	}
-
-	// Security: Validate MIME type.
+	// 3. Security: Validate MIME type.
 	mimeType := fileHeader.Header.Get("Content-Type")
 	if len(h.allowedMimeTypes) > 0 && !h.allowedMimeTypes[mimeType] {
 		return c.String(http.StatusUnsupportedMediaType, fmt.Sprintf("File type '%s' is not allowed", mimeType))
@@ -74,7 +80,7 @@ func (h *FileHandler) Upload(c echo.Context) error {
 
 	src, err := fileHeader.Open()
 	if err != nil {
-		return c.String(http.StatusInternalServerError, "Failed to open uploaded file")
+		return echo.NewHTTPError(http.StatusInternalServerError, "Failed to open uploaded file")
 	}
 	defer src.Close()
 
@@ -83,7 +89,7 @@ func (h *FileHandler) Upload(c echo.Context) error {
 	sanitizedFilename := filepath.Base(fileHeader.Filename)
 	storagePath := filepath.Join("users", user.ID.String(), fmt.Sprintf("%d-%s", time.Now().UnixNano(), sanitizedFilename))
 
-	bytesWritten, err := h.store.Save(ctx, storagePath, src)
+	bytesWritten, err := h.fileStore.Save(ctx, storagePath, src)
 	if err != nil {
 		logger.Error("Failed to save file to storage", slog.String("error", err.Error()))
 		return c.String(http.StatusInternalServerError, "Failed to save file")
@@ -93,28 +99,32 @@ func (h *FileHandler) Upload(c echo.Context) error {
 	fileMetadata := &domain.File{
 		UserID:      user.ID,
 		Filename:    sanitizedFilename,
-		MimeType:    mimeType,
-		SizeBytes:   bytesWritten,
+		MIMEType:    mimeType,
+		Size:        bytesWritten,
 		StoragePath: storagePath,
 	}
 
-	if _, err := h.fileRepo.Create(ctx, fileMetadata); err != nil {
+	createdFile, err := h.fileRepo.Create(ctx, fileMetadata)
+	if err != nil {
 		logger.Error("Failed to save file metadata", slog.String("error", err.Error()))
 		// Attempt to clean up the stored file if metadata saving fails.
-		_ = h.store.Delete(ctx, storagePath)
+		_ = h.fileStore.Delete(ctx, storagePath)
 		return c.String(http.StatusInternalServerError, "Failed to save file metadata")
 	}
 
-	return c.String(http.StatusOK, fmt.Sprintf("File %s uploaded successfully.", fileHeader.Filename))
+	// Map the domain model to the response DTO.
+	response := NewFileResponse(createdFile)
+	// Return the structured JSON response.
+	return c.JSON(http.StatusCreated, response)
 }
 
-// Delete handles the deletion of a file by its ID.
-func (h *FileHandler) Delete(c echo.Context) error {
+// DeleteFile handles the deletion of a file by its ID.
+func (h *FileHandler) DeleteFile(c echo.Context) error {
 	ctx := c.Request().Context()
 	logger := middleware.FromContext(ctx)
 
-	fileID := c.Param("id")
-	if fileID == "" {
+	fileIDParam := c.Param("id")
+	if fileIDParam == "" {
 		return c.String(http.StatusBadRequest, "File ID is required")
 	}
 
@@ -125,9 +135,9 @@ func (h *FileHandler) Delete(c echo.Context) error {
 	}
 
 	// 1. Get the file metadata to find its storage path and verify ownership.
-	file, err := h.fileRepo.GetByID(ctx, fileID)
+	file, err := h.fileRepo.FindByID(ctx, fileIDParam)
 	if err != nil {
-		logger.Warn("Failed to get file for deletion", slog.String("fileID", fileID), slog.String("error", err.Error()))
+		logger.Warn("Failed to get file for deletion", slog.String("fileID", fileIDParam), slog.String("error", err.Error()))
 		return c.String(http.StatusNotFound, "File not found")
 	}
 
@@ -135,33 +145,35 @@ func (h *FileHandler) Delete(c echo.Context) error {
 	if file.UserID == nil || file.UserID.String() != user.ID.String() {
 		logger.Warn("User attempted to delete a file they don't own",
 			slog.String("userID", user.ID.String()),
-			slog.String("fileID", fileID),
+			slog.String("fileID", fileIDParam),
 			slog.String("ownerID", file.UserID.String()))
 		return c.String(http.StatusForbidden, "You do not have permission to delete this file")
 	}
 
 	// 3. Delete the physical file from storage.
-	if err := h.store.Delete(ctx, file.StoragePath); err != nil {
+	if err := h.fileStore.Delete(ctx, file.StoragePath); err != nil {
 		logger.Error("Failed to delete physical file from storage", slog.String("path", file.StoragePath), slog.String("error", err.Error()))
 		// We continue, to at least remove the database record.
 	}
 
 	// 4. Delete the metadata record from the database.
-	if err := h.fileRepo.Delete(ctx, fileID); err != nil {
-		logger.Error("Failed to delete file metadata from database", slog.String("fileID", fileID), slog.String("error", err.Error()))
+	if err := h.fileRepo.DeleteByID(ctx, file.ID.String()); err != nil {
+		logger.Error("Failed to delete file metadata from database",
+			slog.String("fileID", file.ID.String()),
+			slog.String("error", err.Error()))
 		return c.String(http.StatusInternalServerError, "Failed to delete file metadata")
 	}
 
 	return c.NoContent(http.StatusNoContent)
 }
 
-// Download handles serving a file's content.
-func (h *FileHandler) Download(c echo.Context) error {
+// DownloadFile handles serving a file's content.
+func (h *FileHandler) DownloadFile(c echo.Context) error {
 	ctx := c.Request().Context()
 	logger := middleware.FromContext(ctx)
 
-	fileID := c.Param("id")
-	if fileID == "" {
+	fileIDParam := c.Param("id")
+	if fileIDParam == "" {
 		return c.String(http.StatusBadRequest, "File ID is required")
 	}
 
@@ -172,9 +184,9 @@ func (h *FileHandler) Download(c echo.Context) error {
 	}
 
 	// 1. Get the file metadata to verify ownership and get content type.
-	file, err := h.fileRepo.GetByID(ctx, fileID)
+	file, err := h.fileRepo.FindByID(ctx, fileIDParam)
 	if err != nil {
-		logger.Warn("Failed to get file for download", slog.String("fileID", fileID), slog.String("error", err.Error()))
+		logger.Warn("Failed to get file for download", slog.String("fileID", fileIDParam), slog.String("error", err.Error()))
 		return c.String(http.StatusNotFound, "File not found")
 	}
 
@@ -182,24 +194,24 @@ func (h *FileHandler) Download(c echo.Context) error {
 	if file.UserID == nil || file.UserID.String() != user.ID.String() {
 		logger.Warn("User attempted to download a file they don't own",
 			slog.String("userID", user.ID.String()),
-			slog.String("fileID", fileID),
+			slog.String("fileID", fileIDParam),
 			slog.String("ownerID", file.UserID.String()))
 		return c.String(http.StatusForbidden, "You do not have permission to download this file")
 	}
 
 	// 3. Get the file content from storage.
-	content, err := h.store.Get(ctx, file.StoragePath)
+	content, err := h.fileStore.Get(ctx, file.StoragePath)
 	if err != nil {
 		logger.Error("Failed to get physical file from storage", slog.String("path", file.StoragePath), slog.String("error", err.Error()))
 		return c.String(http.StatusInternalServerError, "Could not retrieve file")
 	}
 	defer content.Close()
 
-	return c.Stream(http.StatusOK, file.MimeType, content)
+	return c.Stream(http.StatusOK, file.MIMEType, content)
 }
 
-// List returns a list of all files owned by the authenticated user.
-func (h *FileHandler) List(c echo.Context) error {
+// ListFiles returns a list of all files owned by the authenticated user.
+func (h *FileHandler) ListFiles(c echo.Context) error {
 	ctx := c.Request().Context()
 	logger := middleware.FromContext(ctx)
 
@@ -210,9 +222,15 @@ func (h *FileHandler) List(c echo.Context) error {
 
 	files, err := h.fileRepo.FindByUser(ctx, user.ID)
 	if err != nil {
-		logger.Error("failed to find files for user", "user_id", user.ID.String(), "error", err)
+		logger.Error("failed to find files for user", "user_id", user.ID.String(), "error", err.Error())
 		return c.String(http.StatusInternalServerError, "Could not retrieve files")
 	}
 
-	return c.JSON(http.StatusOK, files)
+	// Map the slice of domain models to a slice of response DTOs.
+	response := make([]*FileResponse, len(files))
+	for i, file := range files {
+		response[i] = NewFileResponse(file)
+	}
+
+	return c.JSON(http.StatusOK, response)
 }

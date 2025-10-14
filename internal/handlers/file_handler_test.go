@@ -1,4 +1,4 @@
-package storage_test
+package handlers_test
 
 import (
 	"bytes"
@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -18,11 +17,13 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/database"
 	"github.com/nfrund/goby/internal/domain"
+	"github.com/nfrund/goby/internal/handlers"
 	"github.com/nfrund/goby/internal/storage"
 	"github.com/nfrund/goby/internal/testutils"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	surrealmodels "github.com/surrealdb/surrealdb.go/pkg/models"
 )
 
 // TestFileHandler_Upload tests the file upload endpoint.
@@ -67,8 +68,9 @@ func TestFileHandler_Upload(t *testing.T) {
 	// For this test, allow any size and type to test the success path.
 	maxSize := int64(10 * 1024 * 1024) // 10MB
 	allowedTypes := []string{"text/plain"}
-	fileHandler := storage.NewFileHandler(aferoStore, fileStore, maxSize, allowedTypes)
+	fileHandler := handlers.NewFileHandler(aferoStore, fileStore, maxSize, allowedTypes)
 	e := echo.New()
+	e.Validator = handlers.NewValidator() // Register validator for the UploadFileRequest DTO
 	// Middleware to inject the user ID into the context for the handler
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
@@ -76,9 +78,9 @@ func TestFileHandler_Upload(t *testing.T) {
 			return next(c)
 		}
 	})
-	e.POST("/upload", fileHandler.Upload)
-	e.DELETE("/files/:id", fileHandler.Delete)
-	e.GET("/files/:id/download", fileHandler.Download)
+	e.POST("/upload", fileHandler.UploadFile)
+	e.DELETE("/files/:id", fileHandler.DeleteFile)
+	e.GET("/files/:id/download", fileHandler.DownloadFile)
 
 	// --- Create Upload Request ---
 	body := new(bytes.Buffer)
@@ -101,8 +103,12 @@ func TestFileHandler_Upload(t *testing.T) {
 	e.ServeHTTP(rec, req)
 
 	// --- Assertions ---
-	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Contains(t, rec.Body.String(), "File test-upload.txt uploaded successfully.")
+	require.Equal(t, http.StatusCreated, rec.Code)
+
+	var response handlers.FileResponse
+	err = json.Unmarshal(rec.Body.Bytes(), &response)
+	require.NoError(t, err, "failed to unmarshal response")
+	assert.Equal(t, "test-upload.txt", response.Filename)
 
 	// Verify file metadata was saved in the database
 	// We need to find the file by something other than ID, since we don't know it.
@@ -116,9 +122,9 @@ func TestFileHandler_Upload(t *testing.T) {
 	savedFile := files[0]
 	t.Logf("Verified file metadata was saved to database with ID: %s", savedFile.ID.String())
 	assert.Equal(t, "test-upload.txt", savedFile.Filename)
-	assert.Equal(t, int64(len(fileContent)), savedFile.SizeBytes)
+	assert.Equal(t, int64(len(fileContent)), savedFile.Size)
 	assert.Equal(t, createdUser.ID, savedFile.UserID)
-	t.Cleanup(func() { _ = fileStore.Delete(ctx, savedFile.ID.String()) })
+	t.Cleanup(func() { _ = fileStore.DeleteByID(ctx, savedFile.ID.String()) })
 
 	// Verify file content was saved in the in-memory storage
 	expectedPath := filepath.Join("users", createdUser.ID.String())
@@ -175,8 +181,9 @@ func TestFileHandler_Delete(t *testing.T) {
 	fileToCreate := &domain.File{
 		UserID:      createdUser.ID,
 		Filename:    "file-to-delete.txt",
+		MIMEType:    "text/plain", // Add required MIMEType to pass validation
 		StoragePath: storagePath,
-		SizeBytes:   int64(len(fileContent)),
+		Size:        int64(len(fileContent)),
 	}
 	createdFile, err := fileStore.Create(ctx, fileToCreate)
 	require.NoError(t, err)
@@ -184,7 +191,7 @@ func TestFileHandler_Delete(t *testing.T) {
 	// --- Setup Handler and Server ---
 	maxSize := int64(10 * 1024 * 1024) // 10MB
 	allowedTypes := []string{"text/plain"}
-	fileHandler := storage.NewFileHandler(aferoStore, fileStore, maxSize, allowedTypes)
+	fileHandler := handlers.NewFileHandler(aferoStore, fileStore, maxSize, allowedTypes)
 	e := echo.New()
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
@@ -192,8 +199,8 @@ func TestFileHandler_Delete(t *testing.T) {
 			return next(c)
 		}
 	})
-	e.DELETE("/files/:id", fileHandler.Delete)
-	e.GET("/files/:id/download", fileHandler.Download)
+	e.DELETE("/files/:id", fileHandler.DeleteFile)
+	e.GET("/files/:id/download", fileHandler.DownloadFile)
 
 	// --- Execute Delete Request ---
 	req := httptest.NewRequest(http.MethodDelete, "/files/"+createdFile.ID.String(), nil)
@@ -204,7 +211,7 @@ func TestFileHandler_Delete(t *testing.T) {
 	assert.Equal(t, http.StatusNoContent, rec.Code)
 
 	// Verify metadata was deleted from the database
-	_, err = fileStore.GetByID(ctx, createdFile.ID.String())
+	_, err = fileStore.FindByID(ctx, createdFile.ID.String())
 	require.Error(t, err, "expected an error when getting a deleted file")
 	// A more specific check for a "not found" error would be even better.
 	// For now, any error suffices to show it's gone.
@@ -258,18 +265,18 @@ func TestFileHandler_Download(t *testing.T) {
 	fileToCreate := &domain.File{
 		UserID:      createdUser.ID,
 		Filename:    "file-to-download.txt",
-		MimeType:    "text/plain",
+		MIMEType:    "text/plain",
 		StoragePath: storagePath,
-		SizeBytes:   int64(len(fileContent)),
+		Size:        int64(len(fileContent)),
 	}
 	createdFile, err := fileStore.Create(ctx, fileToCreate)
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = fileStore.Delete(ctx, createdFile.ID.String()) })
+	t.Cleanup(func() { _ = fileStore.DeleteByID(ctx, createdFile.ID.String()) })
 
 	// --- Setup Handler and Server ---
 	maxSize := int64(10 * 1024 * 1024) // 10MB
 	allowedTypes := []string{"text/plain"}
-	fileHandler := storage.NewFileHandler(aferoStore, fileStore, maxSize, allowedTypes)
+	fileHandler := handlers.NewFileHandler(aferoStore, fileStore, maxSize, allowedTypes)
 	e := echo.New()
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
@@ -277,7 +284,7 @@ func TestFileHandler_Download(t *testing.T) {
 			return next(c)
 		}
 	})
-	e.GET("/files/:id/download", fileHandler.Download)
+	e.GET("/files/:id/download", fileHandler.DownloadFile)
 
 	// --- Execute Download Request ---
 	req := httptest.NewRequest(http.MethodGet, "/files/"+createdFile.ID.String()+"/download", nil)
@@ -287,7 +294,7 @@ func TestFileHandler_Download(t *testing.T) {
 	// --- Assertions ---
 	assert.Equal(t, http.StatusOK, rec.Code)
 	assert.Equal(t, "text/plain", rec.Header().Get("Content-Type"))
-	bodyBytes, err := ioutil.ReadAll(rec.Body)
+	bodyBytes, err := io.ReadAll(rec.Body)
 	require.NoError(t, err)
 	assert.Equal(t, fileContent, string(bodyBytes))
 }
@@ -306,16 +313,17 @@ func TestFileHandler_Upload_Validation(t *testing.T) {
 	// Configure handler with strict limits
 	maxSize := int64(1024) // 1 KB
 	allowedTypes := []string{"image/png", "image/jpeg"}
-	fileHandler := storage.NewFileHandler(aferoStore, fileStore, maxSize, allowedTypes)
+	fileHandler := handlers.NewFileHandler(aferoStore, fileStore, maxSize, allowedTypes)
 
 	e := echo.New()
+	e.Validator = handlers.NewValidator() // Register validator for the UploadFileRequest DTO
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			c.Set("user", user)
 			return next(c)
 		}
 	})
-	e.POST("/upload", fileHandler.Upload)
+	e.POST("/upload", fileHandler.UploadFile)
 
 	t.Run("rejects unsupported MIME type", func(t *testing.T) {
 		body := new(bytes.Buffer)
@@ -391,8 +399,9 @@ func TestFileHandler_Authorization(t *testing.T) {
 	require.NoError(t, err)
 
 	// 1. Create two users
+	timestamp := time.Now().UnixNano()
 	userA := testutils.TestUser{
-		User:     domain.User{Name: &[]string{"User A"}[0], Email: "usera@example.com"},
+		User:     domain.User{Name: &[]string{"User A"}[0], Email: fmt.Sprintf("usera-%d@example.com", timestamp)},
 		Password: "password",
 	}
 	createdUserA, err := userClient.Create(ctx, "user", &userA)
@@ -400,7 +409,7 @@ func TestFileHandler_Authorization(t *testing.T) {
 	t.Cleanup(func() { _ = userClient.Delete(ctx, createdUserA.ID.String()) })
 
 	userB := testutils.TestUser{
-		User:     domain.User{Name: &[]string{"User B"}[0], Email: "userb@example.com"},
+		User:     domain.User{Name: &[]string{"User B"}[0], Email: fmt.Sprintf("userb-%d@example.com", timestamp)},
 		Password: "password",
 	}
 	createdUserB, err := userClient.Create(ctx, "user", &userB)
@@ -411,14 +420,15 @@ func TestFileHandler_Authorization(t *testing.T) {
 	fileToCreate := &domain.File{
 		UserID:      createdUserA.ID,
 		Filename:    "user-a-file.txt",
-		StoragePath: "path/to/user-a-file.txt",
+		MIMEType:    "text/plain", // Add required MIMEType to pass validation
+		StoragePath: fmt.Sprintf("path/to/user-a-file-%d.txt", time.Now().UnixNano()),
 	}
 	createdFile, err := fileStore.Create(ctx, fileToCreate)
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = fileStore.Delete(ctx, createdFile.ID.String()) })
+	t.Cleanup(func() { _ = fileStore.DeleteByID(ctx, createdFile.ID.String()) })
 
 	// 3. Setup Handler and Server
-	fileHandler := storage.NewFileHandler(aferoStore, fileStore, 0, nil)
+	fileHandler := handlers.NewFileHandler(aferoStore, fileStore, 0, nil)
 	e := echo.New()
 	// This middleware will authenticate the request as User B
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
@@ -427,8 +437,8 @@ func TestFileHandler_Authorization(t *testing.T) {
 			return next(c)
 		}
 	})
-	e.DELETE("/files/:id", fileHandler.Delete)
-	e.GET("/files/:id/download", fileHandler.Download)
+	e.DELETE("/files/:id", fileHandler.DeleteFile)
+	e.GET("/files/:id/download", fileHandler.DownloadFile)
 
 	// 4. Assert that User B cannot download User A's file
 	t.Run("forbids downloading another user's file", func(t *testing.T) {
@@ -472,25 +482,43 @@ func TestFileHandler_List(t *testing.T) {
 
 	// 1. Create a user
 	userName := "File Lister"
+	timestamp := time.Now().UnixNano()
 	user := testutils.TestUser{
-		User:     domain.User{Name: &userName, Email: "lister@example.com"},
+		User:     domain.User{Name: &userName, Email: fmt.Sprintf("lister-%d@example.com", timestamp)},
 		Password: "password",
 	}
 	createdUser, err := userClient.Create(ctx, "user", &user)
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = userClient.Delete(ctx, createdUser.ID.String()) })
+	t.Cleanup(func() {
+		if err := userClient.Delete(ctx, createdUser.ID.String()); err != nil {
+			t.Logf("warning: failed to clean up test user: %v", err)
+		}
+	})
 
-	// 2. Create some files for the user
-	file1, err := fileStore.Create(ctx, &domain.File{UserID: createdUser.ID, Filename: "file1.txt", StoragePath: "p1"})
+	// 2. Create some files for the user with explicit created_at times
+	now := time.Now()
+	file1, err := fileStore.Create(ctx, &domain.File{
+		UserID:      createdUser.ID,
+		Filename:    "file1.txt",
+		StoragePath: fmt.Sprintf("p1-%d", timestamp),
+		MIMEType:    "application/pdf",
+		CreatedAt:   &surrealmodels.CustomDateTime{Time: now.Add(-1 * time.Hour)}, // Older file
+	})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = fileStore.Delete(ctx, file1.ID.String()) })
+	t.Cleanup(func() { _ = fileStore.DeleteByID(ctx, file1.ID.String()) })
 
-	file2, err := fileStore.Create(ctx, &domain.File{UserID: createdUser.ID, Filename: "file2.txt", StoragePath: "p2"})
+	file2, err := fileStore.Create(ctx, &domain.File{
+		UserID:      createdUser.ID,
+		Filename:    "file2.txt",
+		StoragePath: fmt.Sprintf("p2-%d", timestamp+1),
+		MIMEType:    "application/pdf",
+		CreatedAt:   &surrealmodels.CustomDateTime{Time: now}, // Newer file
+	})
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = fileStore.Delete(ctx, file2.ID.String()) })
+	t.Cleanup(func() { _ = fileStore.DeleteByID(ctx, file2.ID.String()) })
 
 	// 3. Setup Handler and Server
-	fileHandler := storage.NewFileHandler(nil, fileStore, 0, nil)
+	fileHandler := handlers.NewFileHandler(nil, fileStore, 0, nil)
 	e := echo.New()
 	e.Use(func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
@@ -498,7 +526,7 @@ func TestFileHandler_List(t *testing.T) {
 			return next(c)
 		}
 	})
-	e.GET("/files", fileHandler.List)
+	e.GET("/files", fileHandler.ListFiles)
 
 	// 4. Execute List Request
 	req := httptest.NewRequest(http.MethodGet, "/files", nil)
@@ -506,12 +534,14 @@ func TestFileHandler_List(t *testing.T) {
 	e.ServeHTTP(rec, req)
 
 	// 5. Assertions
-	assert.Equal(t, http.StatusOK, rec.Code)
+	require.Equal(t, http.StatusOK, rec.Code)
 
-	var files []*domain.File
+	var files []*handlers.FileResponse
 	err = json.Unmarshal(rec.Body.Bytes(), &files)
 	require.NoError(t, err)
 	require.Len(t, files, 2, "should return two files for the user")
-	assert.Equal(t, "file2.txt", files[0].Filename, "files should be ordered by most recent first")
-	assert.Equal(t, "file1.txt", files[1].Filename)
+
+	// Verify files are ordered by created_at DESC (newest first)
+	assert.Equal(t, "file2.txt", files[0].Filename, "newer file should be first")
+	assert.Equal(t, "file1.txt", files[1].Filename, "older file should be second")
 }

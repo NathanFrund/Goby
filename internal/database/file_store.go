@@ -29,13 +29,10 @@ func NewFileStore(client Client[domain.File]) *FileStore {
 // Create inserts a new file metadata record into the database.
 func (s *FileStore) Create(ctx context.Context, file *domain.File) (*domain.File, error) {
 	if file == nil {
-		return nil, errors.New("file cannot be nil")
+		return nil, errors.New("file to create cannot be nil")
 	}
-	if file.Filename == "" {
-		return nil, errors.New("file name is required")
-	}
-	if file.StoragePath == "" {
-		return nil, errors.New("file storage path is required")
+	if err := file.Validate(); err != nil {
+		return nil, fmt.Errorf("validation failed for file: %w", err)
 	}
 
 	// Instead of passing the struct directly, create a map to ensure correct
@@ -46,8 +43,8 @@ func (s *FileStore) Create(ctx context.Context, file *domain.File) (*domain.File
 	fileData := map[string]interface{}{
 		"user_id":      file.UserID,
 		"filename":     file.Filename,
-		"mime_type":    file.MimeType,
-		"size_bytes":   file.SizeBytes,
+		"mime_type":    file.MIMEType,
+		"size":         file.Size,
 		"storage_path": file.StoragePath,
 		"created_at":   file.CreatedAt,
 		"updated_at":   file.UpdatedAt,
@@ -62,14 +59,14 @@ func (s *FileStore) Create(ctx context.Context, file *domain.File) (*domain.File
 }
 
 // GetByID retrieves file metadata by its unique ID.
-func (s *FileStore) GetByID(ctx context.Context, id string) (*domain.File, error) {
-	return s.client.Select(ctx, id)
+func (s *FileStore) FindByID(ctx context.Context, fileID string) (*domain.File, error) {
+	return s.client.Select(ctx, fileID)
 }
 
-// GetByStoragePath retrieves file metadata by its storage path.
-func (s *FileStore) GetByStoragePath(ctx context.Context, path string) (*domain.File, error) {
+// FindByStoragePath retrieves file metadata by its storage path.
+func (s *FileStore) FindByStoragePath(ctx context.Context, storagePath string) (*domain.File, error) {
 	query := "SELECT * FROM file WHERE storage_path = $path"
-	vars := map[string]interface{}{"path": path}
+	vars := map[string]interface{}{"path": storagePath}
 
 	file, err := s.client.QueryOne(ctx, query, vars)
 	if err != nil {
@@ -88,11 +85,15 @@ func (s *FileStore) Update(ctx context.Context, file *domain.File) (*domain.File
 		return nil, errors.New("file and file ID are required for update")
 	}
 
+	if err := file.Validate(); err != nil {
+		return nil, fmt.Errorf("validation failed for file update: %w", err)
+	}
+
 	// Use a map for updates to explicitly control which fields are modified
 	file.UpdatedAt = &surrealmodels.CustomDateTime{Time: time.Now().UTC()}
 	updateData := map[string]interface{}{
 		"filename":   file.Filename,
-		"mime_type":  file.MimeType,
+		"mime_type":  file.MIMEType,
 		"updated_at": file.UpdatedAt,
 	}
 
@@ -100,8 +101,8 @@ func (s *FileStore) Update(ctx context.Context, file *domain.File) (*domain.File
 }
 
 // Delete removes a file record from the database.
-func (s *FileStore) Delete(ctx context.Context, id string) error {
-	return s.client.Delete(ctx, id)
+func (s *FileStore) DeleteByID(ctx context.Context, fileID string) error {
+	return s.client.Delete(ctx, fileID)
 }
 
 // FindLatestByUser retrieves the most recently created file for a given user from the database.
@@ -123,18 +124,20 @@ func (s *FileStore) FindLatestByUser(ctx context.Context, userID *surrealmodels.
 
 // FindByUser retrieves all file metadata records for a given user, ordered by creation date.
 func (s *FileStore) FindByUser(ctx context.Context, userID *surrealmodels.RecordID) ([]*domain.File, error) {
-	query := "SELECT * FROM file WHERE user_id = $user ORDER BY created_at DESC"
-	vars := map[string]interface{}{"user": userID}
-
-	files, err := s.client.Query(ctx, query, vars)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query files by user: %w", err)
+	if userID == nil {
+		return nil, NewDBError(ErrInvalidInput, "user ID is required")
 	}
 
-	// The client.Query method returns a slice of values, but our interface expects a slice of pointers.
-	filePtrs := make([]*domain.File, len(files))
+	query := "SELECT * FROM file WHERE user_id = $userID ORDER BY created_at DESC"
+	files, err := s.client.Query(ctx, query, map[string]any{"userID": userID})
+	if err != nil {
+		return nil, fmt.Errorf("failed to query for user files: %w", err)
+	}
+
+	// Convert the slice of values to a slice of pointers as required by the interface.
+	filePtrs := make([]*domain.File, 0, len(files))
 	for i := range files {
-		filePtrs[i] = &files[i]
+		filePtrs = append(filePtrs, &files[i])
 	}
 
 	return filePtrs, nil

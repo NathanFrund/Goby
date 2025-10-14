@@ -60,8 +60,8 @@ func (s *Server) RegisterRoutes() {
 	// and are therefore protected by the authentication middleware.
 	// The FileHandler is constructed in main.go and passed to the server.
 	filesGroup := protected.Group("/files") // e.g., /app/files
-	filesGroup.GET("", s.FileHandler.List)
-	filesGroup.POST("/upload", s.FileHandler.Upload)
-	filesGroup.DELETE("/:id", s.FileHandler.Delete)
-	filesGroup.GET("/:id/download", s.FileHandler.Download)
+	filesGroup.GET("", s.FileHandler.ListFiles)
+	filesGroup.POST("/upload", s.FileHandler.UploadFile)
+	filesGroup.DELETE("/:id", s.FileHandler.DeleteFile)
+	filesGroup.GET("/:id/download", s.FileHandler.DownloadFile)
 }

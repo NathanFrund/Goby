@@ -31,7 +31,7 @@ func RegisterModuleConfig(moduleName string, loader ModuleConfigLoader) {
 // This allows for dependency injection and easier testing.
 type Provider interface {
 	GetServerAddr() string
-	GetDBUrl() string
+	GetDBURL() string
 	GetDBNs() string
 	GetDBDb() string
 	GetDBUser() string
@@ -45,7 +45,7 @@ type Provider interface {
 	GetDBExecuteTimeout() time.Duration
 	GetStorageBackend() string
 	GetStoragePath() string
-	GetMaxUploadSize() int64
+	GetMaxFileSize() int64
 	GetAllowedMimeTypes() []string
 	// GetModuleConfig retrieves the configuration for a specific module.
 	// Returns the config and a boolean indicating if it was found.
@@ -55,7 +55,7 @@ type Provider interface {
 // Config holds all configuration for the application.
 type Config struct {
 	ServerAddr       string
-	DBUrl            string
+	DBURL            string
 	DBNs             string
 	DBDb             string
 	DBUser           string
@@ -69,7 +69,7 @@ type Config struct {
 	SessionSecret    string
 	StorageBackend   string
 	StoragePath      string
-	MaxUploadSizeMB  int64
+	MaxFileSizeMB    int64
 	AllowedMimeTypes string
 	// ModuleConfigs holds configuration for registered modules.
 	moduleConfigs map[string]interface{}
@@ -89,7 +89,7 @@ func New() Provider {
 
 	cfg := &Config{
 		ServerAddr:       os.Getenv("SERVER_ADDR"),
-		DBUrl:            os.Getenv("SURREAL_URL"),
+		DBURL:            os.Getenv("SURREAL_URL"),
 		DBUser:           os.Getenv("SURREAL_USER"),
 		DBPass:           os.Getenv("SURREAL_PASS"),
 		DBNs:             os.Getenv("SURREAL_NS"),
@@ -103,7 +103,7 @@ func New() Provider {
 		SessionSecret:    os.Getenv("SESSION_SECRET"),
 		StorageBackend:   os.Getenv("STORAGE_BACKEND"),
 		StoragePath:      os.Getenv("STORAGE_PATH"),
-		MaxUploadSizeMB:  getInt64Env("STORAGE_MAX_UPLOAD_MB", 5),
+		MaxFileSizeMB:    getInt64Env("STORAGE_MAX_FILE_SIZE_MB", 5),
 		AllowedMimeTypes: os.Getenv("STORAGE_ALLOWED_MIME_TYPES"),
 		moduleConfigs:    make(map[string]interface{}),
 	}
@@ -120,7 +120,7 @@ func New() Provider {
 		cfg.ServerAddr = ":8080"
 	}
 
-	if cfg.DBUrl == "" || cfg.DBNs == "" || cfg.DBDb == "" {
+	if cfg.DBURL == "" || cfg.DBNs == "" || cfg.DBDb == "" {
 		// It's better for the application's entry point (main.go) to handle this.
 		log.Println("WARNING: One or more required database environment variables are not set (SURREAL_URL, SURREAL_NS, SURREAL_DB).")
 	}
@@ -180,9 +180,9 @@ func (c *Config) GetServerAddr() string {
 	return c.ServerAddr
 }
 
-// GetDBUrl returns the database URL.
-func (c *Config) GetDBUrl() string {
-	return c.DBUrl
+// GetDBURL returns the database URL.
+func (c *Config) GetDBURL() string {
+	return c.DBURL
 }
 
 // GetDBNs returns the database namespace.
@@ -250,9 +250,9 @@ func (c *Config) GetStoragePath() string {
 	return c.StoragePath
 }
 
-// GetMaxUploadSize returns the maximum file upload size in bytes.
-func (c *Config) GetMaxUploadSize() int64 {
-	return c.MaxUploadSizeMB * 1024 * 1024
+// GetMaxFileSize returns the maximum file upload size in bytes.
+func (c *Config) GetMaxFileSize() int64 {
+	return c.MaxFileSizeMB * 1024 * 1024
 }
 
 // GetAllowedMimeTypes returns a list of allowed MIME types for uploads.

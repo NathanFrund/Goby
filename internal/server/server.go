@@ -22,7 +22,6 @@ import (
 	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/registry"
 	"github.com/nfrund/goby/internal/rendering"
-	"github.com/nfrund/goby/internal/storage"
 	"github.com/nfrund/goby/internal/websocket"
 	"github.com/nfrund/goby/web"
 )
@@ -34,7 +33,7 @@ type Server struct {
 	Emailer          domain.EmailSender
 	UserStore        domain.UserRepository
 	Renderer         rendering.Renderer
-	FileHandler      *storage.FileHandler
+	FileHandler      *handlers.FileHandler
 	DashboardHandler *handlers.DashboardHandler
 
 	modules []module.Module
@@ -52,7 +51,7 @@ type Dependencies struct {
 	Publisher        pubsub.Publisher
 	Echo             *echo.Echo
 	Bridge           websocket.Bridge
-	FileHandler      *storage.FileHandler
+	FileHandler      *handlers.FileHandler
 	DashboardHandler *handlers.DashboardHandler
 }
 
@@ -106,7 +105,11 @@ func setupErrorHandling(e *echo.Echo) {
 		}
 
 		// Respond to the client (we'll just use JSON for errors for simplicity)
-		c.JSON(he.Code, map[string]interface{}{"error": he.Message})
+		errResp := handlers.ErrorResponse{
+			Code:    http.StatusText(he.Code), // A simple default code
+			Message: fmt.Sprintf("%v", he.Message),
+		}
+		c.JSON(he.Code, errResp)
 	}
 }
 
@@ -116,6 +119,9 @@ func New(deps Dependencies) (*Server, error) {
 	// This allows us to configure it before the server is created.
 	e := deps.Echo
 	setupErrorHandling(e)
+
+	// Register the custom validator.
+	e.Validator = handlers.NewValidator()
 	e.Renderer = deps.Renderer
 
 	// The server needs the more specific rendering.Renderer for internal use.

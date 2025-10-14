@@ -63,8 +63,8 @@ func TestFileStore_CRUD(t *testing.T) {
 	fileToCreate := domain.File{
 		UserID:      createdUser.ID,
 		Filename:    "test.txt",
-		MimeType:    "text/plain",
-		SizeBytes:   12345,
+		MIMEType:    "text/plain",
+		Size:        12345,
 		StoragePath: storagePath,
 	}
 
@@ -79,7 +79,7 @@ func TestFileStore_CRUD(t *testing.T) {
 	t.Cleanup(func() { _ = fileClient.Delete(ctx, idStr) })
 
 	// 3. Test GetByID
-	fetchedByID, err := store.GetByID(ctx, idStr)
+	fetchedByID, err := store.FindByID(ctx, idStr)
 	require.NoError(t, err)
 	require.NotNil(t, fetchedByID)
 	assert.Equal(t, createdFile.ID, fetchedByID.ID)
@@ -89,14 +89,14 @@ func TestFileStore_CRUD(t *testing.T) {
 	require.False(t, fetchedByID.CreatedAt.IsZero(), "CreatedAt should not be a zero time")
 	assert.WithinDuration(t, time.Now(), fetchedByID.CreatedAt.Time, 5*time.Second, "CreatedAt should be recent")
 
-	// 4. Test GetByStoragePath
-	fetchedByPath, err := store.GetByStoragePath(ctx, storagePath)
+	// 4. Test FindByStoragePath
+	fetchedByPath, err := store.FindByStoragePath(ctx, storagePath)
 	require.NoError(t, err)
 	require.NotNil(t, fetchedByPath)
 	assert.Equal(t, createdFile.ID, fetchedByPath.ID)
 
-	// 5. Test GetByStoragePath with non-existent path
-	_, err = store.GetByStoragePath(ctx, "non/existent/path.txt")
+	// 5. Test FindByStoragePath with non-existent path
+	_, err = store.FindByStoragePath(ctx, "non/existent/path.txt")
 	require.Error(t, err)
 	assert.Equal(t, "file not found", err.Error())
 
@@ -113,10 +113,10 @@ func TestFileStore_CRUD(t *testing.T) {
 	assert.True(t, updatedFile.UpdatedAt.Time.After(updatedFile.CreatedAt.Time), "UpdatedAt should be after CreatedAt")
 
 	// 7. Test Delete
-	err = store.Delete(ctx, idStr)
+	err = store.DeleteByID(ctx, idStr)
 	require.NoError(t, err)
 
-	deletedFile, err := store.GetByID(ctx, idStr)
+	deletedFile, err := store.FindByID(ctx, idStr)
 	require.Error(t, err)
 	assert.Nil(t, deletedFile)
 }
