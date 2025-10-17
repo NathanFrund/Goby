@@ -2,9 +2,24 @@ package websocket
 
 import "encoding/json"
 
+// MessageType represents the type of WebSocket message
+type MessageType string
+
+// Constants for WebSocket message types
+const (
+	MessageTypeHTML    MessageType = "html"
+	MessageTypeData    MessageType = "data"
+	MessageTypeCommand MessageType = "command"
+)
+
+// isValidMessageType checks if a given string is a valid message type.
+func isValidMessageType(t MessageType) bool {
+	return t == MessageTypeHTML || t == MessageTypeData || t == MessageTypeCommand
+}
+
 // Message represents a generic WebSocket message
 type Message struct {
-	Type    string      `json:"type"` // Message type (e.g., "html", "data", "command")
+	Type    MessageType `json:"type"` // Message type (e.g., "html", "data", "command")
 	Target  string      `json:"target,omitempty"`
 	Payload interface{} `json:"payload"` // The actual message content (string or []byte)
 }
@@ -37,7 +52,7 @@ type Command struct {
 }
 
 // NewMessage creates a new message with the given type and payload
-func NewMessage(msgType string, payload interface{}, target ...string) *Message {
+func NewMessage(msgType MessageType, payload interface{}, target ...string) *Message {
 	msg := &Message{
 		Type:    msgType,
 		Payload: payload,
@@ -50,12 +65,12 @@ func NewMessage(msgType string, payload interface{}, target ...string) *Message 
 
 // NewHTMLMessage creates a new HTML message
 func NewHTMLMessage(html string, target string) *Message {
-	return NewMessage("html", html, target)
+	return NewMessage(MessageTypeHTML, html, target)
 }
 
 // NewDataMessage creates a new data message
 func NewDataMessage(data interface{}) *Message {
-	return NewMessage("data", data)
+	return NewMessage(MessageTypeData, data)
 }
 
 // NewCommand creates a new command message
@@ -64,7 +79,7 @@ func NewCommand(name string, payload ...interface{}) *Message {
 	if len(payload) > 0 {
 		p = payload[0]
 	}
-	return NewMessage("command", Command{
+	return NewMessage(MessageTypeCommand, Command{
 		Name:    name,
 		Payload: p,
 	})

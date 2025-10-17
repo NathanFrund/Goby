@@ -16,16 +16,6 @@ import (
 	"github.com/nfrund/goby/internal/pubsub"
 )
 
-// MessageType represents the type of WebSocket message
-type MessageType string
-
-const (
-	// MessageTypeHTML is for HTML fragment messages
-	MessageTypeHTML MessageType = "html"
-	// MessageTypeData is for structured data messages
-	MessageTypeData MessageType = "data"
-)
-
 // ConnectionType defines the type of WebSocket connection.
 type ConnectionType int
 
@@ -60,10 +50,8 @@ type Client struct {
 	connType ConnectionType
 	// bridge is a reference back to the bridge that manages this client.
 	bridge *bridge
-	// closed indicates whether the client has been closed
-	closed bool
-	// mu protects the closed flag and send channel
-	mu sync.Mutex
+	// mu protects the send channel during client shutdown
+	mu sync.RWMutex
 }
 
 // IncomingMessage represents a message received from a client, destined for the pub/sub system.
@@ -178,8 +166,17 @@ func (b *bridge) Run() {
 						slog.Debug("Cancelled subscription for user", "userID", client.ID)
 					}
 				}
+
+				// Safely close the client's send channel.
+				// This must be done inside the main bridge lock to prevent race conditions
+				// where a message is sent just as the client is being unregistered.
+				client.mu.Lock()
+				if client.send != nil {
+					close(client.send)
+					client.send = nil // Prevent further writes
+				}
+				client.mu.Unlock()
 			}
-			close(client.send)
 			b.mu.Unlock()
 			slog.Info("Client unregistered", "userID", client.ID, "type", client.connType)
 
@@ -242,18 +239,24 @@ func (b *bridge) handleBroadcast(_ context.Context, msg pubsub.Message) error {
 		return nil
 	}
 
+	// Validate the message type before processing
+	if !isValidMessageType(wsMsg.Type) {
+		slog.Warn("Received broadcast message with invalid type", "type", wsMsg.Type)
+		return nil
+	}
+
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
 	for _, clients := range b.clients {
 		for _, client := range clients {
-			// Check if the client's connection type matches the message type.
+			// Check if the client's connection type matches the message type
 			// Commands are sent to all clients.
-			if wsMsg.Type == client.connType.String() || wsMsg.Type == "command" {
+			if wsMsg.Type == MessageType(client.connType.String()) || wsMsg.Type == MessageTypeCommand {
 				// For HTML messages, we need to send the raw HTML string payload.
 				// For Data/Command messages, we send the full marshaled message.
 				var payloadToSend []byte
-				if wsMsg.Type == "html" {
+				if wsMsg.Type == MessageTypeHTML {
 					if htmlPayload, ok := wsMsg.Payload.(string); ok {
 						payloadToSend = []byte(htmlPayload)
 					} else {
@@ -318,12 +321,18 @@ func (b *bridge) Handler(connType ConnectionType) echo.HandlerFunc {
 					return nil
 				}
 
-				// Check if the client's connection type matches the message type.
+				// Validate the message type
+				if !isValidMessageType(wsMsg.Type) {
+					slog.Warn("Received direct message with invalid type", "type", wsMsg.Type, "userID", user.Email)
+					return nil
+				}
+
+				// Check if the client's connection type matches the message type
 				// Commands are sent to all clients.
-				if wsMsg.Type == client.connType.String() || wsMsg.Type == "command" {
+				if wsMsg.Type == MessageType(client.connType.String()) || wsMsg.Type == MessageTypeCommand {
 					var payloadToSend []byte
 					// For HTML messages, send the raw HTML string from the payload.
-					if wsMsg.Type == "html" {
+					if wsMsg.Type == MessageTypeHTML {
 						if htmlPayload, ok := wsMsg.Payload.(string); ok {
 							payloadToSend = []byte(htmlPayload)
 						} else {
@@ -398,28 +407,24 @@ func (c *Client) readPump() {
 
 // sendMessage safely sends a message to the client's send channel, logging if it's full.
 func (c *Client) sendMessage(message []byte) {
-	select {
-	case c.send <- message:
-	// Message sent successfully
-	default:
-		slog.Warn("Client send channel full, dropping message", "userID", c.ID, "connType", c.connType)
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if c.send != nil {
+		// Non-blocking send to prevent deadlocks.
+		select {
+		case c.send <- message: // Attempt to send the message
+		default:
+			slog.Warn("Client send channel full, dropping message", "userID", c.ID, "connType", c.connType)
+		}
 	}
 }
 
 // writePump pumps messages from the client's send channel to the WebSocket connection.
 func (c *Client) writePump() {
 	defer func() {
-		// Clean up the client
-		c.mu.Lock()
-		c.closed = true
-		close(c.send) // This will cause any pending sends to panic, but they're protected by the mutex
-		c.mu.Unlock()
-
 		// Close the WebSocket connection
 		c.conn.Close(websocket.StatusNormalClosure, "Server-side cleanup")
-
-		// Unregister the client
-		c.bridge.unregister <- c
 	}()
 
 	for message := range c.send {
