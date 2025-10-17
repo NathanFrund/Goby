@@ -100,7 +100,10 @@ func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Serve
 		slog.Info("Shutting down Pub/Sub system...")
 		return ps.Close()
 	})
-	wsBridge := websocket.NewBridge(ps)
+	wsBridge, err := websocket.NewBridge(ps, ps)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create WebSocket bridge: %w", err)
+	}
 
 	// User Store (using the new v2 client)
 	userDBClient, err := database.NewClient[domain.User](dbConn, cfg)

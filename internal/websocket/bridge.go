@@ -73,7 +73,8 @@ type Bridge interface {
 // bridge manages all WebSocket connections and routes messages
 // between connected clients and the Pub/Sub message bus.
 type bridge struct {
-	publisher pubsub.Publisher
+	publisher  pubsub.Publisher
+	subscriber pubsub.Subscriber
 
 	// clients is a map of user IDs to a list of their active clients.
 	// A user can have multiple connections (e.g., browser tab, mobile).
@@ -94,23 +95,30 @@ type bridge struct {
 	// incoming is a channel for messages received from clients.
 	incoming chan *IncomingMessage
 
-	// A mutex to protect access to the clients map, as it will be accessed
-	// from multiple goroutines (registration, unregistration, broadcast).
+	// A mutex to protect access to the clients map and cancelFuncs
 	mu sync.RWMutex
+
+	// cancelFuncs stores cancel functions for active subscriptions
+	cancelFuncs map[string]context.CancelFunc
 }
 
 // NewBridge initializes a new Bridge, ready to handle connections.
-func NewBridge(pub pubsub.Publisher) Bridge {
-	return &bridge{
-		publisher:  pub,
-		clients:    make(map[string][]*Client),
-		register:   make(chan *Client),
-		unregister: make(chan *Client),
-		broadcast:  make(chan *BroadcastMessage),
-		direct:     make(chan *DirectMessage),
-		incoming:   make(chan *IncomingMessage, 256), // Buffered channel
+func NewBridge(pub pubsub.Publisher, sub pubsub.Subscriber) (Bridge, error) {
+	b := &bridge{
+		publisher:   pub,
+		subscriber:  sub,
+		clients:     make(map[string][]*Client),
+		register:    make(chan *Client),
+		unregister:  make(chan *Client),
+		broadcast:   make(chan *BroadcastMessage, 100),
+		direct:      make(chan *DirectMessage, 100),
+		incoming:    make(chan *IncomingMessage, 100),
+		cancelFuncs: make(map[string]context.CancelFunc),
 	}
+
+	return b, nil
 }
+
 
 // Run starts the main bridge goroutine for managing client lifecycle and message routing.
 func (b *bridge) Run() {
@@ -133,25 +141,32 @@ func (b *bridge) Run() {
 						break
 					}
 				}
-				// If the user has no more connections, remove the entry from the map.
+
+				// If this was the last client for this user, clean up
 				if len(b.clients[client.ID]) == 0 {
 					delete(b.clients, client.ID)
+					// Cancel the subscription if it exists
+					if cancel, ok := b.cancelFuncs[client.ID]; ok {
+						cancel()
+						delete(b.cancelFuncs, client.ID)
+						slog.Debug("Cancelled subscription for user", "userID", client.ID)
+					}
 				}
-				close(client.send)
-				slog.Info("Client unregistered from new bridge", "userID", client.ID, "type", client.connType)
 			}
+			close(client.send)
 			b.mu.Unlock()
+			slog.Info("Client unregistered", "userID", client.ID, "type", client.connType)
 
-		case message := <-b.broadcast:
+		case msg := <-b.broadcast:
 			b.mu.RLock()
 			for _, clients := range b.clients {
 				for _, client := range clients {
 					// Check if the client's connection type is one of the targets.
-					if !message.targetTypes[client.connType] {
+					if !msg.targetTypes[client.connType] {
 						continue
 					}
 					select {
-					case client.send <- message.payload:
+					case client.send <- msg.payload:
 					default:
 						// Drop message if client's send buffer is full.
 						slog.Warn("Client send channel full, dropping message", "userID", client.ID)
@@ -232,13 +247,42 @@ func (b *bridge) Handler(connType ConnectionType) echo.HandlerFunc {
 			connType: connType,
 			bridge:   b,
 		}
+
+		// Register the client
 		b.register <- client
 
+		// Create a context for this client's subscription
+		ctx, cancel := context.WithCancel(context.Background())
+		
+		b.mu.Lock()
+		// Store the cancel function for cleanup
+		b.cancelFuncs[user.Email] = cancel
+		b.mu.Unlock()
+
+		// Start a goroutine to handle the subscription
+		go func() {
+			// Subscribe to the user's direct message topic
+			topic := "direct." + user.Email
+			err := b.subscriber.Subscribe(ctx, topic, func(ctx context.Context, msg pubsub.Message) error {
+				// Forward the message to the client
+				select {
+				case client.send <- msg.Payload:
+				default:
+					slog.Warn("Client send channel full, dropping message", "userID", user.Email)
+				}
+				return nil
+			})
+			
+			if err != nil && err != context.Canceled {
+				slog.Error("Subscription error", "userID", user.Email, "error", err)
+			}
+		}()
+
+		// Start the read and write pumps
 		go client.writePump()
 		go client.readPump()
 
 		// Publish a generic "client connected" event to the message bus.
-		// Any module can listen for this to perform actions like sending a welcome message.
 		go func() {
 			payload, _ := json.Marshal(map[string]any{
 				"userID":         user.Email,
@@ -325,16 +369,18 @@ func (b *bridge) Broadcast(payload []byte, connTypes ...ConnectionType) {
 	}
 }
 
-// SendDirect sends a message directly to all connections for a specific user.
+// SendDirect sends a message directly to a specific user by publishing it to the message bus.
+// The message will be delivered to all of the user's active connections.
+// The payload can be either a raw string (for HTML) or a JSON-encoded value (for data connections).
 func (b *bridge) SendDirect(userID string, payload []byte, connTypes ...ConnectionType) {
-	targets := make(map[ConnectionType]bool)
-	for _, t := range connTypes {
-		targets[t] = true
-	}
+	// Publish to the user's direct message topic
+	topic := "direct." + userID
+	err := b.publisher.Publish(context.Background(), pubsub.Message{
+		Topic:   topic,
+		Payload: payload,
+	})
 
-	b.direct <- &DirectMessage{
-		TargetUserID: userID,
-		Payload:      payload,
-		targetTypes:  targets,
+	if err != nil {
+		slog.Error("Failed to publish direct message", "error", err, "userID", userID, "topic", topic)
 	}
 }

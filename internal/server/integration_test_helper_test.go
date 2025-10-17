@@ -65,7 +65,8 @@ func setupIntegrationTest(t *testing.T) (*server.Server, *httptest.Server, func(
 
 	ps := pubsub.NewWatermillBridge()
 
-	wsBridge := websocket.NewBridge(ps)
+	wsBridge, err := websocket.NewBridge(ps, ps)
+	require.NoError(t, err)
 
 	renderer := rendering.NewUniversalRenderer()
 
