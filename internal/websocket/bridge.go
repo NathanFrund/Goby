@@ -3,6 +3,7 @@ package websocket
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -141,10 +142,11 @@ func (b *bridge) Run() {
 		select {
 		case client := <-b.register:
 			b.mu.Lock()
+			// Add the new client to the map.
 			b.clients[client.ID] = append(b.clients[client.ID], client)
 			b.mu.Unlock()
-			slog.Info("Client registered to new bridge", "userID", client.ID, "type", client.connType)
-
+			// Use Debug level for successful registration to reduce log noise.
+			slog.Debug("Client registered to bridge", "userID", client.ID, "type", client.connType)
 		case client := <-b.unregister:
 			b.mu.Lock()
 			// Remove the client from the list of clients for that user.
@@ -168,7 +170,7 @@ func (b *bridge) Run() {
 				}
 
 				// Safely close the client's send channel.
-				// This must be done inside the main bridge lock to prevent race conditions
+				// This must be done while holding the lock to prevent race conditions
 				// where a message is sent just as the client is being unregistered.
 				client.mu.Lock()
 				if client.send != nil {
@@ -178,7 +180,7 @@ func (b *bridge) Run() {
 				client.mu.Unlock()
 			}
 			b.mu.Unlock()
-			slog.Info("Client unregistered", "userID", client.ID, "type", client.connType)
+			slog.Debug("Client unregistered", "userID", client.ID, "type", client.connType)
 
 		case msg := <-b.broadcast:
 			b.mu.RLock()
@@ -253,18 +255,36 @@ func (b *bridge) handleBroadcast(_ context.Context, msg pubsub.Message) error {
 			// Check if the client's connection type matches the message type
 			// Commands are sent to all clients.
 			if wsMsg.Type == MessageType(client.connType.String()) || wsMsg.Type == MessageTypeCommand {
-				// For HTML messages, we need to send the raw HTML string payload.
-				// For Data/Command messages, we send the full marshaled message.
+				// For HTML messages, we send the raw HTML string payload
+				// For Data/Command messages, we send the JSON-serialized payload
 				var payloadToSend []byte
-				if wsMsg.Type == MessageTypeHTML {
+				var err error
+
+				switch wsMsg.Type {
+				case MessageTypeHTML:
 					if htmlPayload, ok := wsMsg.Payload.(string); ok {
 						payloadToSend = []byte(htmlPayload)
 					} else {
-						continue // Skip if payload is not a string for an HTML message
+						slog.Warn("HTML message payload is not a string", "payload", wsMsg.Payload)
+						continue
 					}
-				} else {
-					payloadToSend = msg.Payload
+
+				case MessageTypeData, MessageTypeCommand:
+					// For data and command messages, marshal just the payload
+					payloadToSend, err = json.Marshal(wsMsg.Payload)
+					if err != nil {
+						slog.Error("Failed to marshal message payload",
+							"error", err,
+							"type", wsMsg.Type,
+							"payload", wsMsg.Payload)
+						continue
+					}
+
+				default:
+					slog.Warn("Unhandled message type", "type", wsMsg.Type)
+					continue
 				}
+
 				client.sendMessage(payloadToSend)
 			}
 		}
@@ -287,8 +307,8 @@ func (b *bridge) Handler(connType ConnectionType) echo.HandlerFunc {
 			InsecureSkipVerify: true, // TODO: Replace with a proper origin check in production.
 		})
 		if err != nil {
-			slog.Error("Failed to upgrade connection to WebSocket", "error", err)
-			return err
+			slog.Error("Failed to upgrade connection to WebSocket", "error", err, "userID", user.Email)
+			return fmt.Errorf("failed to upgrade connection to WebSocket: %w", err)
 		}
 
 		client := &Client{
@@ -331,17 +351,35 @@ func (b *bridge) Handler(connType ConnectionType) echo.HandlerFunc {
 				// Commands are sent to all clients.
 				if wsMsg.Type == MessageType(client.connType.String()) || wsMsg.Type == MessageTypeCommand {
 					var payloadToSend []byte
-					// For HTML messages, send the raw HTML string from the payload.
-					if wsMsg.Type == MessageTypeHTML {
+					var err error
+
+					switch wsMsg.Type {
+					case MessageTypeHTML:
 						if htmlPayload, ok := wsMsg.Payload.(string); ok {
 							payloadToSend = []byte(htmlPayload)
 						} else {
-							slog.Warn("Direct HTML message payload is not a string", "userID", user.Email)
+							slog.Warn("HTML message payload is not a string",
+								"userID", user.Email,
+								"payload", wsMsg.Payload)
 							return nil
 						}
-					} else {
-						// For Data and Command messages, send the full marshaled JSON.
-						payloadToSend = msg.Payload
+
+					case MessageTypeData, MessageTypeCommand:
+						// For data and command messages, marshal just the payload
+						payloadToSend, err = json.Marshal(wsMsg.Payload)
+						if err != nil {
+							slog.Error("Failed to marshal direct message payload",
+								"error", err,
+								"userID", user.Email,
+								"type", wsMsg.Type)
+							return nil
+						}
+
+					default:
+						slog.Warn("Unhandled direct message type",
+							"userID", user.Email,
+							"type", wsMsg.Type)
+						return nil
 					}
 
 					client.sendMessage(payloadToSend)
@@ -381,6 +419,8 @@ func (b *bridge) Handler(connType ConnectionType) echo.HandlerFunc {
 
 // readPump pumps messages from the WebSocket connection to the bridge's incoming channel.
 func (c *Client) readPump() {
+	// Ensure the client is unregistered when the readPump exits for any reason
+	// (e.g., connection closed by client, read error).
 	defer func() {
 		c.bridge.unregister <- c
 		c.conn.Close(websocket.StatusNormalClosure, "Client disconnected")
@@ -410,13 +450,20 @@ func (c *Client) sendMessage(message []byte) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	if c.send != nil {
-		// Non-blocking send to prevent deadlocks.
-		select {
-		case c.send <- message: // Attempt to send the message
-		default:
-			slog.Warn("Client send channel full, dropping message", "userID", c.ID, "connType", c.connType)
-		}
+	if c.send == nil {
+		// This can happen if the client is disconnected and the channel is closed.
+		// Log at debug level as this is an expected condition during shutdown.
+		slog.Debug("Client send channel is nil, message dropped",
+			"userID", c.ID,
+			"connType", c.connType)
+		return
+	}
+
+	select {
+	case c.send <- message:
+	// Message sent successfully
+	default:
+		slog.Warn("Client send channel full, dropping message", "userID", c.ID, "connType", c.connType)
 	}
 }
 
@@ -448,8 +495,8 @@ func (b *bridge) Incoming() <-chan *IncomingMessage {
 func (b *bridge) SendDirect(userID string, msg *Message) error {
 	msgBytes, err := json.Marshal(msg)
 	if err != nil {
-		slog.Error("Failed to marshal message", "error", err, "userID", userID)
-		return err
+		slog.Error("Failed to marshal direct message", "error", err, "userID", userID)
+		return fmt.Errorf("failed to marshal direct message: %w", err)
 	}
 
 	topic := "direct." + userID
@@ -478,8 +525,8 @@ func (b *bridge) SendData(userID string, data interface{}) error {
 func (b *bridge) Broadcast(msg *Message) error {
 	msgBytes, err := json.Marshal(msg)
 	if err != nil {
-		slog.Error("Failed to marshal broadcast message", "error", err)
-		return err
+		slog.Error("Failed to marshal broadcast message", "error", err, "messageType", msg.Type)
+		return fmt.Errorf("failed to marshal broadcast message: %w", err)
 	}
 
 	return b.publisher.Publish(context.Background(), pubsub.Message{
