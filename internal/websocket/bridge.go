@@ -68,11 +68,7 @@ func (b *Bridge) Start(ctx context.Context) {
 func (b *Bridge) handleBroadcast(ctx context.Context, msg pubsub.Message) error {
 	clients := b.clients.GetAll()
 	for _, client := range clients {
-		select {
-		case client.Send <- msg.Payload:
-		default:
-			slog.Warn("Client send channel full, dropping broadcast message", "clientID", client.ID)
-		}
+		client.SendMessage(msg.Payload)
 	}
 	return nil
 }
@@ -86,11 +82,7 @@ func (b *Bridge) handleDirectMessage(ctx context.Context, msg pubsub.Message) er
 
 	clients := b.clients.GetByUser(userID)
 	for _, client := range clients {
-		select {
-		case client.Send <- msg.Payload:
-		default:
-			slog.Warn("Client send channel full, dropping direct message", "clientID", client.ID, "userID", userID)
-		}
+		client.SendMessage(msg.Payload)
 	}
 	return nil
 }
@@ -157,7 +149,8 @@ func (b *Bridge) readPump(client *Client) {
 		slog.Info("Client disconnected", "clientID", client.ID, "userID", client.UserID, "endpoint", b.endpoint)
 	}()
 
-	// coder/websocket handles ping/pong frames automatically
+	// The coder/websocket library does not have SetReadLimit, so we check manually.
+	// It does, however, automatically handle pong messages to update the read deadline.
 	for {
 		_, message, err := client.Conn.Read(context.Background())
 		if err != nil {
@@ -165,7 +158,7 @@ func (b *Bridge) readPump(client *Client) {
 				websocket.CloseStatus(err) == websocket.StatusGoingAway {
 				slog.Debug("WebSocket closed normally by client", "clientID", client.ID)
 			} else {
-				slog.Warn("WebSocket read error", "clientID", client.ID, "error", err)
+				slog.Error("Unexpected WebSocket read error", "clientID", client.ID, "error", err)
 			}
 			break
 		}
@@ -179,27 +172,28 @@ func (b *Bridge) readPump(client *Client) {
 			return
 		}
 
-		// Forward message to pub/sub with a topic that includes the endpoint
-		topic := "ws.incoming." + b.endpoint
-		var payload map[string]interface{}
-		if err := json.Unmarshal(message, &payload); err == nil {
-			// If it's JSON, we can enrich it
-			payload["_clientID"] = client.ID
-			payload["_userID"] = client.UserID
-			enrichedMessage, _ := json.Marshal(payload)
-			b.publisher.Publish(context.Background(), pubsub.Message{
-				Topic:   topic,
-				Payload: enrichedMessage,
-				UserID:  client.UserID,
-			})
-		} else {
-			// If not JSON, send as is
-			b.publisher.Publish(context.Background(), pubsub.Message{
-				Topic:   topic,
-				Payload: message,
-				UserID:  client.UserID,
-			})
+		// Standardize incoming messages. They must be JSON with an "action" and "payload".
+		var inboundMsg struct {
+			Action  string          `json:"action"`
+			Payload json.RawMessage `json:"payload"`
 		}
+
+		if err := json.Unmarshal(message, &inboundMsg); err != nil {
+			slog.Warn("Received invalid message from client", "clientID", client.ID, "error", err)
+			continue // Ignore malformed messages
+		}
+
+		if inboundMsg.Action == "" {
+			slog.Warn("Incoming message missing 'action' field", "clientID", client.ID)
+			continue
+		}
+
+		// Use the message's "action" as the pub/sub topic.
+		b.publisher.Publish(context.Background(), pubsub.Message{
+			Topic:   inboundMsg.Action,
+			Payload: inboundMsg.Payload,
+			UserID:  client.UserID,
+		})
 	}
 }
 

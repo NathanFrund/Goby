@@ -48,8 +48,15 @@ func (m *ClientManager) Remove(clientID string) {
 				delete(m.users, client.UserID)
 			}
 		}
-		// Close the send channel to terminate the writePump
-		close(client.Send)
+
+		// Use a write lock on the client's mutex to safely close and nil the channel.
+		// This prevents any other goroutine from writing to the channel during shutdown.
+		client.mu.Lock()
+		if client.Send != nil {
+			close(client.Send)
+			client.Send = nil
+		}
+		client.mu.Unlock()
 	}
 }
 
