@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -30,8 +31,9 @@ func NewChatSubscriber(sub pubsub.Subscriber, bridge websocket.Bridge, renderer 
 	}
 }
 
-// Start begins listening for messages on the "chat.messages.new" topic.
+// Start begins listening for chat-related messages.
 // This method blocks until the provided context is canceled.
+// TODO: Consider adding metrics for message processing
 func (cs *ChatSubscriber) Start(ctx context.Context) {
 	slog.Info("Starting chat module subscriber")
 
@@ -40,6 +42,14 @@ func (cs *ChatSubscriber) Start(ctx context.Context) {
 		err := cs.subscriber.Subscribe(ctx, "chat.messages.new", cs.handleNewMessage)
 		if err != nil && err != context.Canceled {
 			slog.Error("Chat message subscriber stopped with error", "error", err)
+		}
+	}()
+
+	// Listen for direct chat messages
+	go func() {
+		err := cs.subscriber.Subscribe(ctx, "chat.messages.direct", cs.handleDirectMessage)
+		if err != nil && err != context.Canceled {
+			slog.Error("Direct message subscriber stopped with error", "error", err)
 		}
 	}()
 
@@ -66,32 +76,71 @@ func (cs *ChatSubscriber) handleClientConnect(ctx context.Context, msg pubsub.Me
 		welcomeComponent := components.WelcomeMessage("Welcome to the chat, " + msg.UserID + "!")
 		renderedHTML, err := cs.renderer.RenderComponent(ctx, welcomeComponent)
 		if err == nil {
-			cs.bridge.SendDirect(msg.UserID, renderedHTML, websocket.ConnectionTypeHTML)
+			// Send an HTML message directly to the user who just connected.
+			// Using raw bytes from renderer for better performance
+			message := &websocket.Message{
+				Type:    "html",
+				Target:  "#chat-messages",
+				Payload: renderedHTML, // Will be properly encoded by Message.MarshalJSON
+			}
+			if err := cs.bridge.SendDirect(msg.UserID, message); err != nil {
+				slog.Error("Failed to send welcome message", "error", err, "userID", msg.UserID)
+			}
 		}
 	}
 	return nil
 }
 
-// handleNewMessage is the handler function for incoming pub/sub messages.
+// handleNewMessage processes incoming chat messages
 func (cs *ChatSubscriber) handleNewMessage(ctx context.Context, msg pubsub.Message) error {
 	var incoming struct {
 		Content string `json:"content"`
 	}
-	if err := json.Unmarshal(msg.Payload, &incoming); err != nil {
-		slog.Error("Failed to unmarshal chat message payload", "error", err, "payload", string(msg.Payload))
-		return err // Returning an error will Nack the message.
-	}
 
-	// Render the message to an HTML component.
-	// In a real app, you might fetch the username from the msg.UserID.
-	component := components.ChatMessage(msg.UserID, incoming.Content, time.Now())
-	renderedHTML, err := cs.renderer.RenderComponent(ctx, component)
-	if err != nil {
-		slog.Error("Failed to render chat message component", "error", err)
+	if err := json.Unmarshal(msg.Payload, &incoming); err != nil {
+		slog.Error("Failed to unmarshal chat message", "error", err, "payload", string(msg.Payload))
 		return err
 	}
 
-	// Broadcast the final HTML to all clients via the bridge.
-	cs.bridge.Broadcast(renderedHTML, websocket.ConnectionTypeHTML)
-	return nil
+	// Render the message to an HTML component
+	component := components.ChatMessage(msg.UserID, incoming.Content, time.Now())
+	renderedHTML, err := cs.renderer.RenderComponent(ctx, component)
+	if err != nil {
+		return fmt.Errorf("failed to render chat message: %w", err)
+	}
+
+	// Create and send the WebSocket message using raw bytes
+	message := &websocket.Message{
+		Type:    "html",
+		Target:  "#chat-messages",
+		Payload: renderedHTML, // Will be properly encoded by Message.MarshalJSON
+	}
+	return cs.bridge.Broadcast(message)
+}
+
+// handleDirectMessage processes direct chat messages
+func (cs *ChatSubscriber) handleDirectMessage(ctx context.Context, msg pubsub.Message) error {
+	var incoming struct {
+		Content string `json:"content"`
+		To      string `json:"to"`
+	}
+
+	if err := json.Unmarshal(msg.Payload, &incoming); err != nil {
+		return fmt.Errorf("failed to unmarshal direct message: %w", err)
+	}
+
+	// Use ChatMessage with a prefix for direct messages
+	component := components.ChatMessage(msg.UserID, "(DM) "+incoming.Content, time.Now())
+	renderedHTML, err := cs.renderer.RenderComponent(ctx, component)
+	if err != nil {
+		return fmt.Errorf("failed to render direct message: %w", err)
+	}
+
+	// Create and send the WebSocket message using raw bytes
+	message := &websocket.Message{
+		Type:    "html",
+		Target:  "#direct-messages",
+		Payload: renderedHTML, // Will be properly encoded by Message.MarshalJSON
+	}
+	return cs.bridge.SendDirect(incoming.To, message)
 }

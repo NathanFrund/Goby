@@ -16,6 +16,16 @@ import (
 	"github.com/nfrund/goby/internal/pubsub"
 )
 
+// MessageType represents the type of WebSocket message
+type MessageType string
+
+const (
+	// MessageTypeHTML is for HTML fragment messages
+	MessageTypeHTML MessageType = "html"
+	// MessageTypeData is for structured data messages
+	MessageTypeData MessageType = "data"
+)
+
 // ConnectionType defines the type of WebSocket connection.
 type ConnectionType int
 
@@ -25,6 +35,18 @@ const (
 	// ConnectionTypeData is for clients that consume structured data (e.g., JSON).
 	ConnectionTypeData
 )
+
+// String returns a string representation of the ConnectionType
+func (t ConnectionType) String() string {
+	switch t {
+	case ConnectionTypeHTML:
+		return "html"
+	case ConnectionTypeData:
+		return "data"
+	default:
+		return "unknown"
+	}
+}
 
 // Client represents a single connected WebSocket client in the bridge.
 type Client struct {
@@ -38,6 +60,10 @@ type Client struct {
 	connType ConnectionType
 	// bridge is a reference back to the bridge that manages this client.
 	bridge *bridge
+	// closed indicates whether the client has been closed
+	closed bool
+	// mu protects the closed flag and send channel
+	mu sync.Mutex
 }
 
 // IncomingMessage represents a message received from a client, destined for the pub/sub system.
@@ -47,17 +73,11 @@ type IncomingMessage struct {
 	Topic    string
 }
 
+// Message is defined in message.go
+
 // BroadcastMessage represents a message to be broadcast to clients.
 type BroadcastMessage struct {
 	payload []byte
-	// targetTypes specifies which connection types should receive the message.
-	targetTypes map[ConnectionType]bool
-}
-
-// DirectMessage represents a message to be sent to a single user.
-type DirectMessage struct {
-	TargetUserID string
-	Payload      []byte
 	// targetTypes specifies which connection types should receive the message.
 	targetTypes map[ConnectionType]bool
 }
@@ -66,8 +86,11 @@ type DirectMessage struct {
 type Bridge interface {
 	Run()
 	Handler(connType ConnectionType) echo.HandlerFunc
-	Broadcast(payload []byte, connTypes ...ConnectionType)
-	SendDirect(userID string, payload []byte, connTypes ...ConnectionType)
+	Broadcast(msg *Message) error
+	SendDirect(userID string, msg *Message) error
+	SendCommand(userID string, cmdName string, payload ...interface{}) error
+	SendHTML(userID string, html string, target string) error
+	SendData(userID string, data interface{}) error
 }
 
 // bridge manages all WebSocket connections and routes messages
@@ -89,9 +112,6 @@ type bridge struct {
 	// broadcast is a channel for messages to be sent to all relevant clients.
 	broadcast chan *BroadcastMessage
 
-	// direct is a channel for messages to be sent to a specific user.
-	direct chan *DirectMessage
-
 	// incoming is a channel for messages received from clients.
 	incoming chan *IncomingMessage
 
@@ -111,14 +131,20 @@ func NewBridge(pub pubsub.Publisher, sub pubsub.Subscriber) (Bridge, error) {
 		register:    make(chan *Client),
 		unregister:  make(chan *Client),
 		broadcast:   make(chan *BroadcastMessage, 100),
-		direct:      make(chan *DirectMessage, 100),
 		incoming:    make(chan *IncomingMessage, 100),
 		cancelFuncs: make(map[string]context.CancelFunc),
 	}
 
+	// Start a permanent subscription for broadcast messages
+	go func() {
+		err := b.subscriber.Subscribe(context.Background(), "broadcast", b.handleBroadcast)
+		if err != nil {
+			slog.Error("Failed to subscribe to broadcast topic, broadcast will not work", "error", err)
+		}
+	}()
+
 	return b, nil
 }
-
 
 // Run starts the main bridge goroutine for managing client lifecycle and message routing.
 func (b *bridge) Run() {
@@ -175,23 +201,6 @@ func (b *bridge) Run() {
 			}
 			b.mu.RUnlock()
 
-		case message := <-b.direct:
-			b.mu.RLock()
-			if clients, ok := b.clients[message.TargetUserID]; ok {
-				for _, client := range clients {
-					// Check if the client's connection type is one of the targets.
-					if !message.targetTypes[client.connType] {
-						continue
-					}
-					select {
-					case client.send <- message.Payload:
-					default:
-						slog.Warn("Client send channel full, dropping direct message", "userID", client.ID)
-					}
-				}
-			}
-			b.mu.RUnlock()
-
 		case msg := <-b.incoming:
 			// Dynamically route incoming messages based on a topic field in the payload.
 			// We only unmarshal to get the topic, then pass the original payload on.
@@ -219,6 +228,45 @@ func (b *bridge) Run() {
 			}
 		}
 	}
+}
+
+// handleBroadcast is a callback for the pub/sub system that forwards broadcast messages
+// to all connected clients.
+func (b *bridge) handleBroadcast(_ context.Context, msg pubsub.Message) error {
+	// Unmarshal the message to determine its type and filter clients accordingly.
+	var wsMsg Message
+	if err := json.Unmarshal(msg.Payload, &wsMsg); err != nil {
+		slog.Error("Failed to unmarshal broadcast message from pub/sub", "error", err)
+		// Don't return an error, just log it and move on.
+		// Returning an error might cause the subscription to terminate.
+		return nil
+	}
+
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+
+	for _, clients := range b.clients {
+		for _, client := range clients {
+			// Check if the client's connection type matches the message type.
+			// Commands are sent to all clients.
+			if wsMsg.Type == client.connType.String() || wsMsg.Type == "command" {
+				// For HTML messages, we need to send the raw HTML string payload.
+				// For Data/Command messages, we send the full marshaled message.
+				var payloadToSend []byte
+				if wsMsg.Type == "html" {
+					if htmlPayload, ok := wsMsg.Payload.(string); ok {
+						payloadToSend = []byte(htmlPayload)
+					} else {
+						continue // Skip if payload is not a string for an HTML message
+					}
+				} else {
+					payloadToSend = msg.Payload
+				}
+				client.sendMessage(payloadToSend)
+			}
+		}
+	}
+	return nil
 }
 
 // Handler returns an echo.HandlerFunc that handles WebSocket upgrade requests for a given connection type.
@@ -253,7 +301,7 @@ func (b *bridge) Handler(connType ConnectionType) echo.HandlerFunc {
 
 		// Create a context for this client's subscription
 		ctx, cancel := context.WithCancel(context.Background())
-		
+
 		b.mu.Lock()
 		// Store the cancel function for cleanup
 		b.cancelFuncs[user.Email] = cancel
@@ -264,15 +312,35 @@ func (b *bridge) Handler(connType ConnectionType) echo.HandlerFunc {
 			// Subscribe to the user's direct message topic
 			topic := "direct." + user.Email
 			err := b.subscriber.Subscribe(ctx, topic, func(ctx context.Context, msg pubsub.Message) error {
-				// Forward the message to the client
-				select {
-				case client.send <- msg.Payload:
-				default:
-					slog.Warn("Client send channel full, dropping message", "userID", user.Email)
+				var wsMsg Message
+				if err := json.Unmarshal(msg.Payload, &wsMsg); err != nil {
+					slog.Error("Failed to unmarshal WebSocket message", "error", err, "userID", user.Email)
+					return nil
 				}
+
+				// Check if the client's connection type matches the message type.
+				// Commands are sent to all clients.
+				if wsMsg.Type == client.connType.String() || wsMsg.Type == "command" {
+					var payloadToSend []byte
+					// For HTML messages, send the raw HTML string from the payload.
+					if wsMsg.Type == "html" {
+						if htmlPayload, ok := wsMsg.Payload.(string); ok {
+							payloadToSend = []byte(htmlPayload)
+						} else {
+							slog.Warn("Direct HTML message payload is not a string", "userID", user.Email)
+							return nil
+						}
+					} else {
+						// For Data and Command messages, send the full marshaled JSON.
+						payloadToSend = msg.Payload
+					}
+
+					client.sendMessage(payloadToSend)
+				}
+
 				return nil
 			})
-			
+
 			if err != nil && err != context.Canceled {
 				slog.Error("Subscription error", "userID", user.Email, "error", err)
 			}
@@ -328,19 +396,33 @@ func (c *Client) readPump() {
 	}
 }
 
+// sendMessage safely sends a message to the client's send channel, logging if it's full.
+func (c *Client) sendMessage(message []byte) {
+	select {
+	case c.send <- message:
+	// Message sent successfully
+	default:
+		slog.Warn("Client send channel full, dropping message", "userID", c.ID, "connType", c.connType)
+	}
+}
+
 // writePump pumps messages from the client's send channel to the WebSocket connection.
 func (c *Client) writePump() {
 	defer func() {
+		// Clean up the client
+		c.mu.Lock()
+		c.closed = true
+		close(c.send) // This will cause any pending sends to panic, but they're protected by the mutex
+		c.mu.Unlock()
+
+		// Close the WebSocket connection
 		c.conn.Close(websocket.StatusNormalClosure, "Server-side cleanup")
+
+		// Unregister the client
+		c.bridge.unregister <- c
 	}()
 
-	for {
-		message, ok := <-c.send
-		if !ok {
-			// The bridge closed the channel.
-			return
-		}
-
+	for message := range c.send {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		err := c.conn.Write(ctx, websocket.MessageText, message)
 		cancel()
@@ -356,31 +438,47 @@ func (b *bridge) Incoming() <-chan *IncomingMessage {
 	return b.incoming
 }
 
-// Broadcast sends a message to all clients of the specified connection types.
-func (b *bridge) Broadcast(payload []byte, connTypes ...ConnectionType) {
-	targets := make(map[ConnectionType]bool)
-	for _, t := range connTypes {
-		targets[t] = true
+// SendDirect sends a message directly to a specific user.
+// The message will be delivered to the user's active connections.
+func (b *bridge) SendDirect(userID string, msg *Message) error {
+	msgBytes, err := json.Marshal(msg)
+	if err != nil {
+		slog.Error("Failed to marshal message", "error", err, "userID", userID)
+		return err
 	}
 
-	b.broadcast <- &BroadcastMessage{
-		payload:     payload,
-		targetTypes: targets,
-	}
+	topic := "direct." + userID
+	return b.publisher.Publish(context.Background(), pubsub.Message{
+		Topic:   topic,
+		Payload: msgBytes,
+	})
 }
 
-// SendDirect sends a message directly to a specific user by publishing it to the message bus.
-// The message will be delivered to all of the user's active connections.
-// The payload can be either a raw string (for HTML) or a JSON-encoded value (for data connections).
-func (b *bridge) SendDirect(userID string, payload []byte, connTypes ...ConnectionType) {
-	// Publish to the user's direct message topic
-	topic := "direct." + userID
-	err := b.publisher.Publish(context.Background(), pubsub.Message{
-		Topic:   topic,
-		Payload: payload,
-	})
+// SendCommand sends a command message to a specific user
+func (b *bridge) SendCommand(userID string, cmdName string, payload ...interface{}) error {
+	return b.SendDirect(userID, NewCommand(cmdName, payload...))
+}
 
+// SendHTML sends an HTML message to a specific user
+func (b *bridge) SendHTML(userID string, html string, target string) error {
+	return b.SendDirect(userID, NewHTMLMessage(html, target))
+}
+
+// SendData sends a data message to a specific user
+func (b *bridge) SendData(userID string, data interface{}) error {
+	return b.SendDirect(userID, NewDataMessage(data))
+}
+
+// Broadcast sends a message to all connected users
+func (b *bridge) Broadcast(msg *Message) error {
+	msgBytes, err := json.Marshal(msg)
 	if err != nil {
-		slog.Error("Failed to publish direct message", "error", err, "userID", userID, "topic", topic)
+		slog.Error("Failed to marshal broadcast message", "error", err)
+		return err
 	}
+
+	return b.publisher.Publish(context.Background(), pubsub.Message{
+		Topic:   "broadcast",
+		Payload: msgBytes,
+	})
 }
