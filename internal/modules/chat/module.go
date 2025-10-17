@@ -9,7 +9,6 @@ import (
 	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/registry"
 	"github.com/nfrund/goby/internal/rendering"
-	"github.com/nfrund/goby/internal/websocket"
 )
 
 // ChatModule implements the module.Module interface for the chat feature.
@@ -17,7 +16,6 @@ type ChatModule struct {
 	module.BaseModule
 	publisher  pubsub.Publisher
 	subscriber pubsub.Subscriber
-	bridge     websocket.Bridge
 	renderer   rendering.Renderer
 }
 
@@ -26,14 +24,15 @@ type ChatModule struct {
 type Dependencies struct {
 	Publisher  pubsub.Publisher
 	Subscriber pubsub.Subscriber
-	Bridge     websocket.Bridge
 	Renderer   rendering.Renderer
 }
 
 // New creates a new instance of the ChatModule, injecting its dependencies.
 func New(deps Dependencies) *ChatModule {
 	return &ChatModule{
-		publisher: deps.Publisher, subscriber: deps.Subscriber, bridge: deps.Bridge, renderer: deps.Renderer,
+		publisher:  deps.Publisher,
+		subscriber: deps.Subscriber,
+		renderer:   deps.Renderer,
 	}
 }
 
@@ -55,7 +54,7 @@ func (m *ChatModule) Boot(ctx context.Context, g *echo.Group, reg *registry.Regi
 
 	// Create and start the subscriber in a goroutine.
 	// Dependencies are now injected via the constructor and stored on the module.
-	chatSubscriber := NewChatSubscriber(m.subscriber, m.bridge, m.renderer)
+	chatSubscriber := NewChatSubscriber(m.subscriber, m.publisher, m.renderer)
 	go chatSubscriber.Start(ctx)
 
 	// --- Register HTTP Handlers ---

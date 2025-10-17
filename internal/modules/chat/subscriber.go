@@ -10,7 +10,6 @@ import (
 	"github.com/nfrund/goby/internal/modules/chat/templates/components"
 	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/rendering"
-	"github.com/nfrund/goby/internal/websocket"
 )
 
 // ChatSubscriber listens for new chat messages on the pub/sub bus,
@@ -18,15 +17,15 @@ import (
 // via the WebsocketBridge.
 type ChatSubscriber struct {
 	subscriber pubsub.Subscriber
-	bridge     websocket.Bridge
+	publisher  pubsub.Publisher
 	renderer   rendering.Renderer
 }
 
 // NewChatSubscriber creates a new subscriber service for the chat module.
-func NewChatSubscriber(sub pubsub.Subscriber, bridge websocket.Bridge, renderer rendering.Renderer) *ChatSubscriber {
+func NewChatSubscriber(sub pubsub.Subscriber, pub pubsub.Publisher, renderer rendering.Renderer) *ChatSubscriber {
 	return &ChatSubscriber{
 		subscriber: sub,
-		bridge:     bridge,
+		publisher:  pub,
 		renderer:   renderer,
 	}
 }
@@ -55,7 +54,7 @@ func (cs *ChatSubscriber) Start(ctx context.Context) {
 
 	// Listen for new client connections to send a welcome message
 	go func() {
-		err := cs.subscriber.Subscribe(ctx, "system.websocket.connected", cs.handleClientConnect)
+		err := cs.subscriber.Subscribe(ctx, "system.websocket.ready", cs.handleClientConnect)
 		if err != nil && err != context.Canceled {
 			slog.Error("Chat client connect subscriber stopped with error", "error", err)
 		}
@@ -64,30 +63,31 @@ func (cs *ChatSubscriber) Start(ctx context.Context) {
 
 // handleClientConnect sends a welcome message to a newly connected client.
 func (cs *ChatSubscriber) handleClientConnect(ctx context.Context, msg pubsub.Message) error {
-	var connectEvent struct {
-		ConnectionType websocket.ConnectionType `json:"connectionType"`
+	var readyEvent struct {
+		Endpoint string `json:"endpoint"`
 	}
-	if err := json.Unmarshal(msg.Payload, &connectEvent); err != nil {
-		return err // Ignore malformed events
+	if err := json.Unmarshal(msg.Payload, &readyEvent); err != nil {
+		slog.Error("Failed to unmarshal system.websocket.ready event", "error", err)
+		return nil // Don't stop the subscriber for a bad message
 	}
 
 	// Only send a welcome message to HTML clients.
-	if connectEvent.ConnectionType == websocket.ConnectionTypeHTML {
+	if readyEvent.Endpoint == "html" {
 		welcomeComponent := components.WelcomeMessage("Welcome to the chat, " + msg.UserID + "!")
 		renderedHTML, err := cs.renderer.RenderComponent(ctx, welcomeComponent)
-		if err == nil {
-			// Send an HTML message directly to the user who just connected.
-			// Using raw bytes from renderer for better performance
-			message := &websocket.Message{
-				Type:    "html",
-				Target:  "#chat-messages",
-				Payload: renderedHTML, // Will be properly encoded by Message.MarshalJSON
-			}
-			if err := cs.bridge.SendDirect(msg.UserID, message); err != nil {
-				slog.Error("Failed to send welcome message", "error", err, "userID", msg.UserID)
-			}
+		if err != nil {
+			slog.Error("Failed to render welcome message", "error", err, "userID", msg.UserID)
+			return err
 		}
+
+		// Publish the welcome message to the user's direct HTML topic.
+		return cs.publisher.Publish(ctx, pubsub.Message{
+			Topic:    "ws.html.direct",
+			Payload:  renderedHTML,
+			Metadata: map[string]string{"user_id": msg.UserID},
+		})
 	}
+
 	return nil
 }
 
@@ -109,13 +109,11 @@ func (cs *ChatSubscriber) handleNewMessage(ctx context.Context, msg pubsub.Messa
 		return fmt.Errorf("failed to render chat message: %w", err)
 	}
 
-	// Create and send the WebSocket message using raw bytes
-	message := &websocket.Message{
-		Type:    "html",
-		Target:  "#chat-messages",
-		Payload: renderedHTML, // Will be properly encoded by Message.MarshalJSON
-	}
-	return cs.bridge.Broadcast(message)
+	// Broadcast the rendered HTML to all connected HTML clients.
+	return cs.publisher.Publish(ctx, pubsub.Message{
+		Topic:   "ws.html.broadcast",
+		Payload: renderedHTML,
+	})
 }
 
 // handleDirectMessage processes direct chat messages
@@ -137,10 +135,11 @@ func (cs *ChatSubscriber) handleDirectMessage(ctx context.Context, msg pubsub.Me
 	}
 
 	// Create and send the WebSocket message using raw bytes
-	message := &websocket.Message{
-		Type:    "html",
-		Target:  "#direct-messages",
-		Payload: renderedHTML, // Will be properly encoded by Message.MarshalJSON
-	}
-	return cs.bridge.SendDirect(incoming.To, message)
+	return cs.publisher.Publish(ctx, pubsub.Message{
+		Topic:   "ws.html.direct",
+		Payload: renderedHTML,
+		Metadata: map[string]string{
+			"user_id": incoming.To,
+		},
+	})
 }

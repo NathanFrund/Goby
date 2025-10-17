@@ -9,22 +9,21 @@ import (
 	"github.com/nfrund/goby/internal/modules/wargame/templates/components"
 	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/rendering"
-	"github.com/nfrund/goby/internal/websocket"
 )
 
 // Subscriber listens for wargame events on the pub/sub bus,
 // renders them to HTML, and broadcasts them to HTML clients.
 type Subscriber struct {
 	subscriber pubsub.Subscriber
-	bridge     websocket.Bridge
+	publisher  pubsub.Publisher
 	renderer   rendering.Renderer
 }
 
 // NewSubscriber creates a new subscriber for the wargame module.
-func NewSubscriber(sub pubsub.Subscriber, bridge websocket.Bridge, renderer rendering.Renderer) *Subscriber {
+func NewSubscriber(sub pubsub.Subscriber, pub pubsub.Publisher, renderer rendering.Renderer) *Subscriber {
 	return &Subscriber{
 		subscriber: sub,
-		bridge:     bridge,
+		publisher:  pub,
 		renderer:   renderer,
 	}
 }
@@ -75,8 +74,10 @@ func (s *Subscriber) handleDamageEvent(ctx context.Context, msg pubsub.Message) 
 	}
 
 	// Broadcast the final HTML to all HTML clients via the new bridge.
-	message := websocket.NewHTMLMessage(string(renderedHTML), "#game-log")
-	return s.bridge.Broadcast(message)
+	return s.publisher.Publish(ctx, pubsub.Message{
+		Topic:   "ws.html.broadcast",
+		Payload: renderedHTML,
+	})
 }
 
 // handleStateUpdateEvent processes raw game state updates and broadcasts them to data clients.
@@ -87,8 +88,10 @@ func (s *Subscriber) handleStateUpdateEvent(ctx context.Context, msg pubsub.Mess
 	}
 
 	// Create a data message with the game state
-	message := websocket.NewDataMessage(update)
-	return s.bridge.Broadcast(message)
+	return s.publisher.Publish(ctx, pubsub.Message{
+		Topic:   "ws.data.broadcast",
+		Payload: msg.Payload, // Forward the original payload
+	})
 }
 
 // PlayerAction represents an action taken by a player in the wargame
@@ -107,7 +110,7 @@ func (s *Subscriber) handlePlayerAction(ctx context.Context, msg pubsub.Message)
 	}
 
 	// Log the action with context
-	slog.InfoContext(ctx, "Processing player action", 
+	slog.InfoContext(ctx, "Processing player action",
 		"player_id", action.PlayerID,
 		"action", action.Action,
 	)

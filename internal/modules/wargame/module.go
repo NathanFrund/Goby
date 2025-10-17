@@ -10,7 +10,6 @@ import (
 	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/registry"
 	"github.com/nfrund/goby/internal/rendering"
-	"github.com/nfrund/goby/internal/websocket"
 )
 
 // WargameModule implements the module.Module interface.
@@ -18,7 +17,6 @@ type WargameModule struct {
 	module.BaseModule
 	publisher  pubsub.Publisher
 	subscriber pubsub.Subscriber
-	bridge     websocket.Bridge
 	renderer   rendering.Renderer
 	engine     *Engine
 }
@@ -28,7 +26,6 @@ type WargameModule struct {
 type Dependencies struct {
 	Publisher  pubsub.Publisher
 	Subscriber pubsub.Subscriber
-	Bridge     websocket.Bridge
 	Renderer   rendering.Renderer
 }
 
@@ -37,7 +34,6 @@ func New(deps Dependencies) *WargameModule {
 	return &WargameModule{
 		publisher:  deps.Publisher,
 		subscriber: deps.Subscriber,
-		bridge:     deps.Bridge,
 		renderer:   deps.Renderer,
 	}
 }
@@ -68,7 +64,7 @@ func (m *WargameModule) Register(reg *registry.Registry) error {
 // Boot registers the HTTP routes for the wargame module.
 func (m *WargameModule) Boot(ctx context.Context, g *echo.Group, reg *registry.Registry) error {
 	// Create and start the subscriber in a goroutine.
-	wargameSubscriber := NewSubscriber(m.subscriber, m.bridge, m.renderer)
+	wargameSubscriber := NewSubscriber(m.subscriber, m.publisher, m.renderer)
 	go wargameSubscriber.Start(ctx)
 
 	// --- Register HTTP Handlers ---
