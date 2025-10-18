@@ -4,11 +4,10 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-
 	"github.com/nfrund/goby/internal/topics"
 )
 
-func TestRegistry(t *testing.T) {
+func TestTopicRegistry(t *testing.T) {
 	registry := topics.NewRegistry()
 
 	t.Run("Register and Get", func(t *testing.T) {
@@ -66,7 +65,7 @@ func TestRegistry(t *testing.T) {
 	})
 }
 
-func TestDefaultRegistry(t *testing.T) {
+func TestDefaultTopicRegistry(t *testing.T) {
 	t.Run("Default registry is a singleton", func(t *testing.T) {
 		r1 := topics.Default()
 		r2 := topics.Default()

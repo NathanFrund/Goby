@@ -83,7 +83,7 @@ func Validate(t Topic) error {
 }
 
 // ValidateAndRegister validates the topic and registers it if valid
-func ValidateAndRegister(registry *Registry, topic Topic) error {
+func ValidateAndRegister(registry *TopicRegistry, topic Topic) error {
 	if err := Validate(topic); err != nil {
 		return err
 	}

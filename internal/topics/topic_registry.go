@@ -5,21 +5,21 @@ import (
 	"sync"
 )
 
-// Registry manages a collection of topics and provides methods to interact with them
-type Registry struct {
+// TopicRegistry manages a collection of topics and provides methods to interact with them
+type TopicRegistry struct {
 	topics map[string]Topic
 	mu     sync.RWMutex
 }
 
 // NewRegistry creates a new, empty topic registry
-func NewRegistry() *Registry {
-	return &Registry{
+func NewRegistry() *TopicRegistry {
+	return &TopicRegistry{
 		topics: make(map[string]Topic),
 	}
 }
 
 // Register adds a new topic to the registry
-func (r *Registry) Register(topic Topic) error {
+func (r *TopicRegistry) Register(topic Topic) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -37,14 +37,14 @@ func (r *Registry) Register(topic Topic) error {
 }
 
 // MustRegister registers a topic and panics if registration fails
-func (r *Registry) MustRegister(topic Topic) {
+func (r *TopicRegistry) MustRegister(topic Topic) {
 	if err := r.Register(topic); err != nil {
 		panic(fmt.Sprintf("failed to register topic: %v", err))
 	}
 }
 
 // Get returns a topic by name
-func (r *Registry) Get(name string) (Topic, bool) {
+func (r *TopicRegistry) Get(name string) (Topic, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -53,7 +53,7 @@ func (r *Registry) Get(name string) (Topic, bool) {
 }
 
 // MustGet returns a topic by name and panics if not found
-func (r *Registry) MustGet(name string) Topic {
+func (r *TopicRegistry) MustGet(name string) Topic {
 	topic, exists := r.Get(name)
 	if !exists {
 		panic(fmt.Sprintf("topic not found: %s", name))
@@ -62,7 +62,7 @@ func (r *Registry) MustGet(name string) Topic {
 }
 
 // List returns a copy of all registered topics
-func (r *Registry) List() []Topic {
+func (r *TopicRegistry) List() []Topic {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -74,7 +74,7 @@ func (r *Registry) List() []Topic {
 }
 
 // Count returns the number of registered topics
-func (r *Registry) Count() int {
+func (r *TopicRegistry) Count() int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -83,7 +83,7 @@ func (r *Registry) Count() int {
 
 // Reset removes all registered topics
 // Primarily for testing purposes
-func (r *Registry) Reset() {
+func (r *TopicRegistry) Reset() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -92,12 +92,12 @@ func (r *Registry) Reset() {
 
 // DefaultRegistry is the global registry instance
 var (
-	defaultRegistry     *Registry
+	defaultRegistry     *TopicRegistry
 	defaultRegistryOnce sync.Once
 )
 
 // Default returns the default global registry
-func Default() *Registry {
+func Default() *TopicRegistry {
 	defaultRegistryOnce.Do(func() {
 		defaultRegistry = NewRegistry()
 	})
