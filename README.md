@@ -185,19 +185,55 @@ This combination allows developers to build complex UIs from simple, reusable co
 
 Goby's real-time capabilities are built into the core of the framework, making it easy to add live updates to any part of your application.
 
-#### Real-time Communication
+#### Real-Time Communication
 
 Goby uses a message bus (Watermill) connected to clients via WebSockets to enable real-time updates. This architecture allows for efficient communication between the server and clients, whether they're web browsers, mobile apps, or other services.
+
+#### WebSocket Endpoints
+
+Goby provides two WebSocket endpoints for different types of communication:
+
+1. **/ws/html** - For HTMX fragments and HTML updates
+2. **/ws/data** - For structured JSON data
+
+#### Message Types
+
+1. **Broadcast Messages**
+   - Sent to all connected clients
+   - Use topic: `ws.{endpoint}.broadcast` (e.g., `ws.html.broadcast`)
+   - Example:
+     ```go
+     err := publisher.Publish(ctx, "ws.html.broadcast", []byte("<div>Hello all users!</div>"))
+     ```
+
+2. **Direct Messages**
+   - Sent to a specific user
+   - Use topic: `ws.{endpoint}.direct`
+   - Include `user_id` in message metadata
+   - Example:
+     ```go
+     msg := pubsub.Message{
+         Topic: "ws.html.direct",
+         Payload: []byte("<div>Hello user!</div>"),
+         Metadata: map[string]string{
+             "user_id": "user123",
+         },
+     }
+     err := publisher.Publish(ctx, msg)
+     ```
 
 #### Client Types
 
 Goby supports multiple client types through its flexible architecture:
 
 1. **Web Browsers (HTMX)**
-
-   - Receives pre-rendered HTML fragments
+   - Connects to `/ws/html` for HTML fragments
    - Zero client-side JavaScript required for basic interactions
    - Automatic DOM updates via HTMX WebSockets
+
+2. **Data Clients**
+   - Connects to `/ws/data` for JSON data
+   - Ideal for mobile apps or custom JavaScript applications
    - Example WebSocket endpoint: `/ws/html`
 
 2. **Native Mobile/Desktop Apps**

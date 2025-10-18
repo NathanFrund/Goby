@@ -3,12 +3,13 @@ package websocket
 import (
 	"context"
 	"encoding/json"
-	"io"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"sync"
 	"time"
 
+	"github.com/ThreeDotsLabs/watermill"
 	"github.com/coder/websocket"
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/domain"
@@ -16,7 +17,6 @@ import (
 	"github.com/nfrund/goby/internal/pubsub"
 )
 
-// ConnectionType defines the type of WebSocket connection.
 type ConnectionType int
 
 const (
@@ -26,188 +26,101 @@ const (
 	ConnectionTypeData
 )
 
-// Client represents a single connected WebSocket client in the bridge.
-type Client struct {
-	// ID is the unique identifier for the client, typically the User ID.
-	ID string
-	// conn is the underlying WebSocket connection.
-	conn *websocket.Conn
-	// send is a buffered channel of outbound messages for this client.
-	send chan []byte
-	// connType is the type of connection (HTML or Data).
-	connType ConnectionType
-	// bridge is a reference back to the bridge that manages this client.
-	bridge *bridge
+const (
+	writeWait      = 10 * time.Second
+	pongWait       = 60 * time.Second
+	pingPeriod     = (pongWait * 9) / 10
+	maxMessageSize = 512
+)
+
+// Bridge handles WebSocket connections for a specific endpoint ("html" or "data").
+type Bridge struct {
+	endpoint   string
+	publisher  pubsub.Publisher
+	subscriber pubsub.Subscriber
+	clients    *ClientManager
+	cancel     context.CancelFunc
+	wg         sync.WaitGroup
 }
 
-// IncomingMessage represents a message received from a client, destined for the pub/sub system.
-type IncomingMessage struct {
-	ClientID string
-	Payload  []byte
-	Topic    string
-}
-
-// BroadcastMessage represents a message to be broadcast to clients.
-type BroadcastMessage struct {
-	payload []byte
-	// targetTypes specifies which connection types should receive the message.
-	targetTypes map[ConnectionType]bool
-}
-
-// DirectMessage represents a message to be sent to a single user.
-type DirectMessage struct {
-	TargetUserID string
-	Payload      []byte
-	// targetTypes specifies which connection types should receive the message.
-	targetTypes map[ConnectionType]bool
-}
-
-// Bridge defines the interface for the WebSocket manager.
-type Bridge interface {
-	Run()
-	Handler(connType ConnectionType) echo.HandlerFunc
-	Broadcast(payload []byte, connTypes ...ConnectionType)
-	SendDirect(userID string, payload []byte, connTypes ...ConnectionType)
-}
-
-// bridge manages all WebSocket connections and routes messages
-// between connected clients and the Pub/Sub message bus.
-type bridge struct {
-	publisher pubsub.Publisher
-
-	// clients is a map of user IDs to a list of their active clients.
-	// A user can have multiple connections (e.g., browser tab, mobile).
-	clients map[string][]*Client
-
-	// register is a channel for new clients to register.
-	register chan *Client
-
-	// unregister is a channel for clients to unregister.
-	unregister chan *Client
-
-	// broadcast is a channel for messages to be sent to all relevant clients.
-	broadcast chan *BroadcastMessage
-
-	// direct is a channel for messages to be sent to a specific user.
-	direct chan *DirectMessage
-
-	// incoming is a channel for messages received from clients.
-	incoming chan *IncomingMessage
-
-	// A mutex to protect access to the clients map, as it will be accessed
-	// from multiple goroutines (registration, unregistration, broadcast).
-	mu sync.RWMutex
-}
-
-// NewBridge initializes a new Bridge, ready to handle connections.
-func NewBridge(pub pubsub.Publisher) Bridge {
-	return &bridge{
+// NewBridge creates a new WebSocket bridge for a specific endpoint.
+func NewBridge(endpoint string, pub pubsub.Publisher, sub pubsub.Subscriber) *Bridge {
+	return &Bridge{
+		endpoint:   endpoint,
 		publisher:  pub,
-		clients:    make(map[string][]*Client),
-		register:   make(chan *Client),
-		unregister: make(chan *Client),
-		broadcast:  make(chan *BroadcastMessage),
-		direct:     make(chan *DirectMessage),
-		incoming:   make(chan *IncomingMessage, 256), // Buffered channel
+		subscriber: sub,
+		clients:    NewClientManager(),
 	}
 }
 
-// Run starts the main bridge goroutine for managing client lifecycle and message routing.
-func (b *bridge) Run() {
-	slog.Info("New WebSocket bridge runner started.")
-	for {
-		select {
-		case client := <-b.register:
-			b.mu.Lock()
-			b.clients[client.ID] = append(b.clients[client.ID], client)
-			b.mu.Unlock()
-			slog.Info("Client registered to new bridge", "userID", client.ID, "type", client.connType)
+// Start begins the bridge's message handling loop, subscribing to relevant pub/sub topics.
+func (b *Bridge) Start(ctx context.Context) {
+	// Create a cancellable context for this bridge
+	var bridgeCtx context.Context
+	bridgeCtx, b.cancel = context.WithCancel(ctx)
 
-		case client := <-b.unregister:
-			b.mu.Lock()
-			// Remove the client from the list of clients for that user.
-			if clients, ok := b.clients[client.ID]; ok {
-				for i, c := range clients {
-					if c == client {
-						b.clients[client.ID] = append(clients[:i], clients[i+1:]...)
-						break
-					}
-				}
-				// If the user has no more connections, remove the entry from the map.
-				if len(b.clients[client.ID]) == 0 {
-					delete(b.clients, client.ID)
-				}
-				close(client.send)
-				slog.Info("Client unregistered from new bridge", "userID", client.ID, "type", client.connType)
-			}
-			b.mu.Unlock()
-
-		case message := <-b.broadcast:
-			b.mu.RLock()
-			for _, clients := range b.clients {
-				for _, client := range clients {
-					// Check if the client's connection type is one of the targets.
-					if !message.targetTypes[client.connType] {
-						continue
-					}
-					select {
-					case client.send <- message.payload:
-					default:
-						// Drop message if client's send buffer is full.
-						slog.Warn("Client send channel full, dropping message", "userID", client.ID)
-					}
-				}
-			}
-			b.mu.RUnlock()
-
-		case message := <-b.direct:
-			b.mu.RLock()
-			if clients, ok := b.clients[message.TargetUserID]; ok {
-				for _, client := range clients {
-					// Check if the client's connection type is one of the targets.
-					if !message.targetTypes[client.connType] {
-						continue
-					}
-					select {
-					case client.send <- message.Payload:
-					default:
-						slog.Warn("Client send channel full, dropping direct message", "userID", client.ID)
-					}
-				}
-			}
-			b.mu.RUnlock()
-
-		case msg := <-b.incoming:
-			// Dynamically route incoming messages based on a topic field in the payload.
-			// We only unmarshal to get the topic, then pass the original payload on.
-			var routedMessage struct {
-				Topic string `json:"topic"`
-			}
-			if err := json.Unmarshal(msg.Payload, &routedMessage); err != nil {
-				slog.Warn("Failed to unmarshal incoming message for routing", "error", err, "payload", string(msg.Payload))
-				continue
-			}
-
-			if routedMessage.Topic == "" {
-				slog.Warn("Incoming message missing 'topic' field", "payload", string(msg.Payload))
-				continue
-			}
-
-			pubsubMsg := pubsub.Message{
-				Topic:   routedMessage.Topic,
-				UserID:  msg.ClientID,
-				Payload: msg.Payload, // Pass the original, full payload
-			}
-
-			if err := b.publisher.Publish(context.Background(), pubsubMsg); err != nil {
-				slog.Error("Bridge failed to publish incoming message", "userID", msg.ClientID, "topic", routedMessage.Topic, "error", err)
-			}
-		}
+	// Subscribe to broadcast messages for this endpoint
+	broadcastTopic := "ws." + b.endpoint + ".broadcast"
+	if err := b.subscriber.Subscribe(bridgeCtx, broadcastTopic, b.handleBroadcast); err != nil {
+		slog.Error("Failed to subscribe to broadcast topic", "topic", broadcastTopic, "error", err)
 	}
+
+	// Subscribe to direct messages for this endpoint
+	directTopic := "ws." + b.endpoint + ".direct"
+	if err := b.subscriber.Subscribe(bridgeCtx, directTopic, b.handleDirectMessage); err != nil {
+		slog.Error("Failed to subscribe to direct message topic", "topic", directTopic, "error", err)
+	}
+}
+
+func (b *Bridge) handleBroadcast(ctx context.Context, msg pubsub.Message) error {
+	clients := b.clients.GetAll()
+	for _, client := range clients {
+		client.SendMessage(msg.Payload)
+	}
+	return nil
+}
+
+func (b *Bridge) handleDirectMessage(ctx context.Context, msg pubsub.Message) error {
+	userID := msg.Metadata["user_id"]
+	if userID == "" {
+		slog.Warn("Direct message received without user_id in metadata", "topic", msg.Topic)
+		return nil
+	}
+
+	clients := b.clients.GetByUser(userID)
+	for _, client := range clients {
+		client.SendMessage(msg.Payload)
+	}
+	return nil
 }
 
 // Handler returns an echo.HandlerFunc that handles WebSocket upgrade requests for a given connection type.
-func (b *bridge) Handler(connType ConnectionType) echo.HandlerFunc {
+// Shutdown gracefully stops the bridge's background processes.
+// The provided context is used for the shutdown timeout.
+func (b *Bridge) Shutdown(ctx context.Context) {
+	slog.Info("Shutting down WebSocket bridge", "endpoint", b.endpoint)
+	if b.cancel != nil {
+		b.cancel() // This will cause the pub/sub subscriptions to terminate
+	}
+
+	// Create a channel to signal when shutdown is complete
+	done := make(chan struct{})
+	go func() {
+		// Wait for all read/write pumps to finish
+		b.wg.Wait()
+		close(done)
+	}()
+
+	// Wait for either shutdown to complete or context to be cancelled
+	select {
+	case <-done:
+		slog.Info("WebSocket bridge shut down gracefully", "endpoint", b.endpoint)
+	case <-ctx.Done():
+		slog.Warn("WebSocket bridge shutdown timed out", "endpoint", b.endpoint, "error", ctx.Err())
+	}
+}
+
+func (b *Bridge) Handler() echo.HandlerFunc {
 	return func(c echo.Context) error {
 		user, ok := c.Get(middleware.UserContextKey).(*domain.User)
 		if !ok || user == nil {
@@ -221,120 +134,136 @@ func (b *bridge) Handler(connType ConnectionType) echo.HandlerFunc {
 			InsecureSkipVerify: true, // TODO: Replace with a proper origin check in production.
 		})
 		if err != nil {
-			slog.Error("Failed to upgrade connection to WebSocket", "error", err)
-			return err
+			slog.Error("Failed to upgrade connection to WebSocket", "error", err, "userID", user.Email)
+			return fmt.Errorf("failed to upgrade connection to WebSocket: %w", err)
 		}
 
 		client := &Client{
-			ID:       user.Email, // Using email as the unique ID for now.
-			conn:     conn,
-			send:     make(chan []byte, 256),
-			connType: connType,
-			bridge:   b,
+			ID:       watermill.NewUUID(),
+			UserID:   user.Email,
+			Conn:     conn,
+			Send:     make(chan []byte, 256),
+			Endpoint: b.endpoint,
 		}
-		b.register <- client
 
-		go client.writePump()
-		go client.readPump()
+		// Register the client
+		b.clients.Add(client)
 
-		// Publish a generic "client connected" event to the message bus.
-		// Any module can listen for this to perform actions like sending a welcome message.
+		// Publish a "ready" event to the message bus so other modules can react.
+		// This is done in a goroutine to avoid blocking the connection handler.
 		go func() {
 			payload, _ := json.Marshal(map[string]any{
-				"userID":         user.Email,
-				"connectionType": connType,
+				"userID":   client.UserID,
+				"endpoint": client.Endpoint,
 			})
-			connectMsg := pubsub.Message{
-				Topic:   "system.websocket.connected",
-				UserID:  user.Email,
+			readyMsg := pubsub.Message{
+				Topic:   "system.websocket.ready",
+				UserID:  client.UserID,
 				Payload: payload,
 			}
-			if err := b.publisher.Publish(context.Background(), connectMsg); err != nil {
-				slog.Error("Failed to publish websocket connect event", "error", err)
+			if err := b.publisher.Publish(context.Background(), readyMsg); err != nil {
+				slog.Error("Failed to publish websocket ready event", "error", err, "userID", client.UserID)
 			}
 		}()
+
+		// Start the read and write pumps
+		b.wg.Add(2)
+		go b.writePump(client)
+		go b.readPump(client)
 
 		return nil
 	}
 }
 
 // readPump pumps messages from the WebSocket connection to the bridge's incoming channel.
-func (c *Client) readPump() {
+func (b *Bridge) readPump(client *Client) {
 	defer func() {
-		c.bridge.unregister <- c
-		c.conn.Close(websocket.StatusNormalClosure, "Client disconnected")
+		b.clients.Remove(client.ID)
+		b.wg.Done()
+		slog.Info("Client disconnected", "clientID", client.ID, "userID", client.UserID, "endpoint", b.endpoint)
 	}()
 
+	// The coder/websocket library does not have SetReadLimit, so we check manually.
+	// It does, however, automatically handle pong messages to update the read deadline.
 	for {
-		_, message, err := c.conn.Read(context.Background())
+		_, message, err := client.Conn.Read(context.Background())
 		if err != nil {
-			if websocket.CloseStatus(err) == websocket.StatusNormalClosure || websocket.CloseStatus(err) == websocket.StatusGoingAway {
-				slog.Info("WebSocket closed normally by client", "userID", c.ID)
-			} else if err != io.EOF {
-				slog.Error("WebSocket read error", "userID", c.ID, "error", err)
+			if websocket.CloseStatus(err) == websocket.StatusNormalClosure ||
+				websocket.CloseStatus(err) == websocket.StatusGoingAway {
+				slog.Debug("WebSocket closed normally by client", "clientID", client.ID)
+			} else {
+				slog.Error("Unexpected WebSocket read error", "clientID", client.ID, "error", err)
 			}
 			break
 		}
 
-		// Forward the message to the bridge's central incoming channel.
-		c.bridge.incoming <- &IncomingMessage{
-			ClientID: c.ID,
-			Payload:  message,
+		// Check message size since we can't set a read limit directly
+		if len(message) > maxMessageSize {
+			slog.Warn("Message too large, closing connection",
+				"clientID", client.ID,
+				"size", len(message),
+				"max", maxMessageSize)
+			return
 		}
+
+		// Standardize incoming messages. They must be JSON with an "action" and "payload".
+		var inboundMsg struct {
+			Action  string          `json:"action"`
+			Payload json.RawMessage `json:"payload"`
+		}
+
+		if err := json.Unmarshal(message, &inboundMsg); err != nil {
+			slog.Warn("Received invalid message from client", "clientID", client.ID, "error", err)
+			continue // Ignore malformed messages
+		}
+
+		if inboundMsg.Action == "" {
+			slog.Warn("Incoming message missing 'action' field", "clientID", client.ID)
+			continue
+		}
+
+		// Use the message's "action" as the pub/sub topic.
+		b.publisher.Publish(context.Background(), pubsub.Message{
+			Topic:   inboundMsg.Action,
+			Payload: inboundMsg.Payload,
+			UserID:  client.UserID,
+		})
 	}
 }
 
-// writePump pumps messages from the client's send channel to the WebSocket connection.
-func (c *Client) writePump() {
+func (b *Bridge) writePump(client *Client) {
+	ticker := time.NewTicker(pingPeriod)
 	defer func() {
-		c.conn.Close(websocket.StatusNormalClosure, "Server-side cleanup")
+		ticker.Stop()
+		client.Conn.Close(websocket.StatusNormalClosure, "write pump closing")
+		b.wg.Done()
 	}()
 
 	for {
-		message, ok := <-c.send
-		if !ok {
-			// The bridge closed the channel.
-			return
+		select {
+		case message, ok := <-client.Send:
+			if !ok {
+				// The manager closed the channel.
+				client.Conn.Close(websocket.StatusNormalClosure, "channel closed")
+				return
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), writeWait)
+			err := client.Conn.Write(ctx, websocket.MessageText, message)
+			cancel()
+			if err != nil {
+				slog.Warn("WebSocket write error", "clientID", client.ID, "error", err)
+				return
+			}
+
+		case <-ticker.C:
+			ctx, cancel := context.WithTimeout(context.Background(), writeWait)
+			err := client.Conn.Ping(ctx)
+			cancel()
+			if err != nil {
+				slog.Warn("WebSocket ping error", "clientID", client.ID, "error", err)
+				return
+			}
 		}
-
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		err := c.conn.Write(ctx, websocket.MessageText, message)
-		cancel()
-		if err != nil {
-			slog.Error("WebSocket write error", "userID", c.ID, "error", err)
-			return
-		}
-	}
-}
-
-// Incoming returns the channel for messages received from clients.
-func (b *bridge) Incoming() <-chan *IncomingMessage {
-	return b.incoming
-}
-
-// Broadcast sends a message to all clients of the specified connection types.
-func (b *bridge) Broadcast(payload []byte, connTypes ...ConnectionType) {
-	targets := make(map[ConnectionType]bool)
-	for _, t := range connTypes {
-		targets[t] = true
-	}
-
-	b.broadcast <- &BroadcastMessage{
-		payload:     payload,
-		targetTypes: targets,
-	}
-}
-
-// SendDirect sends a message directly to all connections for a specific user.
-func (b *bridge) SendDirect(userID string, payload []byte, connTypes ...ConnectionType) {
-	targets := make(map[ConnectionType]bool)
-	for _, t := range connTypes {
-		targets[t] = true
-	}
-
-	b.direct <- &DirectMessage{
-		TargetUserID: userID,
-		Payload:      payload,
-		targetTypes:  targets,
 	}
 }

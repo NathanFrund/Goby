@@ -35,9 +35,10 @@ type Server struct {
 	Renderer         rendering.Renderer
 	FileHandler      *handlers.FileHandler
 	DashboardHandler *handlers.DashboardHandler
+	HTMLBridge       *websocket.Bridge
+	DataBridge       *websocket.Bridge
 
 	modules []module.Module
-	bridge  websocket.Bridge
 	PubSub  pubsub.Publisher
 }
 
@@ -50,7 +51,8 @@ type Dependencies struct {
 	Renderer         echo.Renderer // The renderer for the Echo framework
 	Publisher        pubsub.Publisher
 	Echo             *echo.Echo
-	Bridge           websocket.Bridge
+	HTMLBridge       *websocket.Bridge
+	DataBridge       *websocket.Bridge
 	FileHandler      *handlers.FileHandler
 	DashboardHandler *handlers.DashboardHandler
 }
@@ -138,7 +140,8 @@ func New(deps Dependencies) (*Server, error) {
 		Renderer:         appRenderer,
 		PubSub:           deps.Publisher,
 		UserStore:        deps.UserStore,
-		bridge:           deps.Bridge,
+		HTMLBridge:       deps.HTMLBridge,
+		DataBridge:       deps.DataBridge,
 		FileHandler:      deps.FileHandler,
 		DashboardHandler: deps.DashboardHandler,
 	}
@@ -215,10 +218,6 @@ func (s *Server) Start(ctx context.Context) {
 	addr := s.Cfg.GetServerAddr()
 
 	// Start server in a goroutine so that it doesn't block.
-	if s.bridge != nil {
-		go s.bridge.Run()
-	}
-
 	go func() {
 		slog.Info("Starting server", "address", addr)
 		if err := s.E.Start(addr); err != nil && !errors.Is(err, http.ErrServerClosed) {

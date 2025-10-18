@@ -6,7 +6,6 @@ import (
 	"github.com/nfrund/goby/internal/modules/wargame"
 	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/rendering"
-	"github.com/nfrund/goby/internal/websocket"
 )
 
 // Dependencies holds the core services that are required by the application's modules.
@@ -14,7 +13,6 @@ import (
 type Dependencies struct {
 	Publisher  pubsub.Publisher
 	Subscriber pubsub.Subscriber
-	Bridge     websocket.Bridge
 	Renderer   rendering.Renderer
 }
 
@@ -27,13 +25,11 @@ func NewModules(deps Dependencies) []module.Module {
 		wargame.New(wargame.Dependencies{
 			Publisher:  deps.Publisher,
 			Subscriber: deps.Subscriber,
-			Bridge:     deps.Bridge,
 			Renderer:   deps.Renderer,
 		}),
 		chat.New(chat.Dependencies{
 			Publisher:  deps.Publisher,
 			Subscriber: deps.Subscriber,
-			Bridge:     deps.Bridge,
 			Renderer:   deps.Renderer,
 		}),
 	}

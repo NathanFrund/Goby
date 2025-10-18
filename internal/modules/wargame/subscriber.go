@@ -3,27 +3,27 @@ package wargame
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 
 	"github.com/nfrund/goby/internal/modules/wargame/templates/components"
 	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/rendering"
-	"github.com/nfrund/goby/internal/websocket"
 )
 
 // Subscriber listens for wargame events on the pub/sub bus,
 // renders them to HTML, and broadcasts them to HTML clients.
 type Subscriber struct {
 	subscriber pubsub.Subscriber
-	bridge     websocket.Bridge
+	publisher  pubsub.Publisher
 	renderer   rendering.Renderer
 }
 
 // NewSubscriber creates a new subscriber for the wargame module.
-func NewSubscriber(sub pubsub.Subscriber, bridge websocket.Bridge, renderer rendering.Renderer) *Subscriber {
+func NewSubscriber(sub pubsub.Subscriber, pub pubsub.Publisher, renderer rendering.Renderer) *Subscriber {
 	return &Subscriber{
 		subscriber: sub,
-		bridge:     bridge,
+		publisher:  pub,
 		renderer:   renderer,
 	}
 }
@@ -44,7 +44,15 @@ func (s *Subscriber) Start(ctx context.Context) {
 	go func() {
 		err := s.subscriber.Subscribe(ctx, "wargame.state.update", s.handleStateUpdateEvent)
 		if err != nil && err != context.Canceled {
-			slog.Error("Wargame Data subscriber stopped with error", "error", err)
+			slog.ErrorContext(ctx, "Wargame Data subscriber stopped with error", "error", err)
+		}
+	}()
+
+	// Listen for player actions
+	go func() {
+		err := s.subscriber.Subscribe(ctx, "wargame.actions", s.handlePlayerAction)
+		if err != nil && err != context.Canceled {
+			slog.ErrorContext(ctx, "Wargame Actions subscriber stopped with error", "error", err)
 		}
 	}()
 }
@@ -66,13 +74,49 @@ func (s *Subscriber) handleDamageEvent(ctx context.Context, msg pubsub.Message) 
 	}
 
 	// Broadcast the final HTML to all HTML clients via the new bridge.
-	s.bridge.Broadcast(renderedHTML, websocket.ConnectionTypeHTML)
-	return nil
+	return s.publisher.Publish(ctx, pubsub.Message{
+		Topic:   "ws.html.broadcast",
+		Payload: renderedHTML,
+	})
 }
 
 // handleStateUpdateEvent processes raw game state updates and broadcasts them to data clients.
 func (s *Subscriber) handleStateUpdateEvent(ctx context.Context, msg pubsub.Message) error {
-	// The payload is already the JSON we want to send. Just broadcast it.
-	s.bridge.Broadcast(msg.Payload, websocket.ConnectionTypeData)
+	var update GameStateUpdate
+	if err := json.Unmarshal(msg.Payload, &update); err != nil {
+		return fmt.Errorf("failed to unmarshal game update: %w", err)
+	}
+
+	// Create a data message with the game state
+	return s.publisher.Publish(ctx, pubsub.Message{
+		Topic:   "ws.data.broadcast",
+		Payload: msg.Payload, // Forward the original payload
+	})
+}
+
+// PlayerAction represents an action taken by a player in the wargame
+type PlayerAction struct {
+	PlayerID string      `json:"player_id"`
+	Action   string      `json:"action"`
+	Data     interface{} `json:"data,omitempty"`
+}
+
+// handlePlayerAction processes player actions and updates the game state
+func (s *Subscriber) handlePlayerAction(ctx context.Context, msg pubsub.Message) error {
+	var action PlayerAction
+	if err := json.Unmarshal(msg.Payload, &action); err != nil {
+		slog.ErrorContext(ctx, "Failed to unmarshal player action", "error", err, "payload", string(msg.Payload))
+		return fmt.Errorf("failed to unmarshal player action: %w", err)
+	}
+
+	// Log the action with context
+	slog.InfoContext(ctx, "Processing player action",
+		"player_id", action.PlayerID,
+		"action", action.Action,
+	)
+
+	// This is a placeholder. In a real app, you would process the action.
+	// For example: validate the action, update game state, and broadcast updates.
+
 	return nil
 }

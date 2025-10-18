@@ -62,11 +62,15 @@ func mapToPubSubMessage(wmMsg *message.Message) Message {
 	topic := wmMsg.Metadata.Get(metaKeyTopic)
 
 	// Create a new map for additional metadata, excluding our reserved keys
+	// but ensuring user_id is present if it exists.
 	metadata := make(map[string]string)
 	for k, v := range wmMsg.Metadata {
 		if k != metaKeyUserID && k != metaKeyTopic {
 			metadata[k] = v
 		}
+	}
+	if userID != "" {
+		metadata[metaKeyUserID] = userID
 	}
 
 	return Message{
@@ -92,25 +96,28 @@ func (wb *WatermillBridge) Subscribe(ctx context.Context, topic string, handler 
 		return err
 	}
 
-	// Start processing messages in a loop until the context is done.
-	for wmMsg := range messages {
-		// Convert the watermill message to our internal structure
-		msg := mapToPubSubMessage(wmMsg)
+	// Run the message processing in a separate goroutine so that Subscribe is non-blocking.
+	go func() {
+		for wmMsg := range messages {
+			// Convert the watermill message to our internal structure
+			msg := mapToPubSubMessage(wmMsg)
 
-		// Process the message using the provided handler
-		if err := handler(ctx, msg); err != nil {
-			slog.Error("Failed to handle message", "topic", topic, "msg_id", wmMsg.UUID, "error", err)
-			// A non-nil return from the handler means we assume the message was NOT processed successfully.
-			// Watermill can be configured to retry, but for the in-memory pub/sub, we acknowledge and log the error.
-			wmMsg.Nack()
-		} else {
-			// Acknowledge the message to signal successful processing.
-			wmMsg.Ack()
+			// Process the message using the provided handler
+			if err := handler(ctx, msg); err != nil {
+				slog.Error("Failed to handle message", "topic", topic, "msg_id", wmMsg.UUID, "error", err)
+				// A non-nil return from the handler means we assume the message was NOT processed successfully.
+				// Watermill can be configured to retry, but for the in-memory pub/sub, we acknowledge and log the error.
+				wmMsg.Nack()
+			} else {
+				// Acknowledge the message to signal successful processing.
+				wmMsg.Ack()
+			}
 		}
-	}
+		slog.Debug("Subscription message loop ended", "topic", topic)
+	}()
 
-	// This point is reached when the context is canceled.
-	return ctx.Err()
+	// Return immediately, as the subscription is now active and running in the background.
+	return nil
 }
 
 // Close implements the Publisher and Subscriber interface to shut down the bridge.

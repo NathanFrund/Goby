@@ -536,12 +536,12 @@ func TestFileHandler_List(t *testing.T) {
 	// 5. Assertions
 	require.Equal(t, http.StatusOK, rec.Code)
 
-	var files []*handlers.FileResponse
-	err = json.Unmarshal(rec.Body.Bytes(), &files)
+	var response handlers.PaginatedResponse[handlers.FileResponse]
+	err = json.Unmarshal(rec.Body.Bytes(), &response)
 	require.NoError(t, err)
-	require.Len(t, files, 2, "should return two files for the user")
+	require.Len(t, response.Data, 2, "should return two files for the user")
 
 	// Verify files are ordered by created_at DESC (newest first)
-	assert.Equal(t, "file2.txt", files[0].Filename, "newer file should be first")
-	assert.Equal(t, "file1.txt", files[1].Filename, "older file should be second")
+	assert.Equal(t, "file2.txt", response.Data[0].Filename, "newer file should be first")
+	assert.Equal(t, "file1.txt", response.Data[1].Filename, "older file should be second")
 }

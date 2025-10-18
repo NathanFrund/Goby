@@ -100,8 +100,12 @@ func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Serve
 		slog.Info("Shutting down Pub/Sub system...")
 		return ps.Close()
 	})
-	wsBridge := websocket.NewBridge(ps)
 
+	// Create the dual WebSocket bridges
+	htmlBridge := websocket.NewBridge("html", ps, ps)
+	dataBridge := websocket.NewBridge("data", ps, ps)
+	htmlBridge.Start(appCtx)
+	dataBridge.Start(appCtx)
 	// User Store (using the new v2 client)
 	userDBClient, err := database.NewClient[domain.User](dbConn, cfg)
 	if err != nil {
@@ -148,7 +152,8 @@ func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Serve
 		Renderer:         renderer,
 		Publisher:        ps,
 		Echo:             e,
-		Bridge:           wsBridge,
+		HTMLBridge:       htmlBridge,
+		DataBridge:       dataBridge,
 		DashboardHandler: dashboardHandler,
 		FileHandler:      fileHandler,
 	})
@@ -163,7 +168,6 @@ func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Serve
 	moduleDeps := app.Dependencies{
 		Publisher:  ps,
 		Subscriber: ps,
-		Bridge:     wsBridge,
 		Renderer:   renderer,
 	}
 	modules := app.NewModules(moduleDeps)

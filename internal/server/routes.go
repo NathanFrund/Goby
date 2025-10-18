@@ -6,7 +6,6 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/handlers"
 	"github.com/nfrund/goby/internal/middleware" // Your custom middleware
-	"github.com/nfrund/goby/internal/websocket"
 )
 
 // RegisterRoutes sets up all the application routes.
@@ -53,8 +52,8 @@ func (s *Server) RegisterRoutes() {
 
 	// Standard routes
 	protected.GET("/dashboard", s.DashboardHandler.Get)
-	protected.GET("/ws/html", s.bridge.Handler(websocket.ConnectionTypeHTML))
-	protected.GET("/ws/data", s.bridge.Handler(websocket.ConnectionTypeData))
+	protected.GET("/ws/html", s.HTMLBridge.Handler())
+	protected.GET("/ws/data", s.DataBridge.Handler())
 
 	// Core File Service Routes are registered under the /app group
 	// and are therefore protected by the authentication middleware.
