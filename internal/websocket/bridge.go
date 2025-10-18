@@ -16,7 +16,6 @@ import (
 	"github.com/nfrund/goby/internal/middleware"
 	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/topics"
-	wsTopics "github.com/nfrund/goby/internal/topics/websocket"
 )
 
 type ConnectionType int
@@ -74,48 +73,32 @@ func (b *Bridge) Start(ctx context.Context) error {
 	var bridgeCtx context.Context
 	bridgeCtx, b.cancel = context.WithCancel(ctx)
 
-	// Register WebSocket topics
-	wsTopics.MustRegisterAll(b.topicRegistry)
-
-	// Determine which topics to use based on the endpoint
-	var broadcastTopic, directTopic topics.Topic
-
-	switch b.endpoint {
-	case "html":
-		broadcastTopic = wsTopics.HTMLBroadcast
-		directTopic = wsTopics.HTMLDirect
-	case "data":
-		broadcastTopic = wsTopics.DataBroadcast
-		directTopic = wsTopics.DataDirect
-	default:
-		err := fmt.Errorf("unknown endpoint type: %s", b.endpoint)
-		slog.Error("FATAL: Invalid endpoint type", "endpoint", b.endpoint, "error", err)
-		return err
+	// Get the topics for this endpoint
+	broadcastTopic, directTopic, err := b.getEndpointTopics()
+	if err != nil {
+		return fmt.Errorf("failed to get endpoint topics: %w", err)
 	}
 
 	// Subscribe to broadcast messages for this endpoint
-	if err := b.subscriber.Subscribe(bridgeCtx, broadcastTopic.Pattern(), b.handleBroadcast); err != nil {
+	if err := b.subscriber.Subscribe(bridgeCtx, broadcastTopic.Name(), b.handleBroadcast); err != nil {
 		slog.Error("FATAL: Failed to subscribe to broadcast topic",
 			"topic", broadcastTopic.Name(),
-			"pattern", broadcastTopic.Pattern(),
 			"error", err)
 		return fmt.Errorf("failed to subscribe to broadcast topic %s: %w", broadcastTopic.Name(), err)
 	}
 
-	// Subscribe to direct messages for this endpoint using the pattern
-	// The pattern will match any direct message for this endpoint (e.g., "ws.html.direct.*")
-	if err := b.subscriber.Subscribe(bridgeCtx, directTopic.Pattern(), b.handleDirectMessage); err != nil {
-		slog.Error("FATAL: Failed to subscribe to direct message topic",
+	// Subscribe to the direct messages topic
+	if err := b.subscriber.Subscribe(bridgeCtx, directTopic.Name(), b.handleDirectMessage); err != nil {
+		slog.Error("FATAL: Failed to subscribe to direct topic",
 			"topic", directTopic.Name(),
-			"pattern", directTopic.Pattern(),
 			"error", err)
-		return fmt.Errorf("failed to subscribe to direct message topic %s: %w", directTopic.Name(), err)
+		return fmt.Errorf("failed to subscribe to direct topic %s: %w", directTopic.Name(), err)
 	}
 
 	slog.Info("Successfully subscribed to WebSocket topics",
 		"endpoint", b.endpoint,
-		"broadcast_topic", broadcastTopic.Pattern(),
-		"direct_topic_pattern", directTopic.Pattern())
+		"broadcast_topic", broadcastTopic.Name(),
+		"direct_topic", directTopic.Name())
 
 	return nil
 }
@@ -135,25 +118,69 @@ func (b *Bridge) handleDirectMessage(ctx context.Context, msg pubsub.Message) er
 	// Get recipient ID from metadata
 	recipientID, exists := msg.Metadata["recipient_id"]
 	if !exists || recipientID == "" {
-		slog.Warn("Direct message missing recipient_id in metadata", "metadata", msg.Metadata)
+		slog.Warn("Direct message missing recipient_id in metadata",
+			"topic", msg.Topic,
+			"metadata", msg.Metadata,
+		)
 		return nil
 	}
 
 	// Get all active clients for this recipient
 	clients := b.clients.GetByUser(recipientID)
 	if len(clients) == 0 {
-		slog.Debug("No active clients found for recipient", "recipient", recipientID, "endpoint", b.endpoint)
+		slog.Debug("No active clients found for recipient",
+			"recipient", recipientID,
+			"endpoint", b.endpoint,
+		)
 		return nil
 	}
 
 	// Forward the message to all of the recipient's clients for this endpoint
+	var sentTo int
 	for _, client := range clients {
 		if client.Endpoint == b.endpoint {
 			client.SendMessage(msg.Payload)
+			sentTo++
 		}
 	}
 
+	if sentTo == 0 {
+		slog.Debug("No active clients received the direct message",
+			"recipientID", recipientID,
+			"endpoint", b.endpoint,
+		)
+	}
+
 	return nil
+}
+
+// getEndpointTopics returns the broadcast and direct topics for the bridge's endpoint.
+// It looks up the topics from the topic registry using well-known topic names.
+func (b *Bridge) getEndpointTopics() (topics.Topic, topics.Topic, error) {
+	var broadcastTopicName, directTopicName string
+
+	switch b.endpoint {
+	case "html":
+		broadcastTopicName = TopicHTMLBroadcast
+		directTopicName = TopicHTMLDirect
+	case "data":
+		broadcastTopicName = TopicDataBroadcast
+		directTopicName = TopicDataDirect
+	default:
+		return nil, nil, fmt.Errorf("invalid endpoint: %s", b.endpoint)
+	}
+
+	broadcastTopic, exists := b.topicRegistry.Get(broadcastTopicName)
+	if !exists {
+		return nil, nil, fmt.Errorf("broadcast topic not found: %s", broadcastTopicName)
+	}
+
+	directTopic, exists := b.topicRegistry.Get(directTopicName)
+	if !exists {
+		return nil, nil, fmt.Errorf("direct topic not found: %s", directTopicName)
+	}
+
+	return broadcastTopic, directTopic, nil
 }
 
 // Handler returns an echo.HandlerFunc that handles WebSocket upgrade requests for a given connection type.
@@ -201,7 +228,7 @@ func (b *Bridge) Handler() echo.HandlerFunc {
 		}
 
 		client := &Client{
-			ID:       watermill.NewUUID(),
+			ID:       watermill.NewShortUUID(),
 			UserID:   user.Email,
 			Conn:     conn,
 			Send:     make(chan []byte, 256),

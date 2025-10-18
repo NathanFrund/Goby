@@ -106,6 +106,11 @@ func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Serve
 	// Create a topic registry
 	topicRegistry := topics.NewRegistry()
 
+	// Register all WebSocket topics
+	if err := websocket.RegisterTopics(topicRegistry); err != nil {
+		return nil, nil, fmt.Errorf("failed to register WebSocket topics: %w", err)
+	}
+
 	// Create the dual WebSocket bridges
 	htmlBridge := websocket.NewBridge("html", websocket.BridgeDependencies{
 		Publisher:     ps,
