@@ -25,6 +25,7 @@ import (
 	"github.com/nfrund/goby/internal/rendering"
 	"github.com/nfrund/goby/internal/server"
 	"github.com/nfrund/goby/internal/storage"
+	"github.com/nfrund/goby/internal/topics"
 	"github.com/nfrund/goby/internal/websocket"
 	"github.com/spf13/afero"
 )
@@ -161,7 +162,10 @@ func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Serve
 		return nil, nil, fmt.Errorf("failed to create server: %w", err)
 	}
 
-	// 4. Initialize Application Modules
+	// 4. Initialize Topic Registry
+	topicRegistry := topics.Default()
+
+	// 5. Initialize Application Modules
 	// Core services are passed to the module container, which then wires up
 	// all active application features.
 	slog.Info("Initializing application modules...")
@@ -169,6 +173,7 @@ func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Serve
 		Publisher:  ps,
 		Subscriber: ps,
 		Renderer:   renderer,
+		Topics:     topicRegistry,
 	}
 	modules := app.NewModules(moduleDeps)
 	srv.InitModules(appCtx, modules, reg)
