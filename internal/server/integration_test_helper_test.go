@@ -107,6 +107,7 @@ func setupIntegrationTest(t *testing.T) (*server.Server, *httptest.Server, func(
 		Publisher:   ps,
 		Subscriber:  ps,
 		Renderer:    renderer,
+		Topics:      topicRegistry,
 	}
 	modules := app.NewModules(moduleDeps)
 	s.InitModules(context.Background(), modules, reg)

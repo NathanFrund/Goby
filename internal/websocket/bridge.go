@@ -66,7 +66,8 @@ func NewBridge(endpoint string, deps BridgeDependencies) *Bridge {
 
 
 // Start begins the bridge's message handling loop, subscribing to relevant pub/sub topics.
-func (b *Bridge) Start(ctx context.Context) {
+// Returns an error if any subscription fails.
+func (b *Bridge) Start(ctx context.Context) error {
 	// Create a cancellable context for this bridge
 	var bridgeCtx context.Context
 	bridgeCtx, b.cancel = context.WithCancel(ctx)
@@ -85,31 +86,36 @@ func (b *Bridge) Start(ctx context.Context) {
 		broadcastTopic = wsTopics.DataBroadcast
 		directTopic = wsTopics.DataDirect
 	default:
-		slog.Error("Unknown endpoint type", "endpoint", b.endpoint)
-		return
+		err := fmt.Errorf("unknown endpoint type: %s", b.endpoint)
+		slog.Error("FATAL: Invalid endpoint type", "endpoint", b.endpoint, "error", err)
+		return err
 	}
 
 	// Subscribe to broadcast messages for this endpoint
 	if err := b.subscriber.Subscribe(bridgeCtx, broadcastTopic.Pattern(), b.handleBroadcast); err != nil {
-		slog.Error("Failed to subscribe to broadcast topic", 
+		slog.Error("FATAL: Failed to subscribe to broadcast topic", 
 			"topic", broadcastTopic.Name(), 
 			"pattern", broadcastTopic.Pattern(), 
 			"error", err)
+		return fmt.Errorf("failed to subscribe to broadcast topic %s: %w", broadcastTopic.Name(), err)
 	}
 
 	// Subscribe to direct messages for this endpoint using the pattern
 	// The pattern will match any direct message for this endpoint (e.g., "ws.html.direct.*")
 	if err := b.subscriber.Subscribe(bridgeCtx, directTopic.Pattern(), b.handleDirectMessage); err != nil {
-		slog.Error("Failed to subscribe to direct message topic", 
+		slog.Error("FATAL: Failed to subscribe to direct message topic", 
 			"topic", directTopic.Name(), 
 			"pattern", directTopic.Pattern(), 
 			"error", err)
-	} else {
-		slog.Info("Subscribed to WebSocket topics", 
-			"endpoint", b.endpoint, 
-			"broadcast_topic", broadcastTopic.Pattern(),
-			"direct_topic_pattern", directTopic.Name())
+		return fmt.Errorf("failed to subscribe to direct message topic %s: %w", directTopic.Name(), err)
 	}
+
+	slog.Info("Successfully subscribed to WebSocket topics", 
+		"endpoint", b.endpoint, 
+		"broadcast_topic", broadcastTopic.Pattern(),
+		"direct_topic_pattern", directTopic.Pattern())
+	
+	return nil
 }
 
 func (b *Bridge) handleBroadcast(ctx context.Context, msg pubsub.Message) error {
