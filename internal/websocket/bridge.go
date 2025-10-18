@@ -69,27 +69,52 @@ func (b *Bridge) Start(ctx context.Context) {
 	directTopic := "ws." + b.endpoint + ".direct"
 	if err := b.subscriber.Subscribe(bridgeCtx, directTopic, b.handleDirectMessage); err != nil {
 		slog.Error("Failed to subscribe to direct message topic", "topic", directTopic, "error", err)
+	} else {
+		slog.Info("Subscribed to direct messages", "topic", directTopic)
 	}
 }
 
 func (b *Bridge) handleBroadcast(ctx context.Context, msg pubsub.Message) error {
 	clients := b.clients.GetAll()
 	for _, client := range clients {
+		// SendMessage handles its own error logging
 		client.SendMessage(msg.Payload)
 	}
 	return nil
 }
 
+// handleDirectMessage processes direct messages using metadata for routing
 func (b *Bridge) handleDirectMessage(ctx context.Context, msg pubsub.Message) error {
-	userID := msg.Metadata["user_id"]
-	if userID == "" {
-		slog.Warn("Direct message received without user_id in metadata", "topic", msg.Topic)
+	// Check for required metadata fields
+	if msg.Metadata == nil {
+		slog.Warn("Direct message missing metadata", "topic", msg.Topic)
 		return nil
 	}
 
-	clients := b.clients.GetByUser(userID)
+	// Extract recipient from metadata
+	recipient := msg.Metadata["recipient_id"]
+	if recipient == "" {
+		recipient = msg.Metadata["user_id"] // Fallback to user_id for backward compatibility
+	}
+
+	if recipient == "" {
+		slog.Warn("Direct message missing recipient_id in metadata", "topic", msg.Topic, "metadata", msg.Metadata)
+		return nil
+	}
+
+	// Get all active clients for this recipient
+	clients := b.clients.GetByUser(recipient)
+	if len(clients) == 0 {
+		slog.Debug("No active clients found for recipient", "recipient", recipient, "endpoint", b.endpoint)
+		return nil
+	}
+
+	// Forward the message to all of the recipient's clients
 	for _, client := range clients {
-		client.SendMessage(msg.Payload)
+		if client.Endpoint == b.endpoint {
+			// SendMessage handles its own error logging
+			client.SendMessage(msg.Payload)
+		}
 	}
 	return nil
 }

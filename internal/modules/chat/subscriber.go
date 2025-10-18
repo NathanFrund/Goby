@@ -80,11 +80,14 @@ func (cs *ChatSubscriber) handleClientConnect(ctx context.Context, msg pubsub.Me
 			return err
 		}
 
-		// Publish the welcome message to the user's direct HTML topic.
+		// Publish the welcome message to the direct messages topic
 		return cs.publisher.Publish(ctx, pubsub.Message{
-			Topic:    "ws.html.direct",
-			Payload:  renderedHTML,
-			Metadata: map[string]string{"user_id": msg.UserID},
+			Topic:   "ws.html.direct",
+			Payload: renderedHTML,
+			Metadata: map[string]string{
+				"recipient_id": msg.UserID,
+				"sender_id":    "system",
+			},
 		})
 	}
 
@@ -109,10 +112,13 @@ func (cs *ChatSubscriber) handleNewMessage(ctx context.Context, msg pubsub.Messa
 		return fmt.Errorf("failed to render chat message: %w", err)
 	}
 
-	// Broadcast the rendered HTML to all connected HTML clients.
+	// Broadcast the rendered HTML to all connected HTML clients
 	return cs.publisher.Publish(ctx, pubsub.Message{
 		Topic:   "ws.html.broadcast",
 		Payload: renderedHTML,
+		Metadata: map[string]string{
+			"sender_id": msg.UserID,
+		},
 	})
 }
 
@@ -124,22 +130,24 @@ func (cs *ChatSubscriber) handleDirectMessage(ctx context.Context, msg pubsub.Me
 	}
 
 	if err := json.Unmarshal(msg.Payload, &incoming); err != nil {
-		return fmt.Errorf("failed to unmarshal direct message: %w", err)
+		slog.Error("Failed to unmarshal direct message", "error", err, "payload", string(msg.Payload))
+		return err
 	}
 
-	// Use ChatMessage with a prefix for direct messages
-	component := components.ChatMessage(msg.UserID, "(DM) "+incoming.Content, time.Now())
+	// Render the message to an HTML component
+	component := components.ChatMessage(msg.UserID, incoming.Content, time.Now())
 	renderedHTML, err := cs.renderer.RenderComponent(ctx, component)
 	if err != nil {
 		return fmt.Errorf("failed to render direct message: %w", err)
 	}
 
-	// Create and send the WebSocket message using raw bytes
+	// Send the message directly to the recipient using metadata for routing
 	return cs.publisher.Publish(ctx, pubsub.Message{
 		Topic:   "ws.html.direct",
 		Payload: renderedHTML,
 		Metadata: map[string]string{
-			"user_id": incoming.To,
+			"recipient_id": incoming.To,
+			"sender_id":    msg.UserID,
 		},
 	})
 }
