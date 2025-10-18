@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/ThreeDotsLabs/watermill"
@@ -38,6 +39,8 @@ type Bridge struct {
 	publisher  pubsub.Publisher
 	subscriber pubsub.Subscriber
 	clients    *ClientManager
+	cancel     context.CancelFunc
+	wg         sync.WaitGroup
 }
 
 // NewBridge creates a new WebSocket bridge for a specific endpoint.
@@ -52,15 +55,19 @@ func NewBridge(endpoint string, pub pubsub.Publisher, sub pubsub.Subscriber) *Br
 
 // Start begins the bridge's message handling loop, subscribing to relevant pub/sub topics.
 func (b *Bridge) Start(ctx context.Context) {
+	// Create a cancellable context for this bridge
+	var bridgeCtx context.Context
+	bridgeCtx, b.cancel = context.WithCancel(ctx)
+
 	// Subscribe to broadcast messages for this endpoint
 	broadcastTopic := "ws." + b.endpoint + ".broadcast"
-	if err := b.subscriber.Subscribe(ctx, broadcastTopic, b.handleBroadcast); err != nil {
+	if err := b.subscriber.Subscribe(bridgeCtx, broadcastTopic, b.handleBroadcast); err != nil {
 		slog.Error("Failed to subscribe to broadcast topic", "topic", broadcastTopic, "error", err)
 	}
 
 	// Subscribe to direct messages for this endpoint
 	directTopic := "ws." + b.endpoint + ".direct"
-	if err := b.subscriber.Subscribe(ctx, directTopic, b.handleDirectMessage); err != nil {
+	if err := b.subscriber.Subscribe(bridgeCtx, directTopic, b.handleDirectMessage); err != nil {
 		slog.Error("Failed to subscribe to direct message topic", "topic", directTopic, "error", err)
 	}
 }
@@ -88,6 +95,31 @@ func (b *Bridge) handleDirectMessage(ctx context.Context, msg pubsub.Message) er
 }
 
 // Handler returns an echo.HandlerFunc that handles WebSocket upgrade requests for a given connection type.
+// Shutdown gracefully stops the bridge's background processes.
+// The provided context is used for the shutdown timeout.
+func (b *Bridge) Shutdown(ctx context.Context) {
+	slog.Info("Shutting down WebSocket bridge", "endpoint", b.endpoint)
+	if b.cancel != nil {
+		b.cancel() // This will cause the pub/sub subscriptions to terminate
+	}
+
+	// Create a channel to signal when shutdown is complete
+	done := make(chan struct{})
+	go func() {
+		// Wait for all read/write pumps to finish
+		b.wg.Wait()
+		close(done)
+	}()
+
+	// Wait for either shutdown to complete or context to be cancelled
+	select {
+	case <-done:
+		slog.Info("WebSocket bridge shut down gracefully", "endpoint", b.endpoint)
+	case <-ctx.Done():
+		slog.Warn("WebSocket bridge shutdown timed out", "endpoint", b.endpoint, "error", ctx.Err())
+	}
+}
+
 func (b *Bridge) Handler() echo.HandlerFunc {
 	return func(c echo.Context) error {
 		user, ok := c.Get(middleware.UserContextKey).(*domain.User)
@@ -135,6 +167,7 @@ func (b *Bridge) Handler() echo.HandlerFunc {
 		}()
 
 		// Start the read and write pumps
+		b.wg.Add(2)
 		go b.writePump(client)
 		go b.readPump(client)
 
@@ -146,6 +179,7 @@ func (b *Bridge) Handler() echo.HandlerFunc {
 func (b *Bridge) readPump(client *Client) {
 	defer func() {
 		b.clients.Remove(client.ID)
+		b.wg.Done()
 		slog.Info("Client disconnected", "clientID", client.ID, "userID", client.UserID, "endpoint", b.endpoint)
 	}()
 
@@ -202,6 +236,7 @@ func (b *Bridge) writePump(client *Client) {
 	defer func() {
 		ticker.Stop()
 		client.Conn.Close(websocket.StatusNormalClosure, "write pump closing")
+		b.wg.Done()
 	}()
 
 	for {
