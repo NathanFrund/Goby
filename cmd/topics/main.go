@@ -36,9 +36,9 @@ func listTopics() {
 	
 	for _, topic := range topics.List() {
 		fmt.Fprintf(w, "%s\t%s\t%s\n", 
-			topic.Name, 
-			topic.Description, 
-			topic.Example)
+			topic.Name(), 
+			topic.Description(), 
+			topic.Example())
 	}
 	w.Flush()
 }
@@ -50,8 +50,8 @@ func getTopic(name string) {
 		return
 	}
 	
-	fmt.Printf("Name:        %s\n", topic.Name)
-	fmt.Printf("Description: %s\n", topic.Description)
-	fmt.Printf("Pattern:     %s\n", topic.Pattern)
-	fmt.Printf("Example:     %s\n", topic.Example)
+	fmt.Printf("Name:        %s\n", topic.Name())
+	fmt.Printf("Description: %s\n", topic.Description())
+	fmt.Printf("Pattern:     %s\n", topic.Pattern())
+	fmt.Printf("Example:     %s\n", topic.Example())
 }

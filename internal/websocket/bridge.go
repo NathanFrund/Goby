@@ -15,6 +15,8 @@ import (
 	"github.com/nfrund/goby/internal/domain"
 	"github.com/nfrund/goby/internal/middleware"
 	"github.com/nfrund/goby/internal/pubsub"
+	"github.com/nfrund/goby/internal/topics"
+	wsTopics "github.com/nfrund/goby/internal/topics/websocket"
 )
 
 type ConnectionType int
@@ -35,23 +37,33 @@ const (
 
 // Bridge handles WebSocket connections for a specific endpoint ("html" or "data").
 type Bridge struct {
-	endpoint   string
-	publisher  pubsub.Publisher
-	subscriber pubsub.Subscriber
-	clients    *ClientManager
-	cancel     context.CancelFunc
-	wg         sync.WaitGroup
+	endpoint    string
+	publisher   pubsub.Publisher
+	subscriber  pubsub.Subscriber
+	topicRegistry *topics.TopicRegistry
+	clients     *ClientManager
+	cancel      context.CancelFunc
+	wg          sync.WaitGroup
+}
+
+// BridgeDependencies contains all dependencies required by the Bridge.
+type BridgeDependencies struct {
+	Publisher     pubsub.Publisher
+	Subscriber    pubsub.Subscriber
+	TopicRegistry *topics.TopicRegistry
 }
 
 // NewBridge creates a new WebSocket bridge for a specific endpoint.
-func NewBridge(endpoint string, pub pubsub.Publisher, sub pubsub.Subscriber) *Bridge {
+func NewBridge(endpoint string, deps BridgeDependencies) *Bridge {
 	return &Bridge{
-		endpoint:   endpoint,
-		publisher:  pub,
-		subscriber: sub,
-		clients:    NewClientManager(),
+		endpoint:     endpoint,
+		publisher:    deps.Publisher,
+		subscriber:   deps.Subscriber,
+		topicRegistry: deps.TopicRegistry,
+		clients:      NewClientManager(),
 	}
 }
+
 
 // Start begins the bridge's message handling loop, subscribing to relevant pub/sub topics.
 func (b *Bridge) Start(ctx context.Context) {
@@ -59,18 +71,44 @@ func (b *Bridge) Start(ctx context.Context) {
 	var bridgeCtx context.Context
 	bridgeCtx, b.cancel = context.WithCancel(ctx)
 
-	// Subscribe to broadcast messages for this endpoint
-	broadcastTopic := "ws." + b.endpoint + ".broadcast"
-	if err := b.subscriber.Subscribe(bridgeCtx, broadcastTopic, b.handleBroadcast); err != nil {
-		slog.Error("Failed to subscribe to broadcast topic", "topic", broadcastTopic, "error", err)
+	// Register WebSocket topics
+	wsTopics.MustRegisterAll(b.topicRegistry)
+
+	// Determine which topics to use based on the endpoint
+	var broadcastTopic, directTopic topics.Topic
+
+	switch b.endpoint {
+	case "html":
+		broadcastTopic = wsTopics.HTMLBroadcast
+		directTopic = wsTopics.HTMLDirect
+	case "data":
+		broadcastTopic = wsTopics.DataBroadcast
+		directTopic = wsTopics.DataDirect
+	default:
+		slog.Error("Unknown endpoint type", "endpoint", b.endpoint)
+		return
 	}
 
-	// Subscribe to direct messages for this endpoint
-	directTopic := "ws." + b.endpoint + ".direct"
-	if err := b.subscriber.Subscribe(bridgeCtx, directTopic, b.handleDirectMessage); err != nil {
-		slog.Error("Failed to subscribe to direct message topic", "topic", directTopic, "error", err)
+	// Subscribe to broadcast messages for this endpoint
+	if err := b.subscriber.Subscribe(bridgeCtx, broadcastTopic.Pattern(), b.handleBroadcast); err != nil {
+		slog.Error("Failed to subscribe to broadcast topic", 
+			"topic", broadcastTopic.Name(), 
+			"pattern", broadcastTopic.Pattern(), 
+			"error", err)
+	}
+
+	// Subscribe to direct messages for this endpoint using the pattern
+	// The pattern will match any direct message for this endpoint (e.g., "ws.html.direct.*")
+	if err := b.subscriber.Subscribe(bridgeCtx, directTopic.Pattern(), b.handleDirectMessage); err != nil {
+		slog.Error("Failed to subscribe to direct message topic", 
+			"topic", directTopic.Name(), 
+			"pattern", directTopic.Pattern(), 
+			"error", err)
 	} else {
-		slog.Info("Subscribed to direct messages", "topic", directTopic)
+		slog.Info("Subscribed to WebSocket topics", 
+			"endpoint", b.endpoint, 
+			"broadcast_topic", broadcastTopic.Pattern(),
+			"direct_topic_pattern", directTopic.Name())
 	}
 }
 
@@ -83,39 +121,30 @@ func (b *Bridge) handleBroadcast(ctx context.Context, msg pubsub.Message) error 
 	return nil
 }
 
-// handleDirectMessage processes direct messages using metadata for routing
+// handleDirectMessage processes direct messages for specific clients
+// The recipient ID should be specified in the message metadata as "recipient_id"
 func (b *Bridge) handleDirectMessage(ctx context.Context, msg pubsub.Message) error {
-	// Check for required metadata fields
-	if msg.Metadata == nil {
-		slog.Warn("Direct message missing metadata", "topic", msg.Topic)
-		return nil
-	}
-
-	// Extract recipient from metadata
-	recipient := msg.Metadata["recipient_id"]
-	if recipient == "" {
-		recipient = msg.Metadata["user_id"] // Fallback to user_id for backward compatibility
-	}
-
-	if recipient == "" {
-		slog.Warn("Direct message missing recipient_id in metadata", "topic", msg.Topic, "metadata", msg.Metadata)
+	// Get recipient ID from metadata
+	recipientID, exists := msg.Metadata["recipient_id"]
+	if !exists || recipientID == "" {
+		slog.Warn("Direct message missing recipient_id in metadata", "metadata", msg.Metadata)
 		return nil
 	}
 
 	// Get all active clients for this recipient
-	clients := b.clients.GetByUser(recipient)
+	clients := b.clients.GetByUser(recipientID)
 	if len(clients) == 0 {
-		slog.Debug("No active clients found for recipient", "recipient", recipient, "endpoint", b.endpoint)
+		slog.Debug("No active clients found for recipient", "recipient", recipientID, "endpoint", b.endpoint)
 		return nil
 	}
 
-	// Forward the message to all of the recipient's clients
+	// Forward the message to all of the recipient's clients for this endpoint
 	for _, client := range clients {
 		if client.Endpoint == b.endpoint {
-			// SendMessage handles its own error logging
 			client.SendMessage(msg.Payload)
 		}
 	}
+
 	return nil
 }
 

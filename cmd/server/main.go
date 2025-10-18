@@ -102,9 +102,22 @@ func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Serve
 		return ps.Close()
 	})
 
+	// Create a topic registry
+	topicRegistry := topics.NewRegistry()
+
 	// Create the dual WebSocket bridges
-	htmlBridge := websocket.NewBridge("html", ps, ps)
-	dataBridge := websocket.NewBridge("data", ps, ps)
+	htmlBridge := websocket.NewBridge("html", websocket.BridgeDependencies{
+		Publisher:     ps,
+		Subscriber:    ps,
+		TopicRegistry: topicRegistry,
+	})
+
+	dataBridge := websocket.NewBridge("data", websocket.BridgeDependencies{
+		Publisher:     ps,
+		Subscriber:    ps,
+		TopicRegistry: topicRegistry,
+	})
+
 	htmlBridge.Start(appCtx)
 	dataBridge.Start(appCtx)
 	// User Store (using the new v2 client)
@@ -162,10 +175,7 @@ func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Serve
 		return nil, nil, fmt.Errorf("failed to create server: %w", err)
 	}
 
-	// 4. Initialize Topic Registry
-	topicRegistry := topics.Default()
-
-	// 5. Initialize Application Modules
+	// 4. Initialize Application Modules
 	// Core services are passed to the module container, which then wires up
 	// all active application features.
 	slog.Info("Initializing application modules...")

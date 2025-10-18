@@ -14,7 +14,7 @@ import (
 
 // ChatSubscriber listens for new chat messages on the pub/sub bus,
 // renders them to HTML, and broadcasts them to all connected clients
-// via the WebsocketBridge.
+// via the WebSocket bridge.
 type ChatSubscriber struct {
 	subscriber pubsub.Subscriber
 	publisher  pubsub.Publisher
@@ -52,7 +52,7 @@ func (cs *ChatSubscriber) Start(ctx context.Context) {
 		}
 	}()
 
-	// Listen for new client connections to send a welcome message
+	// Listen for new WebSocket connections to send welcome messages
 	go func() {
 		err := cs.subscriber.Subscribe(ctx, "system.websocket.ready", cs.handleClientConnect)
 		if err != nil && err != context.Canceled {
@@ -65,6 +65,7 @@ func (cs *ChatSubscriber) Start(ctx context.Context) {
 func (cs *ChatSubscriber) handleClientConnect(ctx context.Context, msg pubsub.Message) error {
 	var readyEvent struct {
 		Endpoint string `json:"endpoint"`
+		UserID   string `json:"userID"`
 	}
 	if err := json.Unmarshal(msg.Payload, &readyEvent); err != nil {
 		slog.Error("Failed to unmarshal system.websocket.ready event", "error", err)
@@ -72,21 +73,21 @@ func (cs *ChatSubscriber) handleClientConnect(ctx context.Context, msg pubsub.Me
 	}
 
 	// Only send a welcome message to HTML clients.
-	if readyEvent.Endpoint == "html" {
-		welcomeComponent := components.WelcomeMessage("Welcome to the chat, " + msg.UserID + "!")
+	if readyEvent.Endpoint == "html" && readyEvent.UserID != "" {
+		welcomeComponent := components.WelcomeMessage("Welcome to the chat, " + readyEvent.UserID + "!")
 		renderedHTML, err := cs.renderer.RenderComponent(ctx, welcomeComponent)
 		if err != nil {
-			slog.Error("Failed to render welcome message", "error", err, "userID", msg.UserID)
+			slog.Error("Failed to render welcome message", "error", err, "userID", readyEvent.UserID)
 			return err
 		}
 
 		// Publish the welcome message to the direct messages topic
+		// Using metadata for recipient ID
 		return cs.publisher.Publish(ctx, pubsub.Message{
 			Topic:   "ws.html.direct",
 			Payload: renderedHTML,
 			Metadata: map[string]string{
-				"recipient_id": msg.UserID,
-				"sender_id":    "system",
+				"recipient_id": readyEvent.UserID,
 			},
 		})
 	}
