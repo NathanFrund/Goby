@@ -1,50 +1,130 @@
 package topics
 
-import "sync"
-
-var (
-	registry     = make(map[string]Topic)
-	registryLock sync.RWMutex
+import (
+	"fmt"
+	"sync"
 )
 
-// Register registers a new topic
-func Register(topic Topic) {
-	registryLock.Lock()
-	defer registryLock.Unlock()
-	
-	if _, exists := registry[topic.Name]; exists {
-		panic("topic already registered: " + topic.Name)
+// Registry manages a collection of topics and provides methods to interact with them
+type Registry struct {
+	topics map[string]Topic
+	mu     sync.RWMutex
+}
+
+// NewRegistry creates a new, empty topic registry
+func NewRegistry() *Registry {
+	return &Registry{
+		topics: make(map[string]Topic),
 	}
-	registry[topic.Name] = topic
+}
+
+// Register adds a new topic to the registry
+func (r *Registry) Register(topic Topic) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if topic == nil {
+		return fmt.Errorf("cannot register nil topic")
+	}
+
+	name := topic.Name()
+	if _, exists := r.topics[name]; exists {
+		return fmt.Errorf("topic already registered: %s", name)
+	}
+
+	r.topics[name] = topic
+	return nil
+}
+
+// MustRegister registers a topic and panics if registration fails
+func (r *Registry) MustRegister(topic Topic) {
+	if err := r.Register(topic); err != nil {
+		panic(fmt.Sprintf("failed to register topic: %v", err))
+	}
 }
 
 // Get returns a topic by name
-func Get(name string) (Topic, bool) {
-	registryLock.RLock()
-	defer registryLock.RUnlock()
-	
-	topic, exists := registry[name]
+func (r *Registry) Get(name string) (Topic, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	topic, exists := r.topics[name]
 	return topic, exists
 }
 
-// List returns all registered topics
-func List() []Topic {
-	registryLock.RLock()
-	defer registryLock.RUnlock()
-	
-	result := make([]Topic, 0, len(registry))
-	for _, topic := range registry {
-		result = append(result, topic)
+// MustGet returns a topic by name and panics if not found
+func (r *Registry) MustGet(name string) Topic {
+	topic, exists := r.Get(name)
+	if !exists {
+		panic(fmt.Sprintf("topic not found: %s", name))
 	}
-	return result
+	return topic
 }
 
-// ResetRegistryForTesting clears all registered topics.
-// This should only be used in tests.
-func ResetRegistryForTesting() {
-	registryLock.Lock()
-	defer registryLock.Unlock()
-	
-	// Clear the registry
-	registry = make(map[string]Topic)
+// List returns a copy of all registered topics
+func (r *Registry) List() []Topic {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	topics := make([]Topic, 0, len(r.topics))
+	for _, topic := range r.topics {
+		topics = append(topics, topic)
+	}
+	return topics
+}
+
+// Count returns the number of registered topics
+func (r *Registry) Count() int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	return len(r.topics)
+}
+
+// Reset removes all registered topics
+// Primarily for testing purposes
+func (r *Registry) Reset() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.topics = make(map[string]Topic)
+}
+
+// DefaultRegistry is the global registry instance
+var (
+	defaultRegistry     *Registry
+	defaultRegistryOnce sync.Once
+)
+
+// Default returns the default global registry
+func Default() *Registry {
+	defaultRegistryOnce.Do(func() {
+		defaultRegistry = NewRegistry()
+	})
+	return defaultRegistry
+}
+
+// Register registers a topic with the default registry
+func Register(topic Topic) error {
+	return Default().Register(topic)
+}
+
+// MustRegister registers a topic with the default registry and panics on error
+func MustRegister(topic Topic) {
+	Default().MustRegister(topic)
+}
+
+// Get retrieves a topic from the default registry
+func Get(name string) (Topic, bool) {
+	return Default().Get(name)
+}
+
+// MustGet retrieves a topic from the default registry and panics if not found
+func MustGet(name string) Topic {
+	return Default().MustGet(name)
+}
+
+// List returns all topics from the default registry
+func List() []Topic {
+	return Default().List()
 }

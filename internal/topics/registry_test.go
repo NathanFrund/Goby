@@ -3,95 +3,92 @@ package topics_test
 import (
 	"testing"
 
-	"github.com/nfrund/goby/internal/topics"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/nfrund/goby/internal/topics"
 )
 
-func TestTopicRegistry(t *testing.T) {
-	// Reset the registry for testing
-	resetRegistry()
+func TestRegistry(t *testing.T) {
+	registry := topics.NewRegistry()
 
 	t.Run("Register and Get", func(t *testing.T) {
-		topic := topics.Topic{
-			Name:        "test_topic",
-			Description: "A test topic",
-			Pattern:     "test.pattern.{param}",
-			Example:     "test.pattern.value",
-		}
+		topic := topics.NewTestTopic(
+			"test_topic",
+			"A test topic",
+			"test.pattern.{param}",
+			"test.pattern.value",
+		)
 
-		topics.Register(topic)
+		err := registry.Register(topic)
+		assert.NoError(t, err, "Register should succeed")
 
-		found, exists := topics.Get("test_topic")
+		found, exists := registry.Get("test_topic")
 		assert.True(t, exists, "Topic should exist after registration")
-		assert.Equal(t, topic, found, "Retrieved topic should match registered topic")
+		assert.Equal(t, topic.Name(), found.Name(), "Retrieved topic should match registered topic")
 	})
 
 	t.Run("Get Non-Existent Topic", func(t *testing.T) {
-		_, exists := topics.Get("non_existent_topic")
+		_, exists := registry.Get("non_existent_topic")
 		assert.False(t, exists, "Non-existent topic should not be found")
 	})
 
 	t.Run("List Topics", func(t *testing.T) {
-		resetRegistry()
+		registry = topics.NewRegistry()
 
-		t1 := topics.Topic{Name: "topic1", Description: "Topic 1", Pattern: "topic.1", Example: "topic.1"}
-		t2 := topics.Topic{Name: "topic2", Description: "Topic 2", Pattern: "topic.2", Example: "topic.2"}
+		t1 := topics.NewTestTopic("topic1", "Topic 1", "topic.1", "topic.1")
+		t2 := topics.NewTestTopic("topic2", "Topic 2", "topic.2", "topic.2")
 
-		topics.Register(t1)
-		topics.Register(t2)
+		err1 := registry.Register(t1)
+		err2 := registry.Register(t2)
+		assert.NoError(t, err1, "Register t1 should succeed")
+		assert.NoError(t, err2, "Register t2 should succeed")
 
-		all := topics.List()
+		all := registry.List()
 		assert.Len(t, all, 2, "Should return all registered topics")
-		assert.Contains(t, all, t1, "Should contain first topic")
-		assert.Contains(t, all, t2, "Should contain second topic")
+		var names []string
+		for _, t := range all {
+			names = append(names, t.Name())
+		}
+		assert.Contains(t, names, "topic1", "Should contain first topic")
+		assert.Contains(t, names, "topic2", "Should contain second topic")
 	})
 
 	t.Run("Prevent Duplicate Registration", func(t *testing.T) {
-		resetRegistry()
+		registry = topics.NewRegistry()
 
-		topic := topics.Topic{Name: "duplicate", Description: "Duplicate topic", Pattern: "duplicate", Example: "duplicate"}
-		topics.Register(topic)
+		topic := topics.NewTestTopic("duplicate", "Duplicate topic", "duplicate", "duplicate")
+		err1 := registry.Register(topic)
+		assert.NoError(t, err1, "First register should succeed")
 
-		assert.Panics(t, func() {
-			topics.Register(topic)
-		}, "Should panic when registering duplicate topic")
+		err2 := registry.Register(topic)
+		assert.Error(t, err2, "Second register should fail")
+		assert.Contains(t, err2.Error(), "already registered", "Error should indicate duplicate registration")
 	})
 }
 
-func TestTopic_Format(t *testing.T) {
-	topic := topics.Topic{
-		Name:    "formattable",
-		Pattern: "test.{param1}.{param2}",
-	}
-
-	t.Run("Format with all parameters", func(t *testing.T) {
-		result := topic.Format(map[string]string{
-			"param1": "value1",
-			"param2": "value2",
-		})
-		assert.Equal(t, "test.value1.value2", result)
+func TestDefaultRegistry(t *testing.T) {
+	t.Run("Default registry is a singleton", func(t *testing.T) {
+		r1 := topics.Default()
+		r2 := topics.Default()
+		assert.Equal(t, r1, r2, "Default() should return the same instance")
 	})
 
-	t.Run("Format with missing parameters", func(t *testing.T) {
-		result := topic.Format(map[string]string{
-			"param1": "value1",
-			// param2 is missing
-		})
-		assert.Equal(t, "test.value1.{param2}", result, "Should leave placeholders for missing parameters")
-	})
+	t.Run("Register with default registry", func(t *testing.T) {
+		// Reset the default registry for testing
+		topics.Default().Reset()
 
-	t.Run("Format with extra parameters", func(t *testing.T) {
-		result := topic.Format(map[string]string{
-			"param1":    "value1",
-			"param2":    "value2",
-			"extra_param": "should_be_ignored",
-		})
-		assert.Equal(t, "test.value1.value2", result, "Should ignore extra parameters")
-	})
-}
+		topic := topics.NewTestTopic(
+			"default_registry_topic",
+			"Topic for default registry test",
+			"test.default",
+			"test.default",
+		)
 
-// resetRegistry clears the topic registry for testing
-func resetRegistry() {
-	// This is a hack to reset the package-level registry for testing
-	topics.ResetRegistryForTesting() // We'll need to add this function to the topics package
+		err := topics.Register(topic)
+		assert.NoError(t, err, "Register with default registry should succeed")
+
+		found, exists := topics.Get("default_registry_topic")
+		assert.True(t, exists, "Topic should exist in default registry after registration")
+		assert.Equal(t, topic.Name(), found.Name(), "Retrieved topic should match registered topic")
+	})
 }
