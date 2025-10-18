@@ -26,6 +26,7 @@ import (
 	"github.com/nfrund/goby/internal/server"
 	"github.com/nfrund/goby/internal/storage"
 	"github.com/nfrund/goby/internal/topics"
+	wsTopics "github.com/nfrund/goby/internal/topics/websocket"
 	"github.com/nfrund/goby/internal/websocket"
 	"github.com/spf13/afero"
 )
@@ -110,12 +111,14 @@ func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Serve
 		Publisher:     ps,
 		Subscriber:    ps,
 		TopicRegistry: topicRegistry,
+		ReadyTopic:    wsTopics.ClientReady,
 	})
 
 	dataBridge := websocket.NewBridge("data", websocket.BridgeDependencies{
 		Publisher:     ps,
 		Subscriber:    ps,
 		TopicRegistry: topicRegistry,
+		ReadyTopic:    wsTopics.ClientReady,
 	})
 
 	htmlBridge.Start(appCtx)

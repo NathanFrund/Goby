@@ -37,13 +37,14 @@ const (
 
 // Bridge handles WebSocket connections for a specific endpoint ("html" or "data").
 type Bridge struct {
-	endpoint    string
-	publisher   pubsub.Publisher
-	subscriber  pubsub.Subscriber
+	endpoint      string
+	publisher     pubsub.Publisher
+	subscriber    pubsub.Subscriber
 	topicRegistry *topics.TopicRegistry
-	clients     *ClientManager
-	cancel      context.CancelFunc
-	wg          sync.WaitGroup
+	readyTopic    topics.Topic
+	clients       *ClientManager
+	cancel        context.CancelFunc
+	wg            sync.WaitGroup
 }
 
 // BridgeDependencies contains all dependencies required by the Bridge.
@@ -51,19 +52,20 @@ type BridgeDependencies struct {
 	Publisher     pubsub.Publisher
 	Subscriber    pubsub.Subscriber
 	TopicRegistry *topics.TopicRegistry
+	ReadyTopic    topics.Topic
 }
 
 // NewBridge creates a new WebSocket bridge for a specific endpoint.
 func NewBridge(endpoint string, deps BridgeDependencies) *Bridge {
 	return &Bridge{
-		endpoint:     endpoint,
-		publisher:    deps.Publisher,
-		subscriber:   deps.Subscriber,
+		endpoint:      endpoint,
+		publisher:     deps.Publisher,
+		subscriber:    deps.Subscriber,
 		topicRegistry: deps.TopicRegistry,
-		clients:      NewClientManager(),
+		readyTopic:    deps.ReadyTopic,
+		clients:       NewClientManager(),
 	}
 }
-
 
 // Start begins the bridge's message handling loop, subscribing to relevant pub/sub topics.
 // Returns an error if any subscription fails.
@@ -93,9 +95,9 @@ func (b *Bridge) Start(ctx context.Context) error {
 
 	// Subscribe to broadcast messages for this endpoint
 	if err := b.subscriber.Subscribe(bridgeCtx, broadcastTopic.Pattern(), b.handleBroadcast); err != nil {
-		slog.Error("FATAL: Failed to subscribe to broadcast topic", 
-			"topic", broadcastTopic.Name(), 
-			"pattern", broadcastTopic.Pattern(), 
+		slog.Error("FATAL: Failed to subscribe to broadcast topic",
+			"topic", broadcastTopic.Name(),
+			"pattern", broadcastTopic.Pattern(),
 			"error", err)
 		return fmt.Errorf("failed to subscribe to broadcast topic %s: %w", broadcastTopic.Name(), err)
 	}
@@ -103,18 +105,18 @@ func (b *Bridge) Start(ctx context.Context) error {
 	// Subscribe to direct messages for this endpoint using the pattern
 	// The pattern will match any direct message for this endpoint (e.g., "ws.html.direct.*")
 	if err := b.subscriber.Subscribe(bridgeCtx, directTopic.Pattern(), b.handleDirectMessage); err != nil {
-		slog.Error("FATAL: Failed to subscribe to direct message topic", 
-			"topic", directTopic.Name(), 
-			"pattern", directTopic.Pattern(), 
+		slog.Error("FATAL: Failed to subscribe to direct message topic",
+			"topic", directTopic.Name(),
+			"pattern", directTopic.Pattern(),
 			"error", err)
 		return fmt.Errorf("failed to subscribe to direct message topic %s: %w", directTopic.Name(), err)
 	}
 
-	slog.Info("Successfully subscribed to WebSocket topics", 
-		"endpoint", b.endpoint, 
+	slog.Info("Successfully subscribed to WebSocket topics",
+		"endpoint", b.endpoint,
 		"broadcast_topic", broadcastTopic.Pattern(),
 		"direct_topic_pattern", directTopic.Pattern())
-	
+
 	return nil
 }
 
@@ -217,7 +219,7 @@ func (b *Bridge) Handler() echo.HandlerFunc {
 				"endpoint": client.Endpoint,
 			})
 			readyMsg := pubsub.Message{
-				Topic:   "system.websocket.ready",
+				Topic:   b.readyTopic.Name(),
 				UserID:  client.UserID,
 				Payload: payload,
 			}

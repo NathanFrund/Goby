@@ -61,14 +61,32 @@ func TestBridge_Integration(t *testing.T) {
 		})
 		require.NoError(t, err, "Failed to publish to html-broadcast")
 
-		// Read the message from the WebSocket and assert its content
-		htmlConn.SetReadDeadline(time.Now().Add(2 * time.Second))
-		_, p, err := htmlConn.ReadMessage()
-		if err != nil && !websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
-			require.NoError(t, err, "Failed to read message from HTML websocket")
+		// Read messages until we find our test message or time out
+		timeout := time.After(2 * time.Second)
+		for {
+			select {
+			case <-timeout:
+				t.Fatal("Timed out waiting for test message")
+			default:
+				htmlConn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+				_, p, err := htmlConn.ReadMessage()
+				if err != nil {
+					if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+						t.Fatalf("Unexpected error reading message: %v", err)
+					}
+					continue
+				}
+				
+				// Skip chat-related messages
+				if strings.Contains(string(p), "chat-messages") {
+					continue
+				}
+				
+				// Found our test message
+				assert.Equal(t, htmlPayload, string(p), "HTML websocket should receive the correct HTML fragment")
+				return
+			}
 		}
-
-		assert.Equal(t, htmlPayload, string(p), "HTML websocket should receive the correct HTML fragment")
 	})
 
 // --- Data Bridge Test ---

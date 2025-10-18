@@ -10,6 +10,7 @@ import (
 	"github.com/nfrund/goby/internal/modules/chat/templates/components"
 	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/rendering"
+	wsTopics "github.com/nfrund/goby/internal/topics/websocket"
 )
 
 // ChatSubscriber listens for new chat messages on the pub/sub bus,
@@ -54,7 +55,7 @@ func (cs *ChatSubscriber) Start(ctx context.Context) {
 
 	// Listen for new WebSocket connections to send welcome messages
 	go func() {
-		err := cs.subscriber.Subscribe(ctx, "system.websocket.ready", cs.handleClientConnect)
+		err := cs.subscriber.Subscribe(ctx, wsTopics.ClientReady.Name(), cs.handleClientConnect)
 		if err != nil && err != context.Canceled {
 			slog.Error("Chat client connect subscriber stopped with error", "error", err)
 		}
