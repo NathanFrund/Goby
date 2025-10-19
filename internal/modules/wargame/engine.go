@@ -4,12 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"math/rand"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/nfrund/goby/internal/middleware"
 	"github.com/nfrund/goby/internal/pubsub"
+	"github.com/nfrund/goby/internal/topics"
 )
-
-// DamageEvent represents a damage event in the game for HTML rendering.
 
 var (
 	targetUnits = []struct {
@@ -23,60 +24,82 @@ var (
 	attackingUnits = []string{"Enemy Sniper", "Artillery Strike", "Tank", "Ambush"}
 )
 
-type DamageEvent struct {
-	TargetUnit    string `json:"targetUnit"`
-	DamageAmount  int    `json:"damageAmount"`
-	AttackingUnit string `json:"attackingUnit"`
-}
-
-// GameStateUpdate represents a raw data update for data-only clients.
-type GameStateUpdate struct {
-	EventType   string `json:"eventType"`
-	UnitID      string `json:"unitId"`
-	NewHealth   int    `json:"newHealth"`
-	DamageTaken int    `json:"damageTaken"`
-}
-
-// Engine simulates game logic and publishes updates to the appropriate hubs.
 type Engine struct {
 	publisher pubsub.Publisher
+	topics    *topics.TopicRegistry
 }
 
-// NewEngine creates a new wargame engine instance.
-func NewEngine(pub pubsub.Publisher) *Engine {
-	return &Engine{publisher: pub}
+func NewEngine(pub pubsub.Publisher, topicRegistry *topics.TopicRegistry) *Engine {
+	return &Engine{
+		publisher: pub,
+		topics:    topicRegistry,
+	}
 }
 
-// SimulateHit simulates a unit being hit and publishes updates to both channels.
 func (e *Engine) SimulateHit(ctx context.Context) {
-	// Retrieve the request-scoped logger from the context.
 	logger := middleware.FromContext(ctx)
-	logger.Info("Wargame engine: Simulating a hit event.")
 
-	// --- Generate random event data ---
+	// Generate random event data
 	target := targetUnits[rand.Intn(len(targetUnits))]
 	attacker := attackingUnits[rand.Intn(len(attackingUnits))]
-	damage := rand.Intn(30) + 5 // Random damage between 5 and 34
-	newHealth := 100 - damage
+	damage := rand.Intn(30) + 5
 
-	// 1. Publish a structured event for the HTML-rendering subscriber.
-	// This event contains all the data needed to render the HTML component.
-	damageEvent := DamageEvent{TargetUnit: target.Name, DamageAmount: damage, AttackingUnit: attacker}
-	if payload, err := json.Marshal(damageEvent); err == nil {
-		msg := pubsub.Message{Topic: "wargame.events.damage", Payload: payload}
-		_ = e.publisher.Publish(ctx, msg) // Explicitly ignore error for this debug endpoint
-		logger.Info("Wargame engine: Published 'wargame.events.damage' message.")
-	} else {
-		logger.Error("Wargame engine: Failed to marshal damage event", "error", err)
+	// Create and publish damage event
+	event := DamageEvent{
+		BaseMessage: BaseMessage{
+			MessageID: uuid.New().String(),
+			Timestamp: time.Now().UTC(),
+			Version:   "1.0",
+		},
+		TargetUnit:   target.Name,
+		DamageAmount: damage,
+		Attacker:     attacker,
+		WeaponType:   "ballistic",
 	}
 
-	// 2. Publish the raw data structure for data-only clients (e.g., Game State Monitor).
-	dataEvent := GameStateUpdate{EventType: "damage", UnitID: target.ID, NewHealth: newHealth, DamageTaken: damage}
-	if jsonData, err := json.Marshal(dataEvent); err == nil {
-		msg := pubsub.Message{Topic: "wargame.state.update", Payload: jsonData}
-		_ = e.publisher.Publish(ctx, msg) // Explicitly ignore error for this debug endpoint
-		logger.Info("Wargame engine: Published 'wargame.state.update' message.")
-	} else {
-		logger.Error("Wargame engine: Failed to marshal JSON data", "error", err)
+	if err := e.publishEvent(ctx, EventDamage, event); err != nil {
+		logger.Error("Failed to publish damage event", "error", err)
+	}
+
+	// Update and publish game state
+	state := e.calculateNewState(event)
+	if err := e.publishEvent(ctx, StateUpdate, state); err != nil {
+		logger.Error("Failed to publish state update", "error", err)
+	}
+}
+
+func (e *Engine) publishEvent(ctx context.Context, topic topics.Topic, payload interface{}) error {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	return e.publisher.Publish(ctx, pubsub.Message{
+		Topic:   topic.Name(),
+		Payload: data,
+	})
+}
+
+func (e *Engine) calculateNewState(event DamageEvent) GameState {
+	// Simplified for example - implement actual game state logic here
+	return GameState{
+		BaseMessage: BaseMessage{
+			MessageID: uuid.New().String(),
+			Timestamp: time.Now().UTC(),
+			Version:   "1.0",
+		},
+		Units: []UnitState{
+			{
+				ID:        "unit-1",
+				Name:      event.TargetUnit,
+				Health:    100 - event.DamageAmount,
+				MaxHealth: 100,
+				Position:  "A1",
+				Status:    "active",
+			},
+		},
+		CurrentTurn: "player-1",
+		GamePhase:   "battle",
+		LastUpdated: time.Now().UTC(),
 	}
 }

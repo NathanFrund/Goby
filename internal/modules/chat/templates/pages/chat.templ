@@ -46,79 +46,135 @@ templ ChatPage() {
                 Send
             </button>
         </form>
-    </div>
 
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            console.log('DOM loaded, setting up WebSocket...');
-            const messageForm = document.getElementById('message-form');
-            const messageInput = document.getElementById('message-input');
-            const chatMessages = document.getElementById('chat-messages');
+        <!-- Wargame State Monitor (Separate Data Stream) -->
+        <div class="mt-6 p-4 border border-gray-700 rounded-lg bg-gray-800 text-white font-mono text-sm shadow-xl">
+            <div class="flex justify-between items-center mb-3">
+                <h3 class="font-bold text-lg text-yellow-400">Game State Monitor (WS Data)</h3>
+                <button
+                    class="btn btn-xs btn-warning bg-yellow-500 text-gray-900 font-bold py-1 px-3 rounded-full hover:bg-yellow-600 transition duration-150"
+                    hx-get="/app/wargame/debug/hit"
+                    hx-swap="none"
+                >
+                    Trigger Hit Event
+                </button>
+            </div>
+            <div id="game-state-display" class="text-gray-300">-- Waiting for data from /app/ws/data --</div>
+        </div>
 
-            // Debug WebSocket events
-            const wsElement = document.querySelector('[ws-connect]');
-            if (wsElement) {
-                wsElement.addEventListener('wsOpen', (e) => {
-                    console.log('WebSocket connected', e.detail);
-                    // Subscribe to chat messages when WebSocket connects
-                    const ws = htmx.find('div[ws-connect]').__htmx_websocket;
-                    if (ws) {
-                        ws.send(JSON.stringify({
-                            action: 'subscribe',
-                            topic: 'chat.messages'
-                        }));
-                        console.log('Subscribed to chat.messages');
-                    }
-                });
-                
-                wsElement.addEventListener('wsClose', (e) => {
-                    console.log('WebSocket closed', e.detail);
-                });
-                
-                wsElement.addEventListener('wsError', (e) => {
-                    console.error('WebSocket error', e.detail);
-                });
+        <!-- Add a separate WebSocket connection for game data -->
+        <div
+            ws-connect="/app/ws/data"
+            id="data-ws"
+            style="display: none;"
+        ></div>
 
-                // Handle incoming WebSocket messages
-                wsElement.addEventListener('htmx:wsAfterMessage', function(event) {
-                    console.log('Received WebSocket message:', event.detail);
+        <script>
+            document.addEventListener('DOMContentLoaded', function() {
+                console.log('DOM loaded, setting up WebSockets...');
+                const messageForm = document.getElementById('message-form');
+                const messageInput = document.getElementById('message-input');
+                const chatMessages = document.getElementById('chat-messages');
+                const gameStateDisplay = document.getElementById('game-state-display');
+
+                // Set up auto-scroll for chat messages
+                function setupAutoScroll() {
+                    if (!chatMessages) return;
                     
-                    // Check if this is an HTMX swap message (starts with <div hx-swap-oob)
-                    if (typeof event.detail.message === 'string' && 
-                        event.detail.message.trim().startsWith('<div hx-swap-oob')) {
-                        // Let HTMX handle the swap
-                        return;
-                    }
+                    // Create a MutationObserver to watch for changes in the chat messages container
+                    const observer = new MutationObserver(function() {
+                        chatMessages.scrollTop = chatMessages.scrollHeight;
+                    });
                     
-                    // Handle JSON messages (if any)
-                    try {
-                        const data = JSON.parse(event.detail.message);
-                        if (data.topic === 'chat.message') {
-                            const messageDiv = document.createElement('div');
-                            messageDiv.innerHTML = data.payload;
-                            chatMessages.appendChild(messageDiv);
-                            scrollToBottom();
+                    // Configure the observer to watch for changes to child elements
+                    observer.observe(chatMessages, { 
+                        childList: true, 
+                        subtree: true 
+                    });
+                    
+                    // Initial scroll to bottom
+                    chatMessages.scrollTop = chatMessages.scrollHeight;
+                }
+
+                // Initialize auto-scroll
+                setupAutoScroll();
+
+                // Handle HTML WebSocket (for chat)
+                const htmlWsElement = document.querySelector('[ws-connect="/app/ws/html"]');
+                if (htmlWsElement) {
+                    setupChatWebSocket(htmlWsElement);
+                }
+
+                // Handle Data WebSocket (for game state)
+                const dataWsElement = document.getElementById('data-ws');
+                if (dataWsElement) {
+                    dataWsElement.addEventListener('htmx:wsAfterMessage', function(event) {
+                        try {
+                            const data = JSON.parse(event.detail.message);
+                            console.log('Game state update:', data);
+                            if (gameStateDisplay) {
+                                gameStateDisplay.textContent = JSON.stringify(data, null, 2);
+                            }
+                        } catch (e) {
+                            console.log('Non-JSON message in data WebSocket:', event.detail.message);
                         }
-                    } catch (e) {
-                        // Not a JSON message, ignore the error
-                        console.log('Non-JSON message (likely HTML handled by HTMX):', event.detail.message);
-                    }
-                });
-            }
+                    });
+                }
 
-            // Auto-scroll the chat messages container to the bottom
-            function scrollToBottom() {
-                chatMessages.scrollTop = chatMessages.scrollHeight;
-            }
+                function setupChatWebSocket(wsElement) {
+                    wsElement.addEventListener('wsOpen', (e) => {
+                        console.log('Chat WebSocket connected', e.detail);
+                        const ws = wsElement.__htmx_websocket;
+                        if (ws) {
+                            ws.send(JSON.stringify({
+                                action: 'subscribe',
+                                topic: 'chat.messages'
+                            }));
+                            console.log('Subscribed to chat.messages');
+                        }
+                    });
+                    
+                    wsElement.addEventListener('wsClose', (e) => {
+                        console.log('Chat WebSocket closed', e.detail);
+                    });
+                    
+                    wsElement.addEventListener('wsError', (e) => {
+                        console.error('Chat WebSocket error', e.detail);
+                    });
 
-            // Clear the input and refocus after sending a message
-            messageForm.addEventListener('submit', function() {
-                messageInput.value = '';
-                messageInput.focus();
+                    wsElement.addEventListener('htmx:wsAfterMessage', function(event) {
+						console.log('Received chat WebSocket message:', event.detail);
+						
+						// Skip messages that HTMX is already handling
+						if (typeof event.detail.message === 'string' && 
+							event.detail.message.trim().startsWith('<div hx-swap-oob')) {
+							return;
+						}
+						
+						try {
+							const data = JSON.parse(event.detail.message);
+							if (data.topic === 'chat.message') {
+								const messageDiv = document.createElement('div');
+								messageDiv.innerHTML = data.payload;
+								chatMessages.appendChild(messageDiv);
+							}
+						} catch (e) {
+							if (!event.detail.message.includes('hx-swap-oob')) {
+								console.log('Non-JSON message (likely HTML handled by HTMX):', event.detail.message);
+							}
+						}
+					});
+                }
+
+                if (messageForm) {
+                    messageForm.addEventListener('submit', function() {
+                        if (messageInput) {
+                            messageInput.value = '';
+                            messageInput.focus();
+                        }
+                    });
+                }
             });
-
-            // Initial scroll to bottom
-            scrollToBottom();
-        });
-    </script>
+        </script>
+    </div>
 }
