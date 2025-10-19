@@ -42,6 +42,7 @@ type Bridge struct {
 	topicRegistry *topics.TopicRegistry
 	readyTopic    topics.Topic
 	clients       *ClientManager
+	whitelist     *clientWhitelist
 	cancel        context.CancelFunc
 	wg            sync.WaitGroup
 }
@@ -63,7 +64,17 @@ func NewBridge(endpoint string, deps BridgeDependencies) *Bridge {
 		topicRegistry: deps.TopicRegistry,
 		readyTopic:    deps.ReadyTopic,
 		clients:       NewClientManager(),
+		whitelist:     DefaultClientWhitelist(),
 	}
+}
+
+// AllowAction adds an action to the whitelist of allowed client actions.
+// This can be used by modules to register their allowed actions during initialization.
+func (b *Bridge) AllowAction(action string) {
+	if b.whitelist == nil {
+		b.whitelist = NewClientWhitelist()
+	}
+	b.whitelist.allowedActions = append(b.whitelist.allowedActions, action)
 }
 
 // Start begins the bridge's message handling loop, subscribing to relevant pub/sub topics.
@@ -308,6 +319,14 @@ func (b *Bridge) readPump(client *Client) {
 
 		if inboundMsg.Action == "" {
 			slog.Warn("Incoming message missing 'action' field", "clientID", client.ID)
+			continue
+		}
+
+		// Check if the action is whitelisted
+		if !b.whitelist.IsAllowed(inboundMsg.Action) {
+			slog.Warn("Client attempted to use non-whitelisted action", 
+				"clientID", client.ID, 
+				"action", inboundMsg.Action)
 			continue
 		}
 
