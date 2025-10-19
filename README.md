@@ -329,6 +329,34 @@ h.publisher.Publish("html-broadcast", message.NewMessage(
 ))
 ```
 
+### WebSocket Security: Action Whitelist
+
+Goby includes a security feature that requires all WebSocket actions to be explicitly whitelisted. This prevents unauthorized clients from publishing to arbitrary topics.
+
+#### Key Features:
+- **Whitelist-based Security**: Only actions explicitly allowed can be published by clients
+- **Thread-Safe**: Safe for concurrent access from multiple goroutines
+- **Dynamic Registration**: Modules can register their allowed actions during initialization
+- **Comprehensive Logging**: All whitelist operations are logged for audit purposes
+
+#### Example Usage:
+
+```go
+// In your module's Register method
+func (m *ChatModule) Register(sl registry.ServiceLocator, cfg config.Provider) error {
+    // Get the WebSocket bridge
+    wsBridge := sl.Get(registry.WebSocketBridgeKey).(*websocket.Bridge)
+    
+    // Register allowed WebSocket actions
+    if err := wsBridge.AllowAction("chat.message"); err != nil {
+        return fmt.Errorf("failed to register chat.message action: %w", err)
+    }
+    
+    // Register more actions as needed
+    return nil
+}
+```
+
 ### Real-time Architecture: The Watermill Bridge
 
 A core feature of this template is its real-time architecture, designed for modularity and scalability. It's built around a **Watermill** message bus, which is connected to clients via a **WebSocket Bridge**. This allows backend modules to communicate with each other and with the frontend in a decoupled manner.
