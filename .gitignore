@@ -17,3 +17,4 @@
 /node_modules
 npm-debug.log
 tmp
+web/static/css/style.css
