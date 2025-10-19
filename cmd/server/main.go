@@ -25,6 +25,8 @@ import (
 	"github.com/nfrund/goby/internal/rendering"
 	"github.com/nfrund/goby/internal/server"
 	"github.com/nfrund/goby/internal/storage"
+	"github.com/nfrund/goby/internal/topics"
+	wsTopics "github.com/nfrund/goby/internal/topics/websocket"
 	"github.com/nfrund/goby/internal/websocket"
 	"github.com/spf13/afero"
 )
@@ -101,9 +103,29 @@ func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Serve
 		return ps.Close()
 	})
 
+	// Create a topic registry
+	topicRegistry := topics.NewRegistry()
+
+	// Register all WebSocket topics
+	if err := websocket.RegisterTopics(topicRegistry); err != nil {
+		return nil, nil, fmt.Errorf("failed to register WebSocket topics: %w", err)
+	}
+
 	// Create the dual WebSocket bridges
-	htmlBridge := websocket.NewBridge("html", ps, ps)
-	dataBridge := websocket.NewBridge("data", ps, ps)
+	htmlBridge := websocket.NewBridge("html", websocket.BridgeDependencies{
+		Publisher:     ps,
+		Subscriber:    ps,
+		TopicRegistry: topicRegistry,
+		ReadyTopic:    wsTopics.ClientReady,
+	})
+
+	dataBridge := websocket.NewBridge("data", websocket.BridgeDependencies{
+		Publisher:     ps,
+		Subscriber:    ps,
+		TopicRegistry: topicRegistry,
+		ReadyTopic:    wsTopics.ClientReady,
+	})
+
 	htmlBridge.Start(appCtx)
 	dataBridge.Start(appCtx)
 	// User Store (using the new v2 client)
@@ -169,6 +191,7 @@ func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Serve
 		Publisher:  ps,
 		Subscriber: ps,
 		Renderer:   renderer,
+		Topics:     topicRegistry,
 	}
 	modules := app.NewModules(moduleDeps)
 	srv.InitModules(appCtx, modules, reg)

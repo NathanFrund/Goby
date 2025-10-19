@@ -9,6 +9,7 @@ import (
 	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/registry"
 	"github.com/nfrund/goby/internal/rendering"
+	"github.com/nfrund/goby/internal/topics"
 )
 
 // ChatModule implements the module.Module interface for the chat feature.
@@ -17,6 +18,7 @@ type ChatModule struct {
 	publisher  pubsub.Publisher
 	subscriber pubsub.Subscriber
 	renderer   rendering.Renderer
+	topics     *topics.TopicRegistry
 }
 
 // Dependencies holds all the services that the ChatModule requires to operate.
@@ -25,6 +27,7 @@ type Dependencies struct {
 	Publisher  pubsub.Publisher
 	Subscriber pubsub.Subscriber
 	Renderer   rendering.Renderer
+	Topics     *topics.TopicRegistry
 }
 
 // New creates a new instance of the ChatModule, injecting its dependencies.
@@ -33,6 +36,7 @@ func New(deps Dependencies) *ChatModule {
 		publisher:  deps.Publisher,
 		subscriber: deps.Subscriber,
 		renderer:   deps.Renderer,
+		topics:     deps.Topics,
 	}
 }
 

@@ -21,6 +21,8 @@ import (
 	"github.com/nfrund/goby/internal/registry"
 	"github.com/nfrund/goby/internal/rendering"
 	"github.com/nfrund/goby/internal/server"
+	"github.com/nfrund/goby/internal/topics"
+	wsTopics "github.com/nfrund/goby/internal/topics/websocket"
 	"github.com/nfrund/goby/internal/websocket"
 	"github.com/stretchr/testify/require"
 )
@@ -68,8 +70,23 @@ func setupIntegrationTest(t *testing.T) (*server.Server, *httptest.Server, func(
 
 	ps := pubsub.NewWatermillBridge()
 
-	htmlBridge := websocket.NewBridge("html", ps, ps)
-	dataBridge := websocket.NewBridge("data", ps, ps)
+	// Create a topic registry for testing
+	topicRegistry := topics.NewRegistry()
+
+	// Create bridges with dependencies
+	htmlBridge := websocket.NewBridge("html", websocket.BridgeDependencies{
+		Publisher:     ps,
+		Subscriber:    ps,
+		TopicRegistry: topicRegistry,
+		ReadyTopic:    wsTopics.ClientReady,
+	})
+
+	dataBridge := websocket.NewBridge("data", websocket.BridgeDependencies{
+		Publisher:     ps,
+		Subscriber:    ps,
+		TopicRegistry: topicRegistry,
+		ReadyTopic:    wsTopics.ClientReady,
+	})
 
 	renderer := rendering.NewUniversalRenderer()
 
@@ -90,9 +107,10 @@ func setupIntegrationTest(t *testing.T) (*server.Server, *httptest.Server, func(
 
 	// 4. Initialize modules and register all routes, just like in main.go
 	moduleDeps := app.Dependencies{
-		Publisher:   ps,
-		Subscriber:  ps,
-		Renderer:    renderer,
+		Publisher:  ps,
+		Subscriber: ps,
+		Renderer:   renderer,
+		Topics:     topicRegistry,
 	}
 	modules := app.NewModules(moduleDeps)
 	s.InitModules(context.Background(), modules, reg)

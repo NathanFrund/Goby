@@ -15,6 +15,7 @@ import (
 	"github.com/nfrund/goby/internal/domain"
 	"github.com/nfrund/goby/internal/middleware"
 	"github.com/nfrund/goby/internal/pubsub"
+	"github.com/nfrund/goby/internal/topics"
 )
 
 type ConnectionType int
@@ -35,63 +36,172 @@ const (
 
 // Bridge handles WebSocket connections for a specific endpoint ("html" or "data").
 type Bridge struct {
-	endpoint   string
-	publisher  pubsub.Publisher
-	subscriber pubsub.Subscriber
-	clients    *ClientManager
-	cancel     context.CancelFunc
-	wg         sync.WaitGroup
+	endpoint      string
+	publisher     pubsub.Publisher
+	subscriber    pubsub.Subscriber
+	topicRegistry *topics.TopicRegistry
+	readyTopic    topics.Topic
+	clients       *ClientManager
+	whitelist     *clientWhitelist
+	cancel        context.CancelFunc
+	wg            sync.WaitGroup
+}
+
+// BridgeDependencies contains all dependencies required by the Bridge.
+type BridgeDependencies struct {
+	Publisher     pubsub.Publisher
+	Subscriber    pubsub.Subscriber
+	TopicRegistry *topics.TopicRegistry
+	ReadyTopic    topics.Topic
 }
 
 // NewBridge creates a new WebSocket bridge for a specific endpoint.
-func NewBridge(endpoint string, pub pubsub.Publisher, sub pubsub.Subscriber) *Bridge {
+func NewBridge(endpoint string, deps BridgeDependencies) *Bridge {
 	return &Bridge{
-		endpoint:   endpoint,
-		publisher:  pub,
-		subscriber: sub,
-		clients:    NewClientManager(),
+		endpoint:      endpoint,
+		publisher:     deps.Publisher,
+		subscriber:    deps.Subscriber,
+		topicRegistry: deps.TopicRegistry,
+		readyTopic:    deps.ReadyTopic,
+		clients:       NewClientManager(),
+		whitelist:     DefaultClientWhitelist(),
 	}
 }
 
+// AllowAction adds an action to the whitelist of allowed client actions.
+// This can be used by modules to register their allowed actions during initialization.
+// Returns an error if the action is invalid or already exists.
+func (b *Bridge) AllowAction(action string) error {
+	if b.whitelist == nil {
+		b.whitelist = NewClientWhitelist()
+	}
+	
+	err := b.whitelist.AddAction(action)
+	if err != nil && err != ErrActionAlreadyExists {
+		slog.Error("Failed to add action to whitelist",
+			"action", action,
+			"error", err)
+		return err
+	}
+	
+	return nil
+}
+
 // Start begins the bridge's message handling loop, subscribing to relevant pub/sub topics.
-func (b *Bridge) Start(ctx context.Context) {
+// Returns an error if any subscription fails.
+func (b *Bridge) Start(ctx context.Context) error {
 	// Create a cancellable context for this bridge
 	var bridgeCtx context.Context
 	bridgeCtx, b.cancel = context.WithCancel(ctx)
 
-	// Subscribe to broadcast messages for this endpoint
-	broadcastTopic := "ws." + b.endpoint + ".broadcast"
-	if err := b.subscriber.Subscribe(bridgeCtx, broadcastTopic, b.handleBroadcast); err != nil {
-		slog.Error("Failed to subscribe to broadcast topic", "topic", broadcastTopic, "error", err)
+	// Get the topics for this endpoint
+	broadcastTopic, directTopic, err := b.getEndpointTopics()
+	if err != nil {
+		return fmt.Errorf("failed to get endpoint topics: %w", err)
 	}
 
-	// Subscribe to direct messages for this endpoint
-	directTopic := "ws." + b.endpoint + ".direct"
-	if err := b.subscriber.Subscribe(bridgeCtx, directTopic, b.handleDirectMessage); err != nil {
-		slog.Error("Failed to subscribe to direct message topic", "topic", directTopic, "error", err)
+	// Subscribe to broadcast messages for this endpoint
+	if err := b.subscriber.Subscribe(bridgeCtx, broadcastTopic.Name(), b.handleBroadcast); err != nil {
+		slog.Error("FATAL: Failed to subscribe to broadcast topic",
+			"topic", broadcastTopic.Name(),
+			"error", err)
+		return fmt.Errorf("failed to subscribe to broadcast topic %s: %w", broadcastTopic.Name(), err)
 	}
+
+	// Subscribe to the direct messages topic
+	if err := b.subscriber.Subscribe(bridgeCtx, directTopic.Name(), b.handleDirectMessage); err != nil {
+		slog.Error("FATAL: Failed to subscribe to direct topic",
+			"topic", directTopic.Name(),
+			"error", err)
+		return fmt.Errorf("failed to subscribe to direct topic %s: %w", directTopic.Name(), err)
+	}
+
+	slog.Info("Successfully subscribed to WebSocket topics",
+		"endpoint", b.endpoint,
+		"broadcast_topic", broadcastTopic.Name(),
+		"direct_topic", directTopic.Name())
+
+	return nil
 }
 
 func (b *Bridge) handleBroadcast(ctx context.Context, msg pubsub.Message) error {
 	clients := b.clients.GetAll()
 	for _, client := range clients {
+		// SendMessage handles its own error logging
 		client.SendMessage(msg.Payload)
 	}
 	return nil
 }
 
+// handleDirectMessage processes direct messages for specific clients
+// The recipient ID should be specified in the message metadata as "recipient_id"
 func (b *Bridge) handleDirectMessage(ctx context.Context, msg pubsub.Message) error {
-	userID := msg.Metadata["user_id"]
-	if userID == "" {
-		slog.Warn("Direct message received without user_id in metadata", "topic", msg.Topic)
+	// Get recipient ID from metadata
+	recipientID, exists := msg.Metadata["recipient_id"]
+	if !exists || recipientID == "" {
+		slog.Warn("Direct message missing recipient_id in metadata",
+			"topic", msg.Topic,
+			"metadata", msg.Metadata,
+		)
 		return nil
 	}
 
-	clients := b.clients.GetByUser(userID)
-	for _, client := range clients {
-		client.SendMessage(msg.Payload)
+	// Get all active clients for this recipient
+	clients := b.clients.GetByUser(recipientID)
+	if len(clients) == 0 {
+		slog.Debug("No active clients found for recipient",
+			"recipient", recipientID,
+			"endpoint", b.endpoint,
+		)
+		return nil
 	}
+
+	// Forward the message to all of the recipient's clients for this endpoint
+	var sentTo int
+	for _, client := range clients {
+		if client.Endpoint == b.endpoint {
+			client.SendMessage(msg.Payload)
+			sentTo++
+		}
+	}
+
+	if sentTo == 0 {
+		slog.Debug("No active clients received the direct message",
+			"recipientID", recipientID,
+			"endpoint", b.endpoint,
+		)
+	}
+
 	return nil
+}
+
+// getEndpointTopics returns the broadcast and direct topics for the bridge's endpoint.
+// It looks up the topics from the topic registry using well-known topic names.
+func (b *Bridge) getEndpointTopics() (topics.Topic, topics.Topic, error) {
+	var broadcastTopicName, directTopicName string
+
+	switch b.endpoint {
+	case "html":
+		broadcastTopicName = TopicHTMLBroadcast
+		directTopicName = TopicHTMLDirect
+	case "data":
+		broadcastTopicName = TopicDataBroadcast
+		directTopicName = TopicDataDirect
+	default:
+		return nil, nil, fmt.Errorf("invalid endpoint: %s", b.endpoint)
+	}
+
+	broadcastTopic, exists := b.topicRegistry.Get(broadcastTopicName)
+	if !exists {
+		return nil, nil, fmt.Errorf("broadcast topic not found: %s", broadcastTopicName)
+	}
+
+	directTopic, exists := b.topicRegistry.Get(directTopicName)
+	if !exists {
+		return nil, nil, fmt.Errorf("direct topic not found: %s", directTopicName)
+	}
+
+	return broadcastTopic, directTopic, nil
 }
 
 // Handler returns an echo.HandlerFunc that handles WebSocket upgrade requests for a given connection type.
@@ -139,7 +249,7 @@ func (b *Bridge) Handler() echo.HandlerFunc {
 		}
 
 		client := &Client{
-			ID:       watermill.NewUUID(),
+			ID:       watermill.NewShortUUID(),
 			UserID:   user.Email,
 			Conn:     conn,
 			Send:     make(chan []byte, 256),
@@ -157,7 +267,7 @@ func (b *Bridge) Handler() echo.HandlerFunc {
 				"endpoint": client.Endpoint,
 			})
 			readyMsg := pubsub.Message{
-				Topic:   "system.websocket.ready",
+				Topic:   b.readyTopic.Name(),
 				UserID:  client.UserID,
 				Payload: payload,
 			}
@@ -219,6 +329,14 @@ func (b *Bridge) readPump(client *Client) {
 
 		if inboundMsg.Action == "" {
 			slog.Warn("Incoming message missing 'action' field", "clientID", client.ID)
+			continue
+		}
+
+		// Check if the action is whitelisted
+		if !b.whitelist.IsAllowed(inboundMsg.Action) {
+			slog.Warn("Client attempted to use non-whitelisted action", 
+				"clientID", client.ID, 
+				"action", inboundMsg.Action)
 			continue
 		}
 

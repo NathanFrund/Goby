@@ -44,6 +44,16 @@ router.GET("/ws", bridge.ServeEcho)
 #### New Way
 ```go
 // New connection setup
+bridge := websocket.NewBridge("html", websocket.BridgeDependencies{
+    Publisher: publisher,
+    // other dependencies...
+})
+echo.GET("/ws", bridge.ServeEcho)
+```
+
+#### New Way
+```go
+// New connection setup
 bridge := websocket.NewBridge(publisher)
 bridge.RegisterEchoRoutes(router) // Registers both /ws/html and /ws/data
 ```
@@ -82,6 +92,12 @@ bridge.Broadcast(message, websocket.ConnectionTypeHTML, websocket.ConnectionType
 func (b *WebsocketBridge) HandleIncomingMessage(client *Client, message []byte) {
     // Handle message
 }
+```
+
+#### New Way
+```go
+// New message handling is done through the pub/sub system
+// The bridge automatically handles routing based on message metadata
 ```
 
 #### New Way

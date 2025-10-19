@@ -10,6 +10,7 @@ import (
 	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/registry"
 	"github.com/nfrund/goby/internal/rendering"
+	"github.com/nfrund/goby/internal/topics"
 )
 
 // WargameModule implements the module.Module interface.
@@ -18,6 +19,7 @@ type WargameModule struct {
 	publisher  pubsub.Publisher
 	subscriber pubsub.Subscriber
 	renderer   rendering.Renderer
+	topics     *topics.TopicRegistry
 	engine     *Engine
 }
 
@@ -27,6 +29,7 @@ type Dependencies struct {
 	Publisher  pubsub.Publisher
 	Subscriber pubsub.Subscriber
 	Renderer   rendering.Renderer
+	Topics     *topics.TopicRegistry
 }
 
 // New creates a new instance of the WargameModule, injecting its dependencies.
@@ -35,6 +38,7 @@ func New(deps Dependencies) *WargameModule {
 		publisher:  deps.Publisher,
 		subscriber: deps.Subscriber,
 		renderer:   deps.Renderer,
+		topics:     deps.Topics,
 	}
 }
 
