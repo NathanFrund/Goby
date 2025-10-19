@@ -70,11 +70,21 @@ func NewBridge(endpoint string, deps BridgeDependencies) *Bridge {
 
 // AllowAction adds an action to the whitelist of allowed client actions.
 // This can be used by modules to register their allowed actions during initialization.
-func (b *Bridge) AllowAction(action string) {
+// Returns an error if the action is invalid or already exists.
+func (b *Bridge) AllowAction(action string) error {
 	if b.whitelist == nil {
 		b.whitelist = NewClientWhitelist()
 	}
-	b.whitelist.allowedActions = append(b.whitelist.allowedActions, action)
+	
+	err := b.whitelist.AddAction(action)
+	if err != nil && err != ErrActionAlreadyExists {
+		slog.Error("Failed to add action to whitelist",
+			"action", action,
+			"error", err)
+		return err
+	}
+	
+	return nil
 }
 
 // Start begins the bridge's message handling loop, subscribing to relevant pub/sub topics.
