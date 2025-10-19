@@ -22,8 +22,8 @@ import (
 	"github.com/nfrund/goby/internal/rendering"
 	"github.com/nfrund/goby/internal/server"
 	"github.com/nfrund/goby/internal/topics"
-	wsTopics "github.com/nfrund/goby/internal/topics/websocket"
-	"github.com/nfrund/goby/internal/websocket"
+	"github.com/nfrund/goby/internal/topics/websocket"
+	ws "github.com/nfrund/goby/internal/websocket"
 	"github.com/stretchr/testify/require"
 )
 
@@ -73,19 +73,23 @@ func setupIntegrationTest(t *testing.T) (*server.Server, *httptest.Server, func(
 	// Create a topic registry for testing
 	topicRegistry := topics.NewRegistry()
 
+	// Register WebSocket topics
+	err = ws.RegisterTopics(topicRegistry)
+	require.NoError(t, err, "Failed to register WebSocket topics")
+
 	// Create bridges with dependencies
-	htmlBridge := websocket.NewBridge("html", websocket.BridgeDependencies{
+	htmlBridge := ws.NewBridge("html", ws.BridgeDependencies{
 		Publisher:     ps,
 		Subscriber:    ps,
 		TopicRegistry: topicRegistry,
-		ReadyTopic:    wsTopics.ClientReady,
+		ReadyTopic:    websocket.ClientReady,
 	})
 
-	dataBridge := websocket.NewBridge("data", websocket.BridgeDependencies{
+	dataBridge := ws.NewBridge("data", ws.BridgeDependencies{
 		Publisher:     ps,
 		Subscriber:    ps,
 		TopicRegistry: topicRegistry,
-		ReadyTopic:    wsTopics.ClientReady,
+		ReadyTopic:    websocket.ClientReady,
 	})
 
 	renderer := rendering.NewUniversalRenderer()
@@ -167,8 +171,18 @@ func setupIntegrationTest(t *testing.T) (*server.Server, *httptest.Server, func(
 
 	// Start the WebSocket bridges so they subscribe to pub/sub topics.
 	// This is crucial for the tests to receive messages.
-	s.HTMLBridge.Start(context.Background())
-	s.DataBridge.Start(context.Background())
+	// If either bridge fails to start, we need to fail the test immediately
+	// to avoid mysterious test failures later.
+	if err := s.HTMLBridge.Start(context.Background()); err != nil {
+		t.Fatalf("failed to start HTML WebSocket bridge: %v", err)
+	}
+
+	// Only proceed with starting the data bridge if HTML bridge started successfully
+	if err := s.DataBridge.Start(context.Background()); err != nil {
+		// Ensure we clean up the HTML bridge before failing
+		s.HTMLBridge.Shutdown(context.Background())
+		t.Fatalf("failed to start Data WebSocket bridge: %v", err)
+	}
 
 	testServer := httptest.NewServer(s.E)
 

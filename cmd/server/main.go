@@ -126,8 +126,24 @@ func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Serve
 		ReadyTopic:    wsTopics.ClientReady,
 	})
 
-	htmlBridge.Start(appCtx)
-	dataBridge.Start(appCtx)
+	// Start the WebSocket bridges
+	if err := htmlBridge.Start(appCtx); err != nil {
+		return nil, nil, fmt.Errorf("failed to start HTML WebSocket bridge: %w", err)
+	}
+	closers = append(closers, func() error {
+		slog.Info("Shutting down HTML WebSocket bridge...")
+		htmlBridge.Shutdown(context.Background())
+		return nil
+	})
+
+	if err := dataBridge.Start(appCtx); err != nil {
+		return nil, nil, fmt.Errorf("failed to start Data WebSocket bridge: %w", err)
+	}
+	closers = append(closers, func() error {
+		slog.Info("Shutting down Data WebSocket bridge...")
+		dataBridge.Shutdown(context.Background())
+		return nil
+	})
 	// User Store (using the new v2 client)
 	userDBClient, err := database.NewClient[domain.User](dbConn, cfg)
 	if err != nil {
