@@ -42,6 +42,7 @@ type Bridge struct {
 	topicRegistry *topics.TopicRegistry
 	readyTopic    topics.Topic
 	clients       *ClientManager
+	topics        *topicManager
 	whitelist     *clientWhitelist
 	cancel        context.CancelFunc
 	wg            sync.WaitGroup
@@ -55,6 +56,27 @@ type BridgeDependencies struct {
 	ReadyTopic    topics.Topic
 }
 
+// topicManager manages topic subscriptions for clients
+type topicManager struct {
+	sync.RWMutex
+	subscriptions map[string]map[string]struct{} // topic -> clientID -> struct{}
+}
+
+func newTopicManager() *topicManager {
+	return &topicManager{
+		subscriptions: make(map[string]map[string]struct{}),
+	}
+}
+
+// Subscribe adds a client to a topic
+type SubscribeMessage struct {
+	Action  string `json:"action"` // "subscribe" or "unsubscribe"
+	Topic   string `json:"topic"`  // The topic to subscribe to
+	Payload struct {
+		Channel string `json:"channel,omitempty"` // Optional channel name
+	} `json:"payload,omitempty"`
+}
+
 // NewBridge creates a new WebSocket bridge for a specific endpoint.
 func NewBridge(endpoint string, deps BridgeDependencies) *Bridge {
 	return &Bridge{
@@ -64,6 +86,7 @@ func NewBridge(endpoint string, deps BridgeDependencies) *Bridge {
 		topicRegistry: deps.TopicRegistry,
 		readyTopic:    deps.ReadyTopic,
 		clients:       NewClientManager(),
+		topics:        newTopicManager(),
 		whitelist:     DefaultClientWhitelist(),
 	}
 }
@@ -75,7 +98,7 @@ func (b *Bridge) AllowAction(action string) error {
 	if b.whitelist == nil {
 		b.whitelist = NewClientWhitelist()
 	}
-	
+
 	err := b.whitelist.AddAction(action)
 	if err != nil && err != ErrActionAlreadyExists {
 		slog.Error("Failed to add action to whitelist",
@@ -83,7 +106,7 @@ func (b *Bridge) AllowAction(action string) error {
 			"error", err)
 		return err
 	}
-	
+
 	return nil
 }
 
@@ -316,37 +339,62 @@ func (b *Bridge) readPump(client *Client) {
 			return
 		}
 
-		// Standardize incoming messages. They must be JSON with an "action" and "payload".
-		var inboundMsg struct {
-			Action  string          `json:"action"`
-			Payload json.RawMessage `json:"payload"`
-		}
-
-		if err := json.Unmarshal(message, &inboundMsg); err != nil {
-			slog.Warn("Received invalid message from client", "clientID", client.ID, "error", err)
-			continue // Ignore malformed messages
-		}
-
-		if inboundMsg.Action == "" {
-			slog.Warn("Incoming message missing 'action' field", "clientID", client.ID)
-			continue
-		}
-
-		// Check if the action is whitelisted
-		if !b.whitelist.IsAllowed(inboundMsg.Action) {
-			slog.Warn("Client attempted to use non-whitelisted action", 
-				"clientID", client.ID, 
-				"action", inboundMsg.Action)
-			continue
-		}
-
-		// Use the message's "action" as the pub/sub topic.
-		b.publisher.Publish(context.Background(), pubsub.Message{
-			Topic:   inboundMsg.Action,
-			Payload: inboundMsg.Payload,
-			UserID:  client.UserID,
-		})
+		b.handleIncoming(client, message)
 	}
+}
+
+func (b *Bridge) handleIncoming(client *Client, rawMsg []byte) {
+	// Try to parse as a subscription message first
+	var subMsg SubscribeMessage
+	if err := json.Unmarshal(rawMsg, &subMsg); err == nil && (subMsg.Action == "subscribe" || subMsg.Action == "unsubscribe") {
+		b.handleSubscription(client, subMsg)
+		return
+	}
+
+	// Handle regular messages
+	var msg struct {
+		Action  string          `json:"action"`
+		Topic   string          `json:"topic"`
+		Payload json.RawMessage `json:"payload"`
+	}
+
+	if err := json.Unmarshal(rawMsg, &msg); err != nil {
+		slog.Warn("Received invalid message from client", "clientID", client.ID, "error", err)
+		return // Ignore malformed messages
+	}
+
+	if msg.Action == "" {
+		slog.Warn("Incoming message missing 'action' field", "clientID", client.ID)
+		return
+	}
+
+	// Check if the action is whitelisted
+	if !b.whitelist.IsAllowed(msg.Action) {
+		slog.Warn("Client attempted to use non-whitelisted action",
+			"clientID", client.ID,
+			"action", msg.Action)
+		return
+	}
+
+	// Forward the message to the specified topic
+	topic := msg.Topic
+	if topic == "" {
+		topic = msg.Action // Backward compatibility
+	}
+
+	// Verify the client is subscribed to the topic
+	if !b.isClientSubscribed(client.ID, topic) {
+		slog.Warn("Client attempted to publish to unsubscribed topic",
+			"clientID", client.ID,
+			"topic", topic)
+		return
+	}
+
+	b.publisher.Publish(context.Background(), pubsub.Message{
+		Topic:   topic,
+		Payload: msg.Payload,
+		UserID:  client.UserID,
+	})
 }
 
 func (b *Bridge) writePump(client *Client) {
@@ -384,4 +432,63 @@ func (b *Bridge) writePump(client *Client) {
 			}
 		}
 	}
+}
+
+// handleSubscription manages topic subscriptions for a client
+func (b *Bridge) handleSubscription(client *Client, msg SubscribeMessage) {
+	topic := msg.Topic
+	if msg.Payload.Channel != "" {
+		topic = fmt.Sprintf("%s.%s", topic, msg.Payload.Channel)
+	}
+
+	switch msg.Action {
+	case "subscribe":
+		b.subscribeClient(client.ID, topic)
+		slog.Info("Client subscribed to topic",
+			"clientID", client.ID,
+			"topic", topic)
+
+	case "unsubscribe":
+		b.unsubscribeClient(client.ID, topic)
+		slog.Info("Client unsubscribed from topic",
+			"clientID", client.ID,
+			"topic", topic)
+	}
+}
+
+// subscribeClient adds a client to a topic
+func (b *Bridge) subscribeClient(clientID, topic string) {
+	b.topics.Lock()
+	defer b.topics.Unlock()
+
+	if _, exists := b.topics.subscriptions[topic]; !exists {
+		b.topics.subscriptions[topic] = make(map[string]struct{})
+	}
+	b.topics.subscriptions[topic][clientID] = struct{}{}
+}
+
+// unsubscribeClient removes a client from a topic
+func (b *Bridge) unsubscribeClient(clientID, topic string) {
+	b.topics.Lock()
+	defer b.topics.Unlock()
+
+	if subscribers, exists := b.topics.subscriptions[topic]; exists {
+		delete(subscribers, clientID)
+		if len(subscribers) == 0 {
+			delete(b.topics.subscriptions, topic)
+		}
+	}
+}
+
+// isClientSubscribed checks if a client is subscribed to a topic
+func (b *Bridge) isClientSubscribed(clientID, topic string) bool {
+	b.topics.RLock()
+	defer b.topics.RUnlock()
+
+	subscribers, exists := b.topics.subscriptions[topic]
+	if !exists {
+		return false
+	}
+	_, subscribed := subscribers[clientID]
+	return subscribed
 }

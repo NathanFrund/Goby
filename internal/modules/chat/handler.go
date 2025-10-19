@@ -1,6 +1,8 @@
 package chat
 
 import (
+	"encoding/json"
+	"log/slog"
 	"net/http"
 
 	"github.com/a-h/templ"
@@ -42,10 +44,27 @@ func (h *Handler) MessagePost(c echo.Context) error {
 		return c.NoContent(http.StatusBadRequest)
 	}
 
-	// The payload is the raw form data, which the subscriber expects.
-	payload := []byte(`{"content":"` + content + `"}`)
-	msg := pubsub.Message{Topic: "chat.messages.new", UserID: user.Email, Payload: payload}
-	h.publisher.Publish(c.Request().Context(), msg)
+	// Create a structured message with the new topic format
+	msg := struct {
+		Content string `json:"content"`
+		User    string `json:"user"`
+	}{
+		Content: content,
+		User:    user.Email,
+	}
+
+	payload, err := json.Marshal(msg)
+	if err != nil {
+		slog.Error("Failed to marshal chat message", "error", err)
+		return c.NoContent(http.StatusInternalServerError)
+	}
+
+	// Publish to the chat.messages topic
+	h.publisher.Publish(c.Request().Context(), pubsub.Message{
+		Topic:   "chat.messages",
+		UserID:  user.Email,
+		Payload: payload,
+	})
 
 	return c.NoContent(http.StatusOK)
 }

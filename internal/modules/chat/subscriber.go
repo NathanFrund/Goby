@@ -3,8 +3,8 @@ package chat
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/nfrund/goby/internal/modules/chat/templates/components"
@@ -33,27 +33,26 @@ func NewChatSubscriber(sub pubsub.Subscriber, pub pubsub.Publisher, renderer ren
 
 // Start begins listening for chat-related messages.
 // This method blocks until the provided context is canceled.
-// TODO: Consider adding metrics for message processing
 func (cs *ChatSubscriber) Start(ctx context.Context) {
 	slog.Info("Starting chat module subscriber")
 
-	// Listen for new chat messages to broadcast
+	// Listen for broadcast chat messages
 	go func() {
-		err := cs.subscriber.Subscribe(ctx, "chat.messages.new", cs.handleNewMessage)
+		err := cs.subscriber.Subscribe(ctx, "chat.messages", cs.handleChatMessage)
 		if err != nil && err != context.Canceled {
 			slog.Error("Chat message subscriber stopped with error", "error", err)
 		}
 	}()
 
-	// Listen for direct chat messages
+	// Listen for direct chat messages (wildcard subscription)
 	go func() {
-		err := cs.subscriber.Subscribe(ctx, "chat.messages.direct", cs.handleDirectMessage)
+		err := cs.subscriber.Subscribe(ctx, "chat.direct.*", cs.handleChatMessage)
 		if err != nil && err != context.Canceled {
 			slog.Error("Direct message subscriber stopped with error", "error", err)
 		}
 	}()
 
-	// Listen for new WebSocket connections to send welcome messages
+	// Listen for new WebSocket connections to send welcome messages and subscribe to direct messages
 	go func() {
 		err := cs.subscriber.Subscribe(ctx, wsTopics.ClientReady.Name(), cs.handleClientConnect)
 		if err != nil && err != context.Canceled {
@@ -96,60 +95,77 @@ func (cs *ChatSubscriber) handleClientConnect(ctx context.Context, msg pubsub.Me
 	return nil
 }
 
-// handleNewMessage processes incoming chat messages
-func (cs *ChatSubscriber) handleNewMessage(ctx context.Context, msg pubsub.Message) error {
-	var incoming struct {
-		Content string `json:"content"`
+// handleChatMessage processes incoming chat messages (both direct and broadcast)
+func (cs *ChatSubscriber) handleChatMessage(ctx context.Context, msg pubsub.Message) error {
+	// Parse the message payload
+	var payload struct {
+		Content   string `json:"content"`
+		User      string `json:"user"`
+		Recipient string `json:"recipient,omitempty"`
 	}
 
-	if err := json.Unmarshal(msg.Payload, &incoming); err != nil {
-		slog.Error("Failed to unmarshal chat message", "error", err, "payload", string(msg.Payload))
+	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+		slog.Error("Failed to unmarshal chat message", "error", err)
+		return nil // Don't stop the subscriber for a bad message
+	}
+
+	// Use the user from the payload if available, fallback to the message user ID
+	userID := payload.User
+	if userID == "" {
+		userID = msg.UserID
+	}
+
+	// Render the message component with current timestamp
+	messageComponent := components.ChatMessage(userID, payload.Content, time.Now())
+	renderedHTML, err := cs.renderer.RenderComponent(ctx, messageComponent)
+	if err != nil {
+		slog.Error("Failed to render chat message", "error", err, "userID", userID)
 		return err
 	}
 
-	// Render the message to an HTML component
-	component := components.ChatMessage(msg.UserID, incoming.Content, time.Now())
-	renderedHTML, err := cs.renderer.RenderComponent(ctx, component)
+	// Determine if this is a direct message by checking the topic
+	isDirect := strings.HasPrefix(msg.Topic, "chat.direct.")
+	var recipient string
+	if isDirect {
+		// Extract recipient from the topic (format: chat.direct.user@example.com)
+		recipient = strings.TrimPrefix(msg.Topic, "chat.direct.")
+	}
+
+	// Create a message for the WebSocket bridge
+	wsMessage := struct {
+		Topic   string `json:"topic"`
+		Payload string `json:"payload"`
+	}{
+		Topic:   "chat.message",
+		Payload: string(renderedHTML),
+	}
+
+	wsPayload, err := json.Marshal(wsMessage)
 	if err != nil {
-		return fmt.Errorf("failed to render chat message: %w", err)
-	}
-
-	// Broadcast the rendered HTML to all connected HTML clients
-	return cs.publisher.Publish(ctx, pubsub.Message{
-		Topic:   "ws.html.broadcast",
-		Payload: renderedHTML,
-		Metadata: map[string]string{
-			"sender_id": msg.UserID,
-		},
-	})
-}
-
-// handleDirectMessage processes direct chat messages
-func (cs *ChatSubscriber) handleDirectMessage(ctx context.Context, msg pubsub.Message) error {
-	var incoming struct {
-		Content string `json:"content"`
-		To      string `json:"to"`
-	}
-
-	if err := json.Unmarshal(msg.Payload, &incoming); err != nil {
-		slog.Error("Failed to unmarshal direct message", "error", err, "payload", string(msg.Payload))
+		slog.Error("Failed to marshal WebSocket message", "error", err)
 		return err
 	}
 
-	// Render the message to an HTML component
-	component := components.ChatMessage(msg.UserID, incoming.Content, time.Now())
-	renderedHTML, err := cs.renderer.RenderComponent(ctx, component)
-	if err != nil {
-		return fmt.Errorf("failed to render direct message: %w", err)
+	// Determine the target topic based on message type
+	var targetTopic string
+	if isDirect {
+		targetTopic = "ws.html.direct"
+	} else {
+		targetTopic = "ws.html.broadcast"
 	}
 
-	// Send the message directly to the recipient using metadata for routing
-	return cs.publisher.Publish(ctx, pubsub.Message{
-		Topic:   "ws.html.direct",
-		Payload: renderedHTML,
-		Metadata: map[string]string{
-			"recipient_id": incoming.To,
-			"sender_id":    msg.UserID,
-		},
-	})
+	// Publish the message with appropriate routing
+	pubMsg := pubsub.Message{
+		Topic:   targetTopic,
+		Payload: wsPayload,
+	}
+
+	// Add recipient metadata for direct messages
+	if isDirect {
+		pubMsg.Metadata = map[string]string{
+			"recipient_id": recipient,
+		}
+	}
+
+	return cs.publisher.Publish(ctx, pubMsg)
 }
