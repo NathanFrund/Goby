@@ -34,6 +34,31 @@ type BaseTopic struct {
 	example     string
 }
 
+// New creates a new generic topic that satisfies the Topic interface.
+// This is the primary constructor for creating simple topics from outside this package,
+// for example, in application modules.
+func New(name, description, pattern, example string) Topic {
+	return &BaseTopic{
+		name:        name,
+		description: description,
+		pattern:     pattern,
+		example:     example,
+	}
+}
+
+// MustRegister creates a new topic and registers it with the default global registry.
+// It will panic if the topic name is already registered, ensuring that all
+// statically-defined topics are unique at application startup.
+func MustRegister(name, description, pattern, example string) Topic {
+	t := New(name, description, pattern, example)
+	// We assume a global registry is available for static registration.
+	// This is a common pattern for discoverability.
+	if err := defaultRegistry.Register(t); err != nil {
+		panic(fmt.Sprintf("failed to register topic %q: %v", name, err))
+	}
+	return t
+}
+
 // Pattern returns the topic's pattern string with placeholders
 func (t BaseTopic) Pattern() string {
 	return t.pattern
@@ -90,11 +115,11 @@ func (t BaseTopic) Validate(vars interface{}) error {
 	if vars == nil {
 		return fmt.Errorf("vars cannot be nil")
 	}
-	
+
 	if _, ok := vars.(map[string]string); !ok {
 		return fmt.Errorf("expected map[string]string, got %T", vars)
 	}
-	
+
 	return nil
 }
 

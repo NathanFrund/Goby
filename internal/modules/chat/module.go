@@ -12,6 +12,33 @@ import (
 	"github.com/nfrund/goby/internal/topics"
 )
 
+var (
+	// ClientMessageNew is the topic for a client sending a new chat message.
+	// This is the public action that the module exposes to the websocket bridge.
+	ClientMessageNew = topics.MustRegister(
+		"client.chat.message.new",
+		"A new chat message sent by a client.",
+		"client.chat.message.new",
+		`{"action":"client.chat.message.new","payload":{"content":"Hello!"}}`,
+	)
+
+	// Messages is the topic for broadcasting rendered chat messages to all clients.
+	Messages = topics.MustRegister(
+		"chat.messages",
+		"Broadcasts a rendered chat message to all clients.",
+		"chat.messages",
+		"chat.messages",
+	)
+
+	// Direct is the topic for sending a rendered direct message to a specific client.
+	Direct = topics.MustRegister(
+		"chat.direct",
+		"Sends a rendered direct message to a specific user.",
+		"chat.direct.*", // The pattern allows for specific user IDs, e.g., chat.direct.user123
+		"chat.direct.user123",
+	)
+)
+
 // ChatModule implements the module.Module interface for the chat feature.
 type ChatModule struct {
 	module.BaseModule

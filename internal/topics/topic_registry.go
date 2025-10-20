@@ -109,8 +109,8 @@ func Register(topic Topic) error {
 	return Default().Register(topic)
 }
 
-// MustRegister registers a topic with the default registry and panics on error
-func MustRegister(topic Topic) {
+// MustRegisterWithDefault registers a topic with the default registry and panics on error
+func MustRegisterWithDefault(topic Topic) {
 	Default().MustRegister(topic)
 }
 
