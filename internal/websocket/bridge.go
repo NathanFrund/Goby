@@ -236,6 +236,9 @@ func (b *Bridge) Shutdown(ctx context.Context) {
 		b.cancel() // This will cause the pub/sub subscriptions to terminate
 	}
 
+	// Forcefully close all active client connections.
+	b.clients.CloseAll()
+
 	// Create a channel to signal when shutdown is complete
 	done := make(chan struct{})
 	go func() {

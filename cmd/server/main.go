@@ -221,26 +221,30 @@ func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Serve
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 
-		var errs error
+		// The order of shutdown is critical to prevent hangs.
+		// 1. Shut down the HTTP server first. This stops accepting new connections
+		//    and allows active requests to finish.
+		slog.Info("Shutting down HTTP server...")
+		if err := srv.E.Shutdown(shutdownCtx); err != nil {
+			slog.Error("Errors during HTTP server shutdown", "error", err)
+		}
 
-		// Shut down modules
+		// 2. Shut down modules, which may have background workers.
+		var errs error
 		for _, mod := range modules {
 			errs = errors.Join(errs, mod.Shutdown(shutdownCtx))
 		}
 
-		// Shut down core services
+		// 3. Shut down core services in reverse order of creation.
+		//    The closers slice is already in the correct reverse order.
 		for _, closeFn := range closers {
 			errs = errors.Join(errs, closeFn())
 		}
 
-		// Finally, shut down the HTTP server. This must be done after services
-		// like the database are closed, but within the same timeout.
-		slog.Info("Shutting down HTTP server...")
-		errs = errors.Join(errs, srv.E.Shutdown(shutdownCtx))
-
 		if errs != nil {
 			slog.Error("Errors during shutdown", "errors", errs)
 		}
+
 		slog.Info("Shutdown process complete.")
 	}
 
