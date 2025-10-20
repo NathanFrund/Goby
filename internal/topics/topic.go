@@ -46,6 +46,19 @@ func New(name, description, pattern, example string) Topic {
 	}
 }
 
+// MustRegister creates a new topic and registers it with the default global registry.
+// It will panic if the topic name is already registered, ensuring that all
+// statically-defined topics are unique at application startup.
+func MustRegister(name, description, pattern, example string) Topic {
+	t := New(name, description, pattern, example)
+	// We assume a global registry is available for static registration.
+	// This is a common pattern for discoverability.
+	if err := defaultRegistry.Register(t); err != nil {
+		panic(fmt.Sprintf("failed to register topic %q: %v", name, err))
+	}
+	return t
+}
+
 // Pattern returns the topic's pattern string with placeholders
 func (t BaseTopic) Pattern() string {
 	return t.pattern
