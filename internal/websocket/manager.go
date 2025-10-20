@@ -2,6 +2,8 @@ package websocket
 
 import (
 	"sync"
+
+	"github.com/coder/websocket"
 )
 
 // ClientManager manages the lifecycle of WebSocket clients.
@@ -86,4 +88,15 @@ func (m *ClientManager) GetAll() []*Client {
 		allClients = append(allClients, client)
 	}
 	return allClients
+}
+
+// CloseAll closes all managed client connections.
+// This is used during a graceful server shutdown.
+func (m *ClientManager) CloseAll() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, client := range m.clients {
+		client.Conn.Close(websocket.StatusGoingAway, "Server is shutting down")
+	}
 }
