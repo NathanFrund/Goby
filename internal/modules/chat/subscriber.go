@@ -4,13 +4,23 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/nfrund/goby/internal/modules/chat/templates/components"
 	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/rendering"
+	"github.com/nfrund/goby/internal/topics"
 	wsTopics "github.com/nfrund/goby/internal/topics/websocket"
+)
+
+var (
+	// Messages is the general topic for broadcasting new chat messages.
+	Messages = topics.New("chat.messages", "A new chat message to be broadcast to all clients.", "chat.messages", "chat.messages")
+
+	// Direct is the topic pattern for sending a direct message to a specific user.
+	// It uses a wildcard to match any recipient.
+	// Example: chat.direct.user@example.com
+	Direct = topics.New("chat.direct", "A direct message for a specific user.", "chat.direct.*", "chat.direct.user123")
 )
 
 // ChatSubscriber listens for new chat messages on the pub/sub bus,
@@ -37,8 +47,9 @@ func (cs *ChatSubscriber) Start(ctx context.Context) {
 	slog.Info("Starting chat module subscriber")
 
 	// Listen for broadcast chat messages
+	// These messages originate from clients via the websocket bridge.
 	go func() {
-		err := cs.subscriber.Subscribe(ctx, "chat.messages", cs.handleChatMessage)
+		err := cs.subscriber.Subscribe(ctx, Messages.Name(), cs.handleChatMessage)
 		if err != nil && err != context.Canceled {
 			slog.Error("Chat message subscriber stopped with error", "error", err)
 		}
@@ -46,12 +57,11 @@ func (cs *ChatSubscriber) Start(ctx context.Context) {
 
 	// Listen for direct chat messages (wildcard subscription)
 	go func() {
-		err := cs.subscriber.Subscribe(ctx, "chat.direct.*", cs.handleChatMessage)
+		err := cs.subscriber.Subscribe(ctx, Direct.Name(), cs.handleChatMessage)
 		if err != nil && err != context.Canceled {
 			slog.Error("Direct message subscriber stopped with error", "error", err)
 		}
 	}()
-
 	// Listen for new WebSocket connections to send welcome messages and subscribe to direct messages
 	go func() {
 		err := cs.subscriber.Subscribe(ctx, wsTopics.ClientReady.Name(), cs.handleClientConnect)
@@ -83,13 +93,14 @@ func (cs *ChatSubscriber) handleClientConnect(ctx context.Context, msg pubsub.Me
 
 		// Publish the welcome message to the direct messages topic
 		// Using metadata for recipient ID
-		return cs.publisher.Publish(ctx, pubsub.Message{
-			Topic:   "ws.html.direct",
+		directMsg := pubsub.Message{
+			Topic:   wsTopics.HTMLDirect.Name(),
 			Payload: renderedHTML,
 			Metadata: map[string]string{
 				"recipient_id": readyEvent.UserID,
 			},
-		})
+		}
+		return cs.publisher.Publish(ctx, directMsg)
 	}
 
 	return nil
@@ -124,11 +135,11 @@ func (cs *ChatSubscriber) handleChatMessage(ctx context.Context, msg pubsub.Mess
 	}
 
 	// Determine if this is a direct message by checking the topic
-	isDirect := strings.HasPrefix(msg.Topic, "chat.direct.")
+	isDirect := payload.Recipient != ""
 	var recipient string
 	if isDirect {
-		// Extract recipient from the topic (format: chat.direct.user@example.com)
-		recipient = strings.TrimPrefix(msg.Topic, "chat.direct.")
+		// The recipient is now explicitly in the payload.
+		recipient = payload.Recipient
 	}
 
 	// Create a message for the WebSocket bridge
@@ -149,9 +160,9 @@ func (cs *ChatSubscriber) handleChatMessage(ctx context.Context, msg pubsub.Mess
 	// Determine the target topic based on message type
 	var targetTopic string
 	if isDirect {
-		targetTopic = "ws.html.direct"
+		targetTopic = wsTopics.HTMLDirect.Name()
 	} else {
-		targetTopic = "ws.html.broadcast"
+		targetTopic = wsTopics.HTMLBroadcast.Name()
 	}
 
 	// Publish the message with appropriate routing
