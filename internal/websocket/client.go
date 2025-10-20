@@ -34,3 +34,16 @@ func (c *Client) SendMessage(msg []byte) {
 		slog.Warn("Client send channel full, dropping message", "clientID", c.ID)
 	}
 }
+
+// Close safely closes the client's send channel.
+// It uses a write lock to prevent other operations during closing.
+func (c *Client) Close() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Check if the channel is not nil and not already closed
+	if c.Send != nil {
+		close(c.Send)
+		c.Send = nil // Set to nil to prevent further use
+	}
+}

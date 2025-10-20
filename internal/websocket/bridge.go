@@ -312,6 +312,7 @@ func (b *Bridge) Handler() echo.HandlerFunc {
 func (b *Bridge) readPump(client *Client) {
 	defer func() {
 		b.clients.Remove(client.ID)
+		client.Close() // Safely close the client's channel.
 		b.wg.Done()
 		slog.Info("Client disconnected", "clientID", client.ID, "userID", client.UserID, "endpoint", b.endpoint)
 	}()
@@ -376,22 +377,22 @@ func (b *Bridge) handleIncoming(client *Client, rawMsg []byte) {
 		return
 	}
 
-	// Forward the message to the specified topic
-	topic := msg.Topic
-	if topic == "" {
-		topic = msg.Action // Backward compatibility
+	// If a topic is not specified in the message, use the action as the topic.
+	// This provides backward compatibility and a sensible default.
+	if msg.Topic == "" {
+		msg.Topic = msg.Action
 	}
 
 	// Verify the client is subscribed to the topic
-	if !b.isClientSubscribed(client.ID, topic) {
+	if !b.isClientSubscribed(client.ID, msg.Topic) {
 		slog.Warn("Client attempted to publish to unsubscribed topic",
 			"clientID", client.ID,
-			"topic", topic)
+			"topic", msg.Topic)
 		return
 	}
 
 	b.publisher.Publish(context.Background(), pubsub.Message{
-		Topic:   topic,
+		Topic:   msg.Topic,
 		Payload: msg.Payload,
 		UserID:  client.UserID,
 	})
