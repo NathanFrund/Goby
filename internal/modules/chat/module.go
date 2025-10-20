@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 
 	"github.com/labstack/echo/v4"
@@ -10,6 +11,33 @@ import (
 	"github.com/nfrund/goby/internal/registry"
 	"github.com/nfrund/goby/internal/rendering"
 	"github.com/nfrund/goby/internal/topics"
+)
+
+var (
+	// ClientMessageNew is the topic for a client sending a new chat message.
+	// This is the public action that the module exposes to the websocket bridge.
+	ClientMessageNew = topics.New(
+		"client.chat.message.new",
+		"A new chat message sent by a client.",
+		"client.chat.message.new",
+		`{"action":"client.chat.message.new","payload":{"content":"Hello!"}}`,
+	)
+
+	// Messages is the topic for broadcasting rendered chat messages to all clients.
+	Messages = topics.New(
+		"chat.messages",
+		"Broadcasts a rendered chat message to all clients.",
+		"chat.messages",
+		"chat.messages",
+	)
+
+	// Direct is the topic for sending a rendered direct message to a specific client.
+	Direct = topics.New(
+		"chat.direct",
+		"Sends a rendered direct message to a specific user.",
+		"chat.direct.*", // The pattern allows for specific user IDs, e.g., chat.direct.user123
+		"chat.direct.user123",
+	)
 )
 
 // ChatModule implements the module.Module interface for the chat feature.
@@ -54,6 +82,18 @@ func (m *ChatModule) Shutdown(ctx context.Context) error {
 
 // Boot sets up the routes and starts background services for the chat module.
 func (m *ChatModule) Boot(ctx context.Context, g *echo.Group, reg *registry.Registry) error {
+	// --- Register Module Topics (Principle: Explicit Registration & Self-Registration) ---
+	slog.Info("Registering chat module topics")
+	if err := m.topics.Register(ClientMessageNew); err != nil {
+		return fmt.Errorf("failed to register chat topic 'ClientMessageNew': %w", err)
+	}
+	if err := m.topics.Register(Messages); err != nil {
+		return fmt.Errorf("failed to register chat topic 'Messages': %w", err)
+	}
+	if err := m.topics.Register(Direct); err != nil {
+		return fmt.Errorf("failed to register chat topic 'Direct': %w", err)
+	}
+
 	// --- Start Background Services ---
 
 	// Create and start the subscriber in a goroutine.

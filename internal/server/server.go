@@ -191,7 +191,17 @@ func New(deps Dependencies) (*Server, error) {
 func (s *Server) InitModules(ctx context.Context, modules []module.Module, reg *registry.Registry) {
 	s.modules = modules
 
-	// --- Phase 1: Register all module services ---
+	// --- Phase 0: Register Client Actions ---
+	// Allow modules to register their client-callable WebSocket actions.
+	// This is done before other phases to ensure the bridges are configured
+	// before any module starts its background services.
+	for _, mod := range modules {
+		if registrar, ok := mod.(module.ClientActionRegistrar); ok {
+			registrar.RegisterClientActions(s.HTMLBridge, s.DataBridge)
+		}
+	}
+
+	// --- Phase 1: Register Module-Provided Services ---
 	for _, mod := range modules {
 		if err := mod.Register(reg); err != nil {
 			slog.Error("Failed to register module", "module", mod.Name(), "error", err)

@@ -5,6 +5,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/registry"
+	"github.com/nfrund/goby/internal/websocket"
 )
 
 // Module defines the contract for a self-contained application feature.
@@ -23,6 +24,13 @@ type Module interface {
 	// Shutdown is called during graceful application shutdown.
 	// This is the phase for cleaning up resources and stopping background processes.
 	Shutdown(ctx context.Context) error
+}
+
+// ClientActionRegistrar is an optional interface that modules can implement
+// to register actions that can be initiated by a client via a WebSocket.
+type ClientActionRegistrar interface {
+	// RegisterClientActions is called by the server during startup.
+	RegisterClientActions(htmlBridge, dataBridge *websocket.Bridge)
 }
 
 // BaseModule provides default no-op implementations for Module methods.
