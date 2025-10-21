@@ -19,6 +19,18 @@ const (
 	StatusOffline Status = "offline"
 )
 
+const (
+	// DefaultWebSocketPingInterval is the expected interval between WebSocket pings.
+	// This should ideally be kept in sync with the `pingPeriod` in the websocket bridge.
+	DefaultWebSocketPingInterval = 54 * time.Second
+
+	// StaleThresholdMultiplier determines how many missed pings to tolerate before considering a client stale.
+	StaleThresholdMultiplier = 2
+
+	// DefaultStaleThreshold is the default time after which a presence is considered stale.
+	DefaultStaleThreshold = DefaultWebSocketPingInterval * StaleThresholdMultiplier
+)
+
 type Presence struct {
 	UserID    string    `json:"user_id"`
 	Status    Status    `json:"status"`
@@ -33,14 +45,25 @@ type Service struct {
 	clients   map[string]string   // clientID -> userID (for disconnect lookup)
 	publisher pubsub.Publisher
 	logger    *slog.Logger
-	
+
 	// Rate limiting
 	rateLimiter map[string]*time.Timer // userID -> last update timer
 	rateMu      sync.Mutex
-	
+
 	// Cleanup mechanism
-	cleanupTicker *time.Ticker
-	stopCleanup   chan struct{}
+	cleanupTicker  *time.Ticker
+	stopCleanup    chan struct{}
+	staleThreshold time.Duration
+}
+
+// Option is a function that configures a Service.
+type Option func(*Service)
+
+// WithStaleThreshold sets a custom stale threshold for the presence service.
+func WithStaleThreshold(d time.Duration) Option {
+	return func(s *Service) {
+		s.staleThreshold = d
+	}
 }
 
 // Now returns the current time in UTC
@@ -51,10 +74,10 @@ func Now() time.Time {
 // checkRateLimit prevents too frequent presence updates from the same user
 func (s *Service) checkRateLimit(userID string) bool {
 	const rateLimitWindow = 1 * time.Second // Max 1 update per second per user
-	
+
 	s.rateMu.Lock()
 	defer s.rateMu.Unlock()
-	
+
 	if timer, exists := s.rateLimiter[userID]; exists {
 		// Check if rate limit window has passed
 		select {
@@ -68,22 +91,28 @@ func (s *Service) checkRateLimit(userID string) bool {
 			return false
 		}
 	}
-	
+
 	// First update for this user
 	s.rateLimiter[userID] = time.NewTimer(rateLimitWindow)
 	return true
 }
 
 // NewService creates a new presence service with the provided dependencies.
-func NewService(publisher pubsub.Publisher, subscriber pubsub.Subscriber, topicMgr *topicmgr.Manager) *Service {
+func NewService(publisher pubsub.Publisher, subscriber pubsub.Subscriber, topicMgr *topicmgr.Manager, opts ...Option) *Service {
 	svc := &Service{
-		presences:     make(map[string]Presence),
-		clients:       make(map[string]string),
-		publisher:     publisher,
-		logger:        slog.Default().With("service", "presence"),
-		rateLimiter:   make(map[string]*time.Timer),
-		cleanupTicker: time.NewTicker(30 * time.Second), // Cleanup every 30 seconds
-		stopCleanup:   make(chan struct{}),
+		presences:      make(map[string]Presence),
+		clients:        make(map[string]string),
+		publisher:      publisher,
+		logger:         slog.Default().With("service", "presence"),
+		rateLimiter:    make(map[string]*time.Timer),
+		cleanupTicker:  time.NewTicker(30 * time.Second), // Cleanup every 30 seconds
+		stopCleanup:    make(chan struct{}),
+		staleThreshold: DefaultStaleThreshold,
+	}
+
+	// Apply functional options
+	for _, opt := range opts {
+		opt(svc)
 	}
 
 	// Register presence framework topics
@@ -273,7 +302,7 @@ func (s *Service) GetPresence(userID string) (Presence, bool) {
 func (s *Service) GetOnlineUsers() []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	
+
 	return s.getOnlineUsersUnsafe()
 }
 
@@ -296,12 +325,10 @@ func (s *Service) getOnlineUsersUnsafe() []string {
 	return result
 }
 
-
-
 // publishPresenceUpdateWithUsers publishes presence update with provided user list (avoids deadlock)
 func (s *Service) publishPresenceUpdateWithUsers(onlineUsers []string) {
 	s.logger.Info("Publishing presence update", "user_count", len(onlineUsers))
-	
+
 	jsonPayload := s.getCurrentPresenceWithUsers(onlineUsers)
 	jsonMsg := pubsub.Message{
 		Topic:   TopicUserStatusUpdate.Name(),
@@ -316,8 +343,6 @@ func (s *Service) publishPresenceUpdateWithUsers(onlineUsers []string) {
 		s.logger.Info("Successfully published presence update")
 	}
 }
-
-
 
 func (s *Service) getCurrentPresenceWithUsers(onlineUsers []string) []byte {
 	// Create a map for the update message
@@ -366,45 +391,37 @@ func (s *Service) startCleanup() {
 
 // cleanupStalePresences removes presences that haven't been updated recently
 func (s *Service) cleanupStalePresences() {
-	const staleThreshold = 5 * time.Minute // Consider stale after 5 minutes
-	
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
-	now := Now()
+
+	threshold := Now().Add(-s.staleThreshold)
 	var staleUsers []string
-	
+
+	// Single pass to find stale users
 	for userID, presence := range s.presences {
-		if now.Sub(presence.Timestamp) > staleThreshold {
+		if presence.Timestamp.Before(threshold) {
 			staleUsers = append(staleUsers, userID)
 		}
 	}
-	
-	if len(staleUsers) > 0 {
-		s.logger.Info("Cleaning up stale presences", "count", len(staleUsers), "users", staleUsers)
-		
-		for _, userID := range staleUsers {
-			if presence, exists := s.presences[userID]; exists {
-				delete(s.presences, userID)
-				delete(s.clients, presence.ClientID)
-			}
-		}
-		
-		// Get updated user list and publish
-		users := make(map[string]struct{})
-		for _, p := range s.presences {
-			users[p.UserID] = struct{}{}
-		}
-		onlineUsers := make([]string, 0, len(users))
-		for uid := range users {
-			onlineUsers = append(onlineUsers, uid)
-		}
-		
-		// Release lock before publishing
-		s.mu.Unlock()
-		s.publishPresenceUpdateWithUsers(onlineUsers)
-		s.mu.Lock() // Re-acquire for defer
+
+	if len(staleUsers) == 0 {
+		return
 	}
+
+	s.logger.Info("Cleaning up stale presences", "count", len(staleUsers), "users", staleUsers)
+
+	// Remove stale presences and associated data
+	for _, userID := range staleUsers {
+		if presence, exists := s.presences[userID]; exists {
+			delete(s.presences, userID)
+			delete(s.clients, presence.ClientID)
+			delete(s.rateLimiter, userID)
+		}
+	}
+
+	// Publish update asynchronously after getting the new list of online users
+	onlineUsers := s.getOnlineUsersUnsafe()
+	go s.publishPresenceUpdateWithUsers(onlineUsers)
 }
 
 // Shutdown gracefully stops the presence service

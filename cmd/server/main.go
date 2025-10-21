@@ -20,15 +20,15 @@ import (
 	"github.com/nfrund/goby/internal/email"
 	"github.com/nfrund/goby/internal/handlers"
 	"github.com/nfrund/goby/internal/logging"
+	"github.com/nfrund/goby/internal/presence"
 	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/registry"
 	"github.com/nfrund/goby/internal/rendering"
 	"github.com/nfrund/goby/internal/server"
 	"github.com/nfrund/goby/internal/storage"
 	"github.com/nfrund/goby/internal/topicmgr"
-	wsTopics "github.com/nfrund/goby/internal/websocket"
-	"github.com/nfrund/goby/internal/presence"
 	"github.com/nfrund/goby/internal/websocket"
+	wsTopics "github.com/nfrund/goby/internal/websocket"
 	"github.com/spf13/afero"
 )
 
@@ -119,17 +119,17 @@ func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Serve
 
 	// Create the dual WebSocket bridges
 	htmlBridge := websocket.NewBridge("html", websocket.BridgeDependencies{
-		Publisher:     ps,
-		Subscriber:    ps,
-		TopicManager:  topicManager,
-		ReadyTopic:    wsTopics.TopicClientReady,
+		Publisher:    ps,
+		Subscriber:   ps,
+		TopicManager: topicManager,
+		ReadyTopic:   wsTopics.TopicClientReady,
 	})
 
 	dataBridge := websocket.NewBridge("data", websocket.BridgeDependencies{
-		Publisher:     ps,
-		Subscriber:    ps,
-		TopicManager:  topicManager,
-		ReadyTopic:    wsTopics.TopicClientReady,
+		Publisher:    ps,
+		Subscriber:   ps,
+		TopicManager: topicManager,
+		ReadyTopic:   wsTopics.TopicClientReady,
 	})
 
 	// Start the WebSocket bridges
@@ -155,7 +155,7 @@ func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Serve
 	renderer := rendering.NewUniversalRenderer()
 
 	// Presence Service
-	presenceService := presence.NewService(ps, ps, topicManager)
+	presenceService := presence.NewService(ps, ps, topicManager) // Using default options
 	reg.Set((*presence.Service)(nil), presenceService)
 	slog.Info("Presence service initialized")
 
