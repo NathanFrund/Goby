@@ -74,10 +74,13 @@ func (m *ChatModule) Boot(ctx context.Context, g *echo.Group, reg *registry.Regi
 
 	// --- Start Background Services ---
 
-	// Create and start the subscriber in a goroutine.
-	// Dependencies are now injected via the constructor and stored on the module.
+	// Create and start the chat subscriber in a goroutine.
 	chatSubscriber := NewChatSubscriber(m.subscriber, m.publisher, m.renderer)
 	go chatSubscriber.Start(ctx)
+
+	// Create and start the presence subscriber for real-time presence updates
+	presenceSubscriber := NewPresenceSubscriber(m.subscriber, m.publisher, m.renderer)
+	go presenceSubscriber.Start(ctx)
 
 	// --- Register HTTP Handlers ---
 	slog.Info("Booting ChatModule: Setting up routes...")
@@ -86,6 +89,7 @@ func (m *ChatModule) Boot(ctx context.Context, g *echo.Group, reg *registry.Regi
 	// Set up routes - the server mounts us under /app/chat, so we use root paths here
 	g.GET("", handler.ChatGet)
 	g.POST("/message", handler.MessagePost)
+	g.GET("/presence", handler.PresenceGet) // HTML endpoint for presence component
 
 	return nil
 }

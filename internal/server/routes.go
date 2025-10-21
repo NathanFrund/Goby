@@ -1,6 +1,7 @@
 package server
 
 import (
+	"log/slog"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
@@ -54,6 +55,29 @@ func (s *Server) RegisterRoutes() {
 	protected.GET("/dashboard", s.DashboardHandler.Get)
 	protected.GET("/ws/html", s.HTMLBridge.Handler())
 	protected.GET("/ws/data", s.DataBridge.Handler())
+
+	// Debug: Check if presence handler is available
+	if s.PresenceHandler == nil {
+		slog.Error("PresenceHandler is nil during route registration")
+	} else {
+		slog.Info("PresenceHandler is available during route registration")
+	}
+
+	// Presence API routes (JSON only - modules handle their own HTML)
+	slog.Info("Registering presence routes")
+	protected.GET("/api/presence", s.PresenceHandler.GetPresence)
+	protected.GET("/api/presence/:userID", s.PresenceHandler.GetUserPresence)
+	protected.GET("/api/presence/health", s.PresenceHandler.HealthCheck)
+	slog.Info("Presence routes registered")
+
+	// Debug: Print all registered routes
+	slog.Info("=== ALL REGISTERED ROUTES ===")
+	for _, route := range s.E.Routes() {
+		if route.Path != "" {
+			slog.Info("Route registered", "method", route.Method, "path", route.Path)
+		}
+	}
+	slog.Info("=== END ROUTES ===")
 
 	// Core File Service Routes are registered under the /app group
 	// and are therefore protected by the authentication middleware.

@@ -68,3 +68,15 @@ func (h *Handler) MessagePost(c echo.Context) error {
 
 	return c.NoContent(http.StatusOK)
 }
+
+// PresenceGet renders the presence component as HTML fragment for HTMX
+func (h *Handler) PresenceGet(c echo.Context) error {
+	// For now, return a simple message - the real-time updates will come via WebSocket
+	// In a production system, you might want to fetch current presence from the API
+	return c.HTML(http.StatusOK, `<div id="presence-container">
+		<div class="bg-gray-50 p-4 rounded-lg">
+			<h3 class="text-sm font-semibold text-gray-700 mb-2">Online Users</h3>
+			<div class="text-sm text-gray-500">Loading...</div>
+		</div>
+	</div>`)
+}

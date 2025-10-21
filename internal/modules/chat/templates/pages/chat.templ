@@ -3,32 +3,59 @@ package pages
 // ChatPage renders the main interface for the real-time chat.
 templ ChatPage() {
     <div
-        class="container mx-auto p-4 h-screen flex flex-col bg-white shadow-xl rounded-2xl"
+        class="container mx-auto p-4 h-screen flex bg-white shadow-xl rounded-2xl"
         hx-ext="ws"
         ws-connect="/app/ws/html"
         data-script="on wsOpen send {action: 'subscribe', topic: 'chat.messages'} to WebSocket"
     >
-        <h1 class="text-3xl font-extrabold mb-6 text-gray-900 border-b pb-2">
-            Real-time Chat
-        </h1>
+        <!-- Main Chat Area -->
+        <div class="flex-grow flex flex-col mr-4">
+            <h1 class="text-3xl font-extrabold mb-6 text-gray-900 border-b pb-2">
+                Real-time Chat
+            </h1>
 
-        <!-- Chat Messages Container -->
-        <div
-            id="chat-messages"
-            class="flex-grow overflow-y-auto border border-gray-200 rounded-lg p-4 mb-4 bg-gray-50 shadow-inner space-y-3"
-        >
-            <div class="text-sm text-gray-500 italic p-1">
-                Welcome to the chat! Messages will appear here.
+            <!-- Chat Messages Container -->
+            <div
+                id="chat-messages"
+                class="flex-grow overflow-y-auto border border-gray-200 rounded-lg p-4 mb-4 bg-gray-50 shadow-inner space-y-3"
+            >
+                <div class="text-sm text-gray-500 italic p-1">
+                    Welcome to the chat! Messages will appear here.
+                </div>
             </div>
         </div>
 
-        <!-- Message Form -->
-        <form
-            id="message-form"
-            hx-post="/app/chat/message"
-            hx-swap="none"
-            class="flex gap-3"
-        >
+        <!-- Presence Sidebar -->
+        <div class="w-64 flex-shrink-0">
+            <div 
+                id="presence-container" 
+                class="sticky top-0"
+                hx-get="/app/chat/presence"
+                hx-trigger="load"
+                hx-swap="innerHTML"
+            >
+                <!-- Initial empty state - will be populated by presence updates -->
+                <div class="bg-gray-50 p-4 rounded-lg">
+                    <h3 class="text-sm font-semibold text-gray-700 mb-2">
+                        Online Users (0)
+                    </h3>
+                    <p class="text-sm text-gray-500 italic">Loading...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Continue with the rest of the layout -->
+    <div class="container mx-auto p-4">
+        <div class="flex-grow flex flex-col">
+
+            <!-- Message Form -->
+            <form
+                id="message-form"
+                hx-post="/app/chat/message"
+                hx-swap="none"
+                class="flex gap-3"
+            >
             <input
                 id="message-input"
                 type="text"
@@ -39,13 +66,14 @@ templ ChatPage() {
                 autocomplete="off"
                 required
             />
-            <button
-                type="submit"
-                class="btn btn-primary bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700 transition duration-150 shadow-md"
-            >
-                Send
-            </button>
-        </form>
+                <button
+                    type="submit"
+                    class="btn btn-primary bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700 transition duration-150 shadow-md"
+                >
+                    Send
+                </button>
+            </form>
+        </div>
 
         <!-- Wargame State Monitor (Separate Data Stream) -->
         <div class="mt-6 p-4 border border-gray-700 rounded-lg bg-gray-800 text-white font-mono text-sm shadow-xl">
@@ -126,11 +154,19 @@ templ ChatPage() {
                         console.log('Chat WebSocket connected', e.detail);
                         const ws = wsElement.__htmx_websocket;
                         if (ws) {
+                            // Subscribe to chat messages
                             ws.send(JSON.stringify({
                                 action: 'subscribe',
                                 topic: 'chat.messages'
                             }));
                             console.log('Subscribed to chat.messages');
+                            
+                            // Subscribe to presence updates
+                            ws.send(JSON.stringify({
+                                action: 'subscribe',
+                                topic: 'presence.updates'
+                            }));
+                            console.log('Subscribed to presence.updates');
                         }
                     });
                     

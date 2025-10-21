@@ -35,6 +35,7 @@ type Server struct {
 	Renderer         rendering.Renderer
 	FileHandler      *handlers.FileHandler
 	DashboardHandler *handlers.DashboardHandler
+	PresenceHandler  *handlers.PresenceHandler
 	HTMLBridge       *websocket.Bridge
 	DataBridge       *websocket.Bridge
 
@@ -55,6 +56,7 @@ type Dependencies struct {
 	DataBridge       *websocket.Bridge
 	FileHandler      *handlers.FileHandler
 	DashboardHandler *handlers.DashboardHandler
+	PresenceHandler  *handlers.PresenceHandler
 }
 
 func setupErrorHandling(e *echo.Echo) {
@@ -144,6 +146,7 @@ func New(deps Dependencies) (*Server, error) {
 		DataBridge:       deps.DataBridge,
 		FileHandler:      deps.FileHandler,
 		DashboardHandler: deps.DashboardHandler,
+		PresenceHandler:  deps.PresenceHandler,
 	}
 
 	// Configure and use session middleware

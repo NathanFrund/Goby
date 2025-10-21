@@ -315,6 +315,24 @@ func (b *Bridge) readPump(client *Client) {
 	defer func() {
 		b.clients.Remove(client.ID)
 		client.Close() // Safely close the client's channel.
+		
+		// Publish client disconnected event
+		go func() {
+			payload, _ := json.Marshal(map[string]any{
+				"userID":   client.UserID,
+				"endpoint": client.Endpoint,
+				"reason":   "connection_closed",
+			})
+			disconnectMsg := pubsub.Message{
+				Topic:   TopicClientDisconnected.Name(),
+				UserID:  client.UserID,
+				Payload: payload,
+			}
+			if err := b.publisher.Publish(context.Background(), disconnectMsg); err != nil {
+				slog.Error("Failed to publish websocket disconnect event", "error", err, "userID", client.UserID)
+			}
+		}()
+		
 		b.wg.Done()
 		slog.Info("Client disconnected", "clientID", client.ID, "userID", client.UserID, "endpoint", b.endpoint)
 	}()

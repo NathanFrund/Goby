@@ -27,6 +27,7 @@ import (
 	"github.com/nfrund/goby/internal/storage"
 	"github.com/nfrund/goby/internal/topicmgr"
 	wsTopics "github.com/nfrund/goby/internal/websocket"
+	"github.com/nfrund/goby/internal/presence"
 	"github.com/nfrund/goby/internal/websocket"
 	"github.com/spf13/afero"
 )
@@ -111,6 +112,11 @@ func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Serve
 		return nil, nil, fmt.Errorf("failed to register WebSocket topics: %w", err)
 	}
 
+	// Register presence framework topics
+	if err := presence.RegisterTopics(); err != nil {
+		return nil, nil, fmt.Errorf("failed to register presence topics: %w", err)
+	}
+
 	// Create the dual WebSocket bridges
 	htmlBridge := websocket.NewBridge("html", websocket.BridgeDependencies{
 		Publisher:     ps,
@@ -144,6 +150,15 @@ func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Serve
 		dataBridge.Shutdown(context.Background())
 		return nil
 	})
+
+	// Renderer (needed for presence service)
+	renderer := rendering.NewUniversalRenderer()
+
+	// Presence Service
+	presenceService := presence.NewService(ps, ps, topicManager)
+	reg.Set((*presence.Service)(nil), presenceService)
+	slog.Info("Presence service initialized")
+
 	// User Store (using the new v2 client)
 	userDBClient, err := database.NewClient[domain.User](dbConn, cfg)
 	if err != nil {
@@ -151,8 +166,7 @@ func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Serve
 	}
 	userStore := database.NewUserStore(userDBClient, cfg)
 
-	// Renderer and Web Framework
-	renderer := rendering.NewUniversalRenderer()
+	// Web Framework (renderer already created above)
 	e := echo.New()
 
 	// Storage and File Handler
@@ -179,6 +193,7 @@ func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Serve
 	)
 
 	dashboardHandler := handlers.NewDashboardHandler(fileRepo)
+	presenceHandler := handlers.NewPresenceHandler(presenceService)
 
 	// 3. Assemble and Create the Main Server Instance
 	// All core dependencies are explicitly passed to the server's constructor.
@@ -193,6 +208,7 @@ func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Serve
 		HTMLBridge:       htmlBridge,
 		DataBridge:       dataBridge,
 		DashboardHandler: dashboardHandler,
+		PresenceHandler:  presenceHandler,
 		FileHandler:      fileHandler,
 	})
 	if err != nil {

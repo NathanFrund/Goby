@@ -9,6 +9,7 @@ import (
 
 	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/topicmgr"
+	wsTopics "github.com/nfrund/goby/internal/websocket"
 )
 
 type Status string
@@ -29,6 +30,7 @@ type Presence struct {
 type Service struct {
 	mu        sync.RWMutex
 	presences map[string]Presence // userID -> Presence
+	clients   map[string]string   // clientID -> userID (for disconnect lookup)
 	publisher pubsub.Publisher
 	logger    *slog.Logger
 }
@@ -42,6 +44,7 @@ func Now() time.Time {
 func NewService(publisher pubsub.Publisher, subscriber pubsub.Subscriber, topicMgr *topicmgr.Manager) *Service {
 	svc := &Service{
 		presences: make(map[string]Presence),
+		clients:   make(map[string]string),
 		publisher: publisher,
 		logger:    slog.Default().With("service", "presence"),
 	}
@@ -51,13 +54,28 @@ func NewService(publisher pubsub.Publisher, subscriber pubsub.Subscriber, topicM
 		svc.logger.Error("failed to register presence topics", "error", err)
 	}
 
-	// Subscribe to WebSocket client events using the new typed topics
+	// Subscribe to WebSocket client lifecycle events
 	ctx := context.Background()
-	if err := subscriber.Subscribe(ctx, TopicUserOnline.Name(), svc.handleClientConnected); err != nil {
-		svc.logger.Error("failed to subscribe to user online events", "error", err)
+
+	svc.logger.Info("Subscribing to WebSocket events",
+		"ready_topic", wsTopics.TopicClientReady.Name(),
+		"disconnect_topic", wsTopics.TopicClientDisconnected.Name())
+
+	// Debug: Let's also check what the bridge is publishing to
+	svc.logger.Info("WebSocket bridge should publish to", "ready_topic", wsTopics.TopicClientReady.Name())
+
+	// Listen for WebSocket client ready events (when clients connect)
+	if err := subscriber.Subscribe(ctx, wsTopics.TopicClientReady.Name(), svc.handleClientConnected); err != nil {
+		svc.logger.Error("failed to subscribe to WebSocket client ready events", "error", err)
+	} else {
+		svc.logger.Info("Successfully subscribed to WebSocket client ready events")
 	}
-	if err := subscriber.Subscribe(ctx, TopicUserOffline.Name(), svc.handleClientDisconnected); err != nil {
-		svc.logger.Error("failed to subscribe to user offline events", "error", err)
+
+	// Listen for WebSocket client disconnected events
+	if err := subscriber.Subscribe(ctx, wsTopics.TopicClientDisconnected.Name(), svc.handleClientDisconnected); err != nil {
+		svc.logger.Error("failed to subscribe to WebSocket client disconnected events", "error", err)
+	} else {
+		svc.logger.Info("Successfully subscribed to WebSocket client disconnected events")
 	}
 
 	svc.logger.Info("Presence service initialized")
@@ -65,22 +83,26 @@ func NewService(publisher pubsub.Publisher, subscriber pubsub.Subscriber, topicM
 }
 
 func (s *Service) handleClientConnected(ctx context.Context, msg pubsub.Message) error {
-	s.logger.Debug("Received client connected event",
+	s.logger.Info("Received client connected event",
 		"message", string(msg.Payload),
 		"topic", msg.Topic,
 	)
 
+	// WebSocket client ready event structure
 	var event struct {
-		UserID    string `json:"user_id"`
-		ClientID  string `json:"client_id"`
-		UserAgent string `json:"user_agent"`
+		UserID   string `json:"userID"`
+		Endpoint string `json:"endpoint"`
 	}
 
 	if err := json.Unmarshal(msg.Payload, &event); err != nil {
+		s.logger.Error("Failed to unmarshal client ready event", "error", err)
 		return err
 	}
 
-	s.addPresence(event.UserID, event.ClientID, event.UserAgent)
+	s.logger.Info("Processing client connection", "userID", event.UserID, "endpoint", event.Endpoint)
+
+	// Use userID as clientID for now (can be enhanced later)
+	s.addPresence(event.UserID, event.UserID, "")
 
 	return nil
 }
@@ -88,6 +110,9 @@ func (s *Service) handleClientConnected(ctx context.Context, msg pubsub.Message)
 func (s *Service) addPresence(userID, clientID, userAgent string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	// Track client to user mapping for disconnection
+	s.clients[clientID] = userID
 
 	// Check if user already has a presence
 	if existing, exists := s.presences[userID]; exists {
@@ -111,49 +136,82 @@ func (s *Service) addPresence(userID, clientID, userAgent string) {
 		UserAgent: userAgent,
 	}
 
-	s.logger.Debug("Current online users",
-		"count", len(s.presences),
-		"users", s.GetOnlineUsers())
+	// Get current users while we have the lock
+	users := make(map[string]struct{})
+	for _, p := range s.presences {
+		users[p.UserID] = struct{}{}
+	}
+	onlineUsers := make([]string, 0, len(users))
+	for uid := range users {
+		onlineUsers = append(onlineUsers, uid)
+	}
 
-	s.publishPresenceUpdate()
+	s.logger.Debug("Current online users", "count", len(onlineUsers), "users", onlineUsers)
+
+	// Release lock before publishing to avoid deadlock
+	s.mu.Unlock()
+	s.publishPresenceUpdateWithUsers(onlineUsers)
+	s.mu.Lock() // Re-acquire for defer
 }
 
 func (s *Service) handleClientDisconnected(ctx context.Context, msg pubsub.Message) error {
-	s.logger.Debug("Received client disconnected event",
+	s.logger.Info("Received client disconnected event",
 		"message", string(msg.Payload),
 		"topic", msg.Topic,
 	)
 
+	// WebSocket client disconnected event structure
 	var event struct {
-		ClientID string `json:"client_id"`
+		UserID   string `json:"userID"`
+		Endpoint string `json:"endpoint"`
+		Reason   string `json:"reason"`
 	}
 
 	if err := json.Unmarshal(msg.Payload, &event); err != nil {
+		s.logger.Error("Failed to unmarshal client disconnected event", "error", err)
 		return err
 	}
 
-	s.removePresence(event.ClientID)
+	s.logger.Info("Processing client disconnection", "userID", event.UserID, "endpoint", event.Endpoint, "reason", event.Reason)
+
+	s.removePresence(event.UserID)
 
 	return nil
 }
 
-func (s *Service) removePresence(clientID string) {
+func (s *Service) removePresence(userID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	presence, exists := s.presences[clientID]
+	presence, exists := s.presences[userID]
 	if !exists {
-		s.logger.Debug("Client not found in presence list", "client_id", clientID)
+		s.logger.Debug("User not found in presence list", "user_id", userID)
 		return
 	}
 
-	delete(s.presences, clientID)
+	// Remove from both maps
+	delete(s.presences, userID)
+	delete(s.clients, presence.ClientID)
+
 	s.logger.Info("User disconnected",
 		"user_id", presence.UserID,
-		"client_id", clientID,
+		"client_id", presence.ClientID,
 		"remaining_users", len(s.presences))
 
-	s.publishPresenceUpdate()
+	// Get current users while we have the lock
+	users := make(map[string]struct{})
+	for _, p := range s.presences {
+		users[p.UserID] = struct{}{}
+	}
+	onlineUsers := make([]string, 0, len(users))
+	for uid := range users {
+		onlineUsers = append(onlineUsers, uid)
+	}
+
+	// Release lock before publishing to avoid deadlock
+	s.mu.Unlock()
+	s.publishPresenceUpdateWithUsers(onlineUsers)
+	s.mu.Lock() // Re-acquire for defer
 }
 
 // GetPresence returns the current presence status for a user
@@ -169,7 +227,12 @@ func (s *Service) GetPresence(userID string) (Presence, bool) {
 func (s *Service) GetOnlineUsers() []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	
+	return s.getOnlineUsersUnsafe()
+}
 
+// getOnlineUsersUnsafe returns online users without acquiring lock (internal use)
+func (s *Service) getOnlineUsersUnsafe() []string {
 	users := make(map[string]struct{})
 	for _, p := range s.presences {
 		users[p.UserID] = struct{}{}
@@ -187,30 +250,37 @@ func (s *Service) GetOnlineUsers() []string {
 	return result
 }
 
-// publishPresenceUpdate publishes the current list of online users
+// publishPresenceUpdate publishes the current list of online users as JSON
 func (s *Service) publishPresenceUpdate() {
-	payload := s.getCurrentPresence()
+	onlineUsers := s.GetOnlineUsers()
+	s.publishPresenceUpdateWithUsers(onlineUsers)
+}
 
-	s.logger.Debug("Publishing presence update",
-		"topic", TopicUserStatusUpdate.Name(),
-		"user_count", len(s.presences),
-		"payload_size", len(payload))
-
-	msg := pubsub.Message{
+// publishPresenceUpdateWithUsers publishes presence update with provided user list (avoids deadlock)
+func (s *Service) publishPresenceUpdateWithUsers(onlineUsers []string) {
+	s.logger.Info("Publishing presence update", "user_count", len(onlineUsers))
+	
+	jsonPayload := s.getCurrentPresenceWithUsers(onlineUsers)
+	jsonMsg := pubsub.Message{
 		Topic:   TopicUserStatusUpdate.Name(),
-		Payload: payload,
+		Payload: jsonPayload,
 	}
-	err := s.publisher.Publish(context.Background(), msg)
+	err := s.publisher.Publish(context.Background(), jsonMsg)
 	if err != nil {
 		s.logger.Error("Failed to publish presence update",
 			"error", err,
 			"topic", TopicUserStatusUpdate.Name())
+	} else {
+		s.logger.Info("Successfully published presence update")
 	}
 }
 
 func (s *Service) getCurrentPresence() []byte {
 	onlineUsers := s.GetOnlineUsers()
+	return s.getCurrentPresenceWithUsers(onlineUsers)
+}
 
+func (s *Service) getCurrentPresenceWithUsers(onlineUsers []string) []byte {
 	// Create a map for the update message
 	update := struct {
 		Type  string   `json:"type"`
