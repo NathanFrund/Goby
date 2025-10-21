@@ -33,6 +33,14 @@ type Service struct {
 	clients   map[string]string   // clientID -> userID (for disconnect lookup)
 	publisher pubsub.Publisher
 	logger    *slog.Logger
+	
+	// Rate limiting
+	rateLimiter map[string]*time.Timer // userID -> last update timer
+	rateMu      sync.Mutex
+	
+	// Cleanup mechanism
+	cleanupTicker *time.Ticker
+	stopCleanup   chan struct{}
 }
 
 // Now returns the current time in UTC
@@ -40,13 +48,42 @@ func Now() time.Time {
 	return time.Now().UTC()
 }
 
+// checkRateLimit prevents too frequent presence updates from the same user
+func (s *Service) checkRateLimit(userID string) bool {
+	const rateLimitWindow = 1 * time.Second // Max 1 update per second per user
+	
+	s.rateMu.Lock()
+	defer s.rateMu.Unlock()
+	
+	if timer, exists := s.rateLimiter[userID]; exists {
+		// Check if rate limit window has passed
+		select {
+		case <-timer.C:
+			// Timer expired, allow update
+			delete(s.rateLimiter, userID)
+			s.rateLimiter[userID] = time.NewTimer(rateLimitWindow)
+			return true
+		default:
+			// Still within rate limit window
+			return false
+		}
+	}
+	
+	// First update for this user
+	s.rateLimiter[userID] = time.NewTimer(rateLimitWindow)
+	return true
+}
+
 // NewService creates a new presence service with the provided dependencies.
 func NewService(publisher pubsub.Publisher, subscriber pubsub.Subscriber, topicMgr *topicmgr.Manager) *Service {
 	svc := &Service{
-		presences: make(map[string]Presence),
-		clients:   make(map[string]string),
-		publisher: publisher,
-		logger:    slog.Default().With("service", "presence"),
+		presences:     make(map[string]Presence),
+		clients:       make(map[string]string),
+		publisher:     publisher,
+		logger:        slog.Default().With("service", "presence"),
+		rateLimiter:   make(map[string]*time.Timer),
+		cleanupTicker: time.NewTicker(30 * time.Second), // Cleanup every 30 seconds
+		stopCleanup:   make(chan struct{}),
 	}
 
 	// Register presence framework topics
@@ -78,6 +115,9 @@ func NewService(publisher pubsub.Publisher, subscriber pubsub.Subscriber, topicM
 		svc.logger.Info("Successfully subscribed to WebSocket client disconnected events")
 	}
 
+	// Start cleanup goroutine
+	go svc.startCleanup()
+
 	svc.logger.Info("Presence service initialized")
 	return svc
 }
@@ -108,6 +148,12 @@ func (s *Service) handleClientConnected(ctx context.Context, msg pubsub.Message)
 }
 
 func (s *Service) addPresence(userID, clientID, userAgent string) {
+	// Rate limiting check
+	if !s.checkRateLimit(userID) {
+		s.logger.Debug("Rate limit exceeded for user", "user_id", userID)
+		return
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -250,11 +296,7 @@ func (s *Service) getOnlineUsersUnsafe() []string {
 	return result
 }
 
-// publishPresenceUpdate publishes the current list of online users as JSON
-func (s *Service) publishPresenceUpdate() {
-	onlineUsers := s.GetOnlineUsers()
-	s.publishPresenceUpdateWithUsers(onlineUsers)
-}
+
 
 // publishPresenceUpdateWithUsers publishes presence update with provided user list (avoids deadlock)
 func (s *Service) publishPresenceUpdateWithUsers(onlineUsers []string) {
@@ -275,10 +317,7 @@ func (s *Service) publishPresenceUpdateWithUsers(onlineUsers []string) {
 	}
 }
 
-func (s *Service) getCurrentPresence() []byte {
-	onlineUsers := s.GetOnlineUsers()
-	return s.getCurrentPresenceWithUsers(onlineUsers)
-}
+
 
 func (s *Service) getCurrentPresenceWithUsers(onlineUsers []string) []byte {
 	// Create a map for the update message
@@ -310,4 +349,65 @@ func (s *Service) SubscribeToPresence(ctx context.Context, handler func(Presence
 		}
 		return handler(presence)
 	})
+}
+
+// startCleanup runs periodic cleanup of stale presences
+func (s *Service) startCleanup() {
+	for {
+		select {
+		case <-s.cleanupTicker.C:
+			s.cleanupStalePresences()
+		case <-s.stopCleanup:
+			s.cleanupTicker.Stop()
+			return
+		}
+	}
+}
+
+// cleanupStalePresences removes presences that haven't been updated recently
+func (s *Service) cleanupStalePresences() {
+	const staleThreshold = 5 * time.Minute // Consider stale after 5 minutes
+	
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
+	now := Now()
+	var staleUsers []string
+	
+	for userID, presence := range s.presences {
+		if now.Sub(presence.Timestamp) > staleThreshold {
+			staleUsers = append(staleUsers, userID)
+		}
+	}
+	
+	if len(staleUsers) > 0 {
+		s.logger.Info("Cleaning up stale presences", "count", len(staleUsers), "users", staleUsers)
+		
+		for _, userID := range staleUsers {
+			if presence, exists := s.presences[userID]; exists {
+				delete(s.presences, userID)
+				delete(s.clients, presence.ClientID)
+			}
+		}
+		
+		// Get updated user list and publish
+		users := make(map[string]struct{})
+		for _, p := range s.presences {
+			users[p.UserID] = struct{}{}
+		}
+		onlineUsers := make([]string, 0, len(users))
+		for uid := range users {
+			onlineUsers = append(onlineUsers, uid)
+		}
+		
+		// Release lock before publishing
+		s.mu.Unlock()
+		s.publishPresenceUpdateWithUsers(onlineUsers)
+		s.mu.Lock() // Re-acquire for defer
+	}
+}
+
+// Shutdown gracefully stops the presence service
+func (s *Service) Shutdown() {
+	close(s.stopCleanup)
 }

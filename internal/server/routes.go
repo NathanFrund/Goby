@@ -3,6 +3,7 @@ package server
 import (
 	"log/slog"
 	"net/http"
+	"os"
 
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/handlers"
@@ -68,6 +69,14 @@ func (s *Server) RegisterRoutes() {
 	protected.GET("/api/presence", s.PresenceHandler.GetPresence)
 	protected.GET("/api/presence/:userID", s.PresenceHandler.GetUserPresence)
 	protected.GET("/api/presence/health", s.PresenceHandler.HealthCheck)
+
+	// Debug endpoints (only in development)
+
+	if os.Getenv("ENV") == "development" {
+		slog.Info("Registering debug presence routes")
+		protected.GET("/api/presence/debug/add", s.PresenceHandler.DebugAddUser)
+		slog.Info("Debug presence endpoints enabled (development mode)")
+	}
 	slog.Info("Presence routes registered")
 
 	// Debug: Print all registered routes
