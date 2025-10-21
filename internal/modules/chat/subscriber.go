@@ -9,7 +9,7 @@ import (
 	"github.com/nfrund/goby/internal/modules/chat/templates/components"
 	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/rendering"
-	wsTopics "github.com/nfrund/goby/internal/topics/websocket"
+	wsTopics "github.com/nfrund/goby/internal/websocket"
 )
 
 // ChatSubscriber listens for new chat messages on the pub/sub bus,
@@ -54,7 +54,7 @@ func (cs *ChatSubscriber) Start(ctx context.Context) {
 	}()
 	// Listen for new WebSocket connections to send welcome messages and subscribe to direct messages
 	go func() {
-		err := cs.subscriber.Subscribe(ctx, wsTopics.ClientReady.Name(), cs.handleClientConnect)
+		err := cs.subscriber.Subscribe(ctx, wsTopics.TopicClientReady.Name(), cs.handleClientConnect)
 		if err != nil && err != context.Canceled {
 			slog.Error("Chat client connect subscriber stopped with error", "error", err)
 		}
@@ -84,7 +84,7 @@ func (cs *ChatSubscriber) handleClientConnect(ctx context.Context, msg pubsub.Me
 		// Publish the welcome message to the direct messages topic
 		// Using metadata for recipient ID
 		directMsg := pubsub.Message{
-			Topic:   wsTopics.HTMLDirect.Name(),
+			Topic:   wsTopics.TopicHTMLDirect.Name(),
 			Payload: renderedHTML,
 			Metadata: map[string]string{
 				"recipient_id": readyEvent.UserID,
@@ -135,9 +135,9 @@ func (cs *ChatSubscriber) handleChatMessage(ctx context.Context, msg pubsub.Mess
 	// Determine the target topic based on message type
 	var targetTopicName string
 	if isDirect {
-		targetTopicName = wsTopics.HTMLDirect.Name()
+		targetTopicName = wsTopics.TopicHTMLDirect.Name()
 	} else {
-		targetTopicName = wsTopics.HTMLBroadcast.Name()
+		targetTopicName = wsTopics.TopicHTMLBroadcast.Name()
 	}
 
 	// Publish the message with appropriate routing

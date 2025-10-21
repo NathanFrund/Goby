@@ -8,10 +8,11 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/module"
+	"github.com/nfrund/goby/internal/modules/wargame/topics"
 	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/registry"
 	"github.com/nfrund/goby/internal/rendering"
-	"github.com/nfrund/goby/internal/topics"
+	"github.com/nfrund/goby/internal/topicmgr"
 )
 
 type WargameModule struct {
@@ -19,7 +20,7 @@ type WargameModule struct {
 	publisher  pubsub.Publisher
 	subscriber pubsub.Subscriber
 	renderer   rendering.Renderer
-	topics     *topics.TopicRegistry
+	topicMgr   *topicmgr.Manager
 	engine     *Engine
 }
 
@@ -27,7 +28,7 @@ type Dependencies struct {
 	Publisher  pubsub.Publisher
 	Subscriber pubsub.Subscriber
 	Renderer   rendering.Renderer
-	Topics     *topics.TopicRegistry
+	TopicMgr   *topicmgr.Manager
 }
 
 func New(deps Dependencies) *WargameModule {
@@ -35,7 +36,7 @@ func New(deps Dependencies) *WargameModule {
 		publisher:  deps.Publisher,
 		subscriber: deps.Subscriber,
 		renderer:   deps.Renderer,
-		topics:     deps.Topics,
+		topicMgr:   deps.TopicMgr,
 	}
 }
 
@@ -47,11 +48,11 @@ func (m *WargameModule) Register(reg *registry.Registry) error {
 	slog.Info("Initializing wargame engine")
 
 	// Register all wargame topics
-	if err := RegisterTopics(m.topics); err != nil {
+	if err := topics.RegisterTopics(); err != nil {
 		return fmt.Errorf("failed to register wargame topics: %w", err)
 	}
 
-	m.engine = NewEngine(m.publisher, m.topics)
+	m.engine = NewEngine(m.publisher, m.topicMgr)
 	reg.Set((**Engine)(nil), m.engine)
 	return nil
 }

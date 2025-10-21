@@ -25,8 +25,8 @@ import (
 	"github.com/nfrund/goby/internal/rendering"
 	"github.com/nfrund/goby/internal/server"
 	"github.com/nfrund/goby/internal/storage"
-	"github.com/nfrund/goby/internal/topics"
-	wsTopics "github.com/nfrund/goby/internal/topics/websocket"
+	"github.com/nfrund/goby/internal/topicmgr"
+	wsTopics "github.com/nfrund/goby/internal/websocket"
 	"github.com/nfrund/goby/internal/websocket"
 	"github.com/spf13/afero"
 )
@@ -103,11 +103,11 @@ func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Serve
 		return ps.Close()
 	})
 
-	// Create a topic registry
-	topicRegistry := topics.NewRegistry()
+	// Create the topic manager
+	topicManager := topicmgr.Default()
 
-	// Register all WebSocket topics
-	if err := websocket.RegisterTopics(topicRegistry); err != nil {
+	// Register all WebSocket framework topics
+	if err := wsTopics.RegisterTopics(); err != nil {
 		return nil, nil, fmt.Errorf("failed to register WebSocket topics: %w", err)
 	}
 
@@ -115,15 +115,15 @@ func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Serve
 	htmlBridge := websocket.NewBridge("html", websocket.BridgeDependencies{
 		Publisher:     ps,
 		Subscriber:    ps,
-		TopicRegistry: topicRegistry,
-		ReadyTopic:    wsTopics.ClientReady,
+		TopicManager:  topicManager,
+		ReadyTopic:    wsTopics.TopicClientReady,
 	})
 
 	dataBridge := websocket.NewBridge("data", websocket.BridgeDependencies{
 		Publisher:     ps,
 		Subscriber:    ps,
-		TopicRegistry: topicRegistry,
-		ReadyTopic:    wsTopics.ClientReady,
+		TopicManager:  topicManager,
+		ReadyTopic:    wsTopics.TopicClientReady,
 	})
 
 	// Start the WebSocket bridges
@@ -207,7 +207,7 @@ func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Serve
 		Publisher:  ps,
 		Subscriber: ps,
 		Renderer:   renderer,
-		Topics:     topicRegistry,
+		TopicMgr:   topicManager,
 	}
 	modules := app.NewModules(moduleDeps)
 	srv.InitModules(appCtx, modules, reg)

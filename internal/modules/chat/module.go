@@ -6,37 +6,23 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/module"
+	"github.com/nfrund/goby/internal/modules/chat/topics"
 	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/registry"
 	"github.com/nfrund/goby/internal/rendering"
-	"github.com/nfrund/goby/internal/topics"
+	"github.com/nfrund/goby/internal/topicmgr"
 )
 
+// Topic references for backward compatibility during migration
 var (
 	// ClientMessageNew is the topic for a client sending a new chat message.
-	// This is the public action that the module exposes to the websocket bridge.
-	ClientMessageNew = topics.MustRegister(
-		"client.chat.message.new",
-		"A new chat message sent by a client.",
-		"client.chat.message.new",
-		`{"action":"client.chat.message.new","payload":{"content":"Hello!"}}`,
-	)
+	ClientMessageNew = topics.TopicNewMessage
 
 	// Messages is the topic for broadcasting rendered chat messages to all clients.
-	Messages = topics.MustRegister(
-		"chat.messages",
-		"Broadcasts a rendered chat message to all clients.",
-		"chat.messages",
-		"chat.messages",
-	)
+	Messages = topics.TopicMessages
 
 	// Direct is the topic for sending a rendered direct message to a specific client.
-	Direct = topics.MustRegister(
-		"chat.direct",
-		"Sends a rendered direct message to a specific user.",
-		"chat.direct.*", // The pattern allows for specific user IDs, e.g., chat.direct.user123
-		"chat.direct.user123",
-	)
+	Direct = topics.TopicDirectMessage
 )
 
 // ChatModule implements the module.Module interface for the chat feature.
@@ -45,7 +31,7 @@ type ChatModule struct {
 	publisher  pubsub.Publisher
 	subscriber pubsub.Subscriber
 	renderer   rendering.Renderer
-	topics     *topics.TopicRegistry
+	topicMgr   *topicmgr.Manager
 }
 
 // Dependencies holds all the services that the ChatModule requires to operate.
@@ -54,7 +40,7 @@ type Dependencies struct {
 	Publisher  pubsub.Publisher
 	Subscriber pubsub.Subscriber
 	Renderer   rendering.Renderer
-	Topics     *topics.TopicRegistry
+	TopicMgr   *topicmgr.Manager
 }
 
 // New creates a new instance of the ChatModule, injecting its dependencies.
@@ -63,7 +49,7 @@ func New(deps Dependencies) *ChatModule {
 		publisher:  deps.Publisher,
 		subscriber: deps.Subscriber,
 		renderer:   deps.Renderer,
-		topics:     deps.Topics,
+		topicMgr:   deps.TopicMgr,
 	}
 }
 
@@ -81,6 +67,11 @@ func (m *ChatModule) Shutdown(ctx context.Context) error {
 
 // Boot sets up the routes and starts background services for the chat module.
 func (m *ChatModule) Boot(ctx context.Context, g *echo.Group, reg *registry.Registry) error {
+	// Register chat module topics
+	if err := topics.RegisterTopics(); err != nil {
+		return err
+	}
+
 	// --- Start Background Services ---
 
 	// Create and start the subscriber in a goroutine.

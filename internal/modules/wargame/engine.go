@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/nfrund/goby/internal/middleware"
 	"github.com/nfrund/goby/internal/pubsub"
-	"github.com/nfrund/goby/internal/topics"
+	"github.com/nfrund/goby/internal/topicmgr"
 )
 
 var (
@@ -26,13 +26,13 @@ var (
 
 type Engine struct {
 	publisher pubsub.Publisher
-	topics    *topics.TopicRegistry
+	topicMgr  *topicmgr.Manager
 }
 
-func NewEngine(pub pubsub.Publisher, topicRegistry *topics.TopicRegistry) *Engine {
+func NewEngine(pub pubsub.Publisher, topicMgr *topicmgr.Manager) *Engine {
 	return &Engine{
 		publisher: pub,
-		topics:    topicRegistry,
+		topicMgr:  topicMgr,
 	}
 }
 
@@ -68,7 +68,7 @@ func (e *Engine) SimulateHit(ctx context.Context) {
 	}
 }
 
-func (e *Engine) publishEvent(ctx context.Context, topic topics.Topic, payload interface{}) error {
+func (e *Engine) publishEvent(ctx context.Context, topic topicmgr.Topic, payload interface{}) error {
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return err

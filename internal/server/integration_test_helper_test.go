@@ -21,8 +21,8 @@ import (
 	"github.com/nfrund/goby/internal/registry"
 	"github.com/nfrund/goby/internal/rendering"
 	"github.com/nfrund/goby/internal/server"
-	"github.com/nfrund/goby/internal/topics"
-	"github.com/nfrund/goby/internal/topics/websocket"
+	"github.com/nfrund/goby/internal/topicmgr"
+	wsTopics "github.com/nfrund/goby/internal/websocket"
 	ws "github.com/nfrund/goby/internal/websocket"
 	"github.com/stretchr/testify/require"
 )
@@ -70,26 +70,26 @@ func setupIntegrationTest(t *testing.T) (*server.Server, *httptest.Server, func(
 
 	ps := pubsub.NewWatermillBridge()
 
-	// Create a topic registry for testing
-	topicRegistry := topics.NewRegistry()
+	// Create the topic manager for testing
+	topicManager := topicmgr.Default()
 
-	// Register WebSocket topics
-	err = ws.RegisterTopics(topicRegistry)
+	// Register WebSocket framework topics
+	err = wsTopics.RegisterTopics()
 	require.NoError(t, err, "Failed to register WebSocket topics")
 
 	// Create bridges with dependencies
 	htmlBridge := ws.NewBridge("html", ws.BridgeDependencies{
-		Publisher:     ps,
-		Subscriber:    ps,
-		TopicRegistry: topicRegistry,
-		ReadyTopic:    websocket.ClientReady,
+		Publisher:    ps,
+		Subscriber:   ps,
+		TopicManager: topicManager,
+		ReadyTopic:   wsTopics.TopicClientReady,
 	})
 
 	dataBridge := ws.NewBridge("data", ws.BridgeDependencies{
-		Publisher:     ps,
-		Subscriber:    ps,
-		TopicRegistry: topicRegistry,
-		ReadyTopic:    websocket.ClientReady,
+		Publisher:    ps,
+		Subscriber:   ps,
+		TopicManager: topicManager,
+		ReadyTopic:   wsTopics.TopicClientReady,
 	})
 
 	renderer := rendering.NewUniversalRenderer()
@@ -114,7 +114,7 @@ func setupIntegrationTest(t *testing.T) (*server.Server, *httptest.Server, func(
 		Publisher:  ps,
 		Subscriber: ps,
 		Renderer:   renderer,
-		Topics:     topicRegistry,
+		TopicMgr:   topicManager,
 	}
 	modules := app.NewModules(moduleDeps)
 	s.InitModules(context.Background(), modules, reg)

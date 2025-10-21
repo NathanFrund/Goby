@@ -59,9 +59,9 @@ func (h *Handler) MessagePost(c echo.Context) error {
 		return c.NoContent(http.StatusInternalServerError)
 	}
 
-	// Publish to the chat.messages topic
+	// Publish to the chat.messages topic using the typed topic
 	h.publisher.Publish(c.Request().Context(), pubsub.Message{
-		Topic:   "chat.messages",
+		Topic:   Messages.Name(),
 		UserID:  user.Email,
 		Payload: payload,
 	})
