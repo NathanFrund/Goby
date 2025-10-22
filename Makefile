@@ -6,7 +6,7 @@
 
 # Run the development server with live-reloading for Go and Tailwind CSS.
 dev: 
-	@overmind start
+	@ENV=development overmind start
 
 # ==============================================================================
 # BUILD
@@ -15,7 +15,7 @@ dev:
 # Build the Go binary and production assets
 build: 
 	@echo "Building Go binary..."
-	@go build -o ./tmp/goby ./cmd/server
+	@ENV=production go build -o ./tmp/goby ./cmd/server
 	@echo "Building production assets..."
 	@npm run build:js
 	@npm exec tailwindcss -- --input=./web/src/css/input.css --output=./web/static/css/style.css --minify

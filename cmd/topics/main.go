@@ -5,7 +5,7 @@ import (
 	"os"
 	"text/tabwriter"
 	
-	"github.com/nfrund/goby/internal/topics"
+	"github.com/nfrund/goby/internal/topicmgr"
 )
 
 func main() {
@@ -31,12 +31,15 @@ func printUsage() {
 
 func listTopics() {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "NAME\tDESCRIPTION\tEXAMPLE")
-	fmt.Fprintln(w, "----\t-----------\t-------")
+	fmt.Fprintln(w, "NAME\tSCOPE\tMODULE\tDESCRIPTION\tEXAMPLE")
+	fmt.Fprintln(w, "----\t-----\t------\t-----------\t-------")
 	
-	for _, topic := range topics.List() {
-		fmt.Fprintf(w, "%s\t%s\t%s\n", 
+	manager := topicmgr.Default()
+	for _, topic := range manager.List() {
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", 
 			topic.Name(), 
+			topic.Scope(),
+			topic.Module(),
 			topic.Description(), 
 			topic.Example())
 	}
@@ -44,14 +47,26 @@ func listTopics() {
 }
 
 func getTopic(name string) {
-	topic, exists := topics.Get(name)
+	manager := topicmgr.Default()
+	topic, exists := manager.Get(name)
 	if !exists {
 		fmt.Printf("Topic not found: %s\n", name)
 		return
 	}
 	
 	fmt.Printf("Name:        %s\n", topic.Name())
+	fmt.Printf("Scope:       %s\n", topic.Scope())
+	fmt.Printf("Module:      %s\n", topic.Module())
 	fmt.Printf("Description: %s\n", topic.Description())
 	fmt.Printf("Pattern:     %s\n", topic.Pattern())
 	fmt.Printf("Example:     %s\n", topic.Example())
+	
+	// Show metadata if available
+	metadata := topic.Metadata()
+	if len(metadata) > 0 {
+		fmt.Printf("Metadata:\n")
+		for k, v := range metadata {
+			fmt.Printf("  %s: %v\n", k, v)
+		}
+	}
 }

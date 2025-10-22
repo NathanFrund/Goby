@@ -6,64 +6,54 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/module"
+	"github.com/nfrund/goby/internal/modules/chat/topics"
+	"github.com/nfrund/goby/internal/presence"
 	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/registry"
 	"github.com/nfrund/goby/internal/rendering"
-	"github.com/nfrund/goby/internal/topics"
+	"github.com/nfrund/goby/internal/topicmgr"
 )
 
+// Topic references for backward compatibility during migration
 var (
 	// ClientMessageNew is the topic for a client sending a new chat message.
-	// This is the public action that the module exposes to the websocket bridge.
-	ClientMessageNew = topics.MustRegister(
-		"client.chat.message.new",
-		"A new chat message sent by a client.",
-		"client.chat.message.new",
-		`{"action":"client.chat.message.new","payload":{"content":"Hello!"}}`,
-	)
+	ClientMessageNew = topics.TopicNewMessage
 
 	// Messages is the topic for broadcasting rendered chat messages to all clients.
-	Messages = topics.MustRegister(
-		"chat.messages",
-		"Broadcasts a rendered chat message to all clients.",
-		"chat.messages",
-		"chat.messages",
-	)
+	Messages = topics.TopicMessages
 
 	// Direct is the topic for sending a rendered direct message to a specific client.
-	Direct = topics.MustRegister(
-		"chat.direct",
-		"Sends a rendered direct message to a specific user.",
-		"chat.direct.*", // The pattern allows for specific user IDs, e.g., chat.direct.user123
-		"chat.direct.user123",
-	)
+	Direct = topics.TopicDirectMessage
 )
 
 // ChatModule implements the module.Module interface for the chat feature.
 type ChatModule struct {
 	module.BaseModule
-	publisher  pubsub.Publisher
-	subscriber pubsub.Subscriber
-	renderer   rendering.Renderer
-	topics     *topics.TopicRegistry
+	publisher       pubsub.Publisher
+	subscriber      pubsub.Subscriber
+	renderer        rendering.Renderer
+	topicMgr        *topicmgr.Manager
+	presenceService *presence.Service
 }
 
 // Dependencies holds all the services that the ChatModule requires to operate.
 // This struct is used for constructor injection to make dependencies explicit.
 type Dependencies struct {
-	Publisher  pubsub.Publisher
-	Subscriber pubsub.Subscriber
-	Renderer   rendering.Renderer
-	Topics     *topics.TopicRegistry
+	Publisher       pubsub.Publisher
+	Subscriber      pubsub.Subscriber
+	Renderer        rendering.Renderer
+	TopicMgr        *topicmgr.Manager
+	PresenceService *presence.Service
 }
 
 // New creates a new instance of the ChatModule, injecting its dependencies.
 func New(deps Dependencies) *ChatModule {
 	return &ChatModule{
-		publisher:  deps.Publisher,
-		subscriber: deps.Subscriber,
-		renderer:   deps.Renderer,
-		topics:     deps.Topics,
+		publisher:       deps.Publisher,
+		subscriber:      deps.Subscriber,
+		renderer:        deps.Renderer,
+		topicMgr:        deps.TopicMgr,
+		presenceService: deps.PresenceService,
 	}
 }
 
@@ -81,20 +71,29 @@ func (m *ChatModule) Shutdown(ctx context.Context) error {
 
 // Boot sets up the routes and starts background services for the chat module.
 func (m *ChatModule) Boot(ctx context.Context, g *echo.Group, reg *registry.Registry) error {
+	// Register chat module topics
+	if err := topics.RegisterTopics(); err != nil {
+		return err
+	}
+
 	// --- Start Background Services ---
 
-	// Create and start the subscriber in a goroutine.
-	// Dependencies are now injected via the constructor and stored on the module.
+	// Create and start the chat subscriber in a goroutine.
 	chatSubscriber := NewChatSubscriber(m.subscriber, m.publisher, m.renderer)
 	go chatSubscriber.Start(ctx)
 
+	// Create and start the presence subscriber for real-time presence updates
+	presenceSubscriber := NewPresenceSubscriber(m.subscriber, m.publisher, m.renderer)
+	go presenceSubscriber.Start(ctx)
+
 	// --- Register HTTP Handlers ---
 	slog.Info("Booting ChatModule: Setting up routes...")
-	handler := NewHandler(m.publisher)
+	handler := NewHandler(m.publisher, m.presenceService, m.renderer)
 
 	// Set up routes - the server mounts us under /app/chat, so we use root paths here
 	g.GET("", handler.ChatGet)
 	g.POST("/message", handler.MessagePost)
+	g.GET("/presence", handler.PresenceGet) // HTML endpoint for presence component
 
 	return nil
 }

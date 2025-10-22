@@ -19,8 +19,8 @@ import (
 	"github.com/nfrund/goby/internal/domain"
 
 	"github.com/nfrund/goby/internal/pubsub"
-	"github.com/nfrund/goby/internal/topics"
-	wsTopics "github.com/nfrund/goby/internal/topics/websocket"
+	"github.com/nfrund/goby/internal/topicmgr"
+	wsTopics "github.com/nfrund/goby/internal/websocket"
 	ws "github.com/nfrund/goby/internal/websocket"
 )
 
@@ -73,16 +73,20 @@ func (m *mockPubSub) getMessages(topic string) []pubsub.Message {
 	return msgs
 }
 
-// mockTopic implements topics.Topic for testing
+// mockTopic implements topicmgr.Topic for testing
 type mockTopic struct {
 	name        string
 	description string
+	module      string
+	scope       topicmgr.TopicScope
 }
 
 func newMockTopic(name string) *mockTopic {
 	return &mockTopic{
 		name:        name,
 		description: "Test topic: " + name,
+		module:      "test",
+		scope:       topicmgr.ScopeFramework,
 	}
 }
 
@@ -90,24 +94,30 @@ func (m *mockTopic) Name() string {
 	return m.name
 }
 
-func (m *mockTopic) Description() string {
-	return m.description
+func (m *mockTopic) Module() string {
+	return m.module
 }
 
-func (m *mockTopic) Example() string {
-	return `{"example":"data"}` // Return a sample JSON string
+func (m *mockTopic) Description() string {
+	return m.description
 }
 
 func (m *mockTopic) Pattern() string {
 	return m.name
 }
 
-func (m *mockTopic) Format(params interface{}) (string, error) {
-	return m.name, nil
+func (m *mockTopic) Example() string {
+	return `{"example":"data"}` // Return a sample JSON string
 }
 
-func (m *mockTopic) Validate(params interface{}) error {
-	return nil
+func (m *mockTopic) Metadata() map[string]interface{} {
+	return map[string]interface{}{
+		"test": true,
+	}
+}
+
+func (m *mockTopic) Scope() topicmgr.TopicScope {
+	return m.scope
 }
 
 // testFixture holds all the components needed for testing the bridge.
@@ -126,18 +136,19 @@ func setupTestFixture(t *testing.T) (*testFixture, func()) {
 	// Use the integrated mockPubSub for both publisher and subscriber
 	ps := newMockPubSub()
 
-	topicRegistry := topics.NewRegistry()
+	topicManager := topicmgr.NewManager()
 	readyTopic := newMockTopic("ws.ready")
 
-	require.NoError(t, topicRegistry.Register(wsTopics.HTMLBroadcast))
-	require.NoError(t, topicRegistry.Register(wsTopics.HTMLDirect))
-	require.NoError(t, topicRegistry.Register(readyTopic))
+	// Register WebSocket topics
+	require.NoError(t, topicManager.Register(wsTopics.TopicHTMLBroadcast))
+	require.NoError(t, topicManager.Register(wsTopics.TopicHTMLDirect))
+	require.NoError(t, topicManager.Register(readyTopic))
 
 	bridge := ws.NewBridge("html", ws.BridgeDependencies{
-		Publisher:     ps,
-		Subscriber:    ps,
-		TopicRegistry: topicRegistry,
-		ReadyTopic:    readyTopic,
+		Publisher:    ps,
+		Subscriber:   ps,
+		TopicManager: topicManager,
+		ReadyTopic:   readyTopic,
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())

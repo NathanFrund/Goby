@@ -7,6 +7,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/domain"
 	"github.com/nfrund/goby/internal/middleware"
+
 	"github.com/nfrund/goby/internal/view"
 	"github.com/nfrund/goby/internal/view/dto/dashboard" // DTO
 	"github.com/nfrund/goby/web/src/templates/layouts"   // Layout
@@ -21,7 +22,9 @@ type DashboardHandler struct {
 
 // NewDashboardHandler creates a new DashboardHandler.
 func NewDashboardHandler(fileRepo domain.FileRepository) *DashboardHandler {
-	return &DashboardHandler{fileRepo: fileRepo}
+	return &DashboardHandler{
+		fileRepo: fileRepo,
+	}
 }
 
 // Get renders the user dashboard page.
@@ -63,3 +66,5 @@ func (h *DashboardHandler) Get(c echo.Context) error {
 	finalComponent := layouts.Base("Dashboard", flashData.Messages, pageContent)
 	return c.Render(http.StatusOK, "", finalComponent)
 }
+
+

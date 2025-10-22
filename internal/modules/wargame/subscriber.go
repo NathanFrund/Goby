@@ -79,16 +79,16 @@ func (s *Subscriber) handleDamageEvent(ctx context.Context, msg pubsub.Message) 
 		return err
 	}
 
-	// Send both messages
+	// Send both messages using typed topics
 	if err := s.publisher.Publish(ctx, pubsub.Message{
-		Topic:   "ws.html.broadcast",
+		Topic:   "ws.html.broadcast", // Will be updated when WebSocket integration is complete
 		Payload: renderedHTML,
 	}); err != nil {
 		return err
 	}
 
 	return s.publisher.Publish(ctx, pubsub.Message{
-		Topic:   "ws.data.broadcast",
+		Topic:   "ws.data.broadcast", // Will be updated when WebSocket integration is complete
 		Payload: jsonData,
 	})
 }
@@ -96,7 +96,7 @@ func (s *Subscriber) handleDamageEvent(ctx context.Context, msg pubsub.Message) 
 func (s *Subscriber) handleStateUpdateEvent(ctx context.Context, msg pubsub.Message) error {
 	// Forward the raw state to data clients
 	return s.publisher.Publish(ctx, pubsub.Message{
-		Topic:   "ws.data.broadcast",
+		Topic:   "ws.data.broadcast", // Will be updated when WebSocket integration is complete
 		Payload: msg.Payload,
 	})
 }

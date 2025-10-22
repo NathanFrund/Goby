@@ -9,13 +9,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ThreeDotsLabs/watermill"
 	"github.com/coder/websocket"
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/domain"
 	"github.com/nfrund/goby/internal/middleware"
 	"github.com/nfrund/goby/internal/pubsub"
-	"github.com/nfrund/goby/internal/topics"
+	"github.com/nfrund/goby/internal/topicmgr"
 )
 
 type ConnectionType int
@@ -36,24 +36,24 @@ const (
 
 // Bridge handles WebSocket connections for a specific endpoint ("html" or "data").
 type Bridge struct {
-	endpoint      string
-	publisher     pubsub.Publisher
-	subscriber    pubsub.Subscriber
-	topicRegistry *topics.TopicRegistry
-	readyTopic    topics.Topic
-	clients       *ClientManager
-	topics        *topicManager
-	whitelist     *clientWhitelist
-	cancel        context.CancelFunc
-	wg            sync.WaitGroup
+	endpoint     string
+	publisher    pubsub.Publisher
+	subscriber   pubsub.Subscriber
+	topicManager *topicmgr.Manager
+	readyTopic   topicmgr.Topic
+	clients      *ClientManager
+	topics       *topicManager
+	whitelist    *clientWhitelist
+	cancel       context.CancelFunc
+	wg           sync.WaitGroup
 }
 
 // BridgeDependencies contains all dependencies required by the Bridge.
 type BridgeDependencies struct {
-	Publisher     pubsub.Publisher
-	Subscriber    pubsub.Subscriber
-	TopicRegistry *topics.TopicRegistry
-	ReadyTopic    topics.Topic
+	Publisher    pubsub.Publisher
+	Subscriber   pubsub.Subscriber
+	TopicManager *topicmgr.Manager
+	ReadyTopic   topicmgr.Topic
 }
 
 // topicManager manages topic subscriptions for clients
@@ -80,14 +80,14 @@ type SubscribeMessage struct {
 // NewBridge creates a new WebSocket bridge for a specific endpoint.
 func NewBridge(endpoint string, deps BridgeDependencies) *Bridge {
 	return &Bridge{
-		endpoint:      endpoint,
-		publisher:     deps.Publisher,
-		subscriber:    deps.Subscriber,
-		topicRegistry: deps.TopicRegistry,
-		readyTopic:    deps.ReadyTopic,
-		clients:       NewClientManager(),
-		topics:        newTopicManager(),
-		whitelist:     DefaultClientWhitelist(),
+		endpoint:     endpoint,
+		publisher:    deps.Publisher,
+		subscriber:   deps.Subscriber,
+		topicManager: deps.TopicManager,
+		readyTopic:   deps.ReadyTopic,
+		clients:      NewClientManager(),
+		topics:       newTopicManager(),
+		whitelist:    DefaultClientWhitelist(),
 	}
 }
 
@@ -199,29 +199,28 @@ func (b *Bridge) handleDirectMessage(ctx context.Context, msg pubsub.Message) er
 }
 
 // getEndpointTopics returns the broadcast and direct topics for the bridge's endpoint.
-// It looks up the topics from the topic registry using well-known topic names.
-func (b *Bridge) getEndpointTopics() (topics.Topic, topics.Topic, error) {
-	var broadcastTopicName, directTopicName string
+// It looks up the topics from the topic manager using well-known topic names.
+func (b *Bridge) getEndpointTopics() (topicmgr.Topic, topicmgr.Topic, error) {
+	var broadcastTopic, directTopic topicmgr.Topic
 
 	switch b.endpoint {
 	case "html":
-		broadcastTopicName = TopicHTMLBroadcast
-		directTopicName = TopicHTMLDirect
+		broadcastTopic = TopicHTMLBroadcast
+		directTopic = TopicHTMLDirect
 	case "data":
-		broadcastTopicName = TopicDataBroadcast
-		directTopicName = TopicDataDirect
+		broadcastTopic = TopicDataBroadcast
+		directTopic = TopicDataDirect
 	default:
 		return nil, nil, fmt.Errorf("invalid endpoint: %s", b.endpoint)
 	}
 
-	broadcastTopic, exists := b.topicRegistry.Get(broadcastTopicName)
-	if !exists {
-		return nil, nil, fmt.Errorf("broadcast topic not found: %s", broadcastTopicName)
+	// Verify topics are registered
+	if !b.topicManager.CheckTopicExists(broadcastTopic.Name()) {
+		return nil, nil, fmt.Errorf("broadcast topic not registered: %s", broadcastTopic.Name())
 	}
 
-	directTopic, exists := b.topicRegistry.Get(directTopicName)
-	if !exists {
-		return nil, nil, fmt.Errorf("direct topic not found: %s", directTopicName)
+	if !b.topicManager.CheckTopicExists(directTopic.Name()) {
+		return nil, nil, fmt.Errorf("direct topic not registered: %s", directTopic.Name())
 	}
 
 	return broadcastTopic, directTopic, nil
@@ -275,7 +274,7 @@ func (b *Bridge) Handler() echo.HandlerFunc {
 		}
 
 		client := &Client{
-			ID:       watermill.NewShortUUID(),
+			ID:       uuid.New().String(),
 			UserID:   user.Email,
 			Conn:     conn,
 			Send:     make(chan []byte, 256),
@@ -290,6 +289,7 @@ func (b *Bridge) Handler() echo.HandlerFunc {
 		go func() {
 			payload, _ := json.Marshal(map[string]any{
 				"userID":   client.UserID,
+				"clientID": client.ID,
 				"endpoint": client.Endpoint,
 			})
 			readyMsg := pubsub.Message{
@@ -298,7 +298,7 @@ func (b *Bridge) Handler() echo.HandlerFunc {
 				Payload: payload,
 			}
 			if err := b.publisher.Publish(context.Background(), readyMsg); err != nil {
-				slog.Error("Failed to publish websocket ready event", "error", err, "userID", client.UserID)
+				slog.Error("Failed to publish websocket ready event", "error", err, "userID", client.UserID, "clientID", client.ID)
 			}
 		}()
 
@@ -316,6 +316,25 @@ func (b *Bridge) readPump(client *Client) {
 	defer func() {
 		b.clients.Remove(client.ID)
 		client.Close() // Safely close the client's channel.
+		
+		// Publish client disconnected event
+		go func() {
+			payload, _ := json.Marshal(map[string]any{
+				"userID":   client.UserID,
+				"clientID": client.ID,
+				"endpoint": client.Endpoint,
+				"reason":   "connection_closed",
+			})
+			disconnectMsg := pubsub.Message{
+				Topic:   TopicClientDisconnected.Name(),
+				UserID:  client.UserID,
+				Payload: payload,
+			}
+			if err := b.publisher.Publish(context.Background(), disconnectMsg); err != nil {
+				slog.Error("Failed to publish websocket disconnect event", "error", err, "userID", client.UserID, "clientID", client.ID)
+			}
+		}()
+		
 		b.wg.Done()
 		slog.Info("Client disconnected", "clientID", client.ID, "userID", client.UserID, "endpoint", b.endpoint)
 	}()
