@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ThreeDotsLabs/watermill"
 	"github.com/coder/websocket"
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/domain"
 	"github.com/nfrund/goby/internal/middleware"
@@ -274,7 +274,7 @@ func (b *Bridge) Handler() echo.HandlerFunc {
 		}
 
 		client := &Client{
-			ID:       watermill.NewShortUUID(),
+			ID:       uuid.New().String(),
 			UserID:   user.Email,
 			Conn:     conn,
 			Send:     make(chan []byte, 256),
