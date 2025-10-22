@@ -289,6 +289,7 @@ func (b *Bridge) Handler() echo.HandlerFunc {
 		go func() {
 			payload, _ := json.Marshal(map[string]any{
 				"userID":   client.UserID,
+				"clientID": client.ID,
 				"endpoint": client.Endpoint,
 			})
 			readyMsg := pubsub.Message{
@@ -297,7 +298,7 @@ func (b *Bridge) Handler() echo.HandlerFunc {
 				Payload: payload,
 			}
 			if err := b.publisher.Publish(context.Background(), readyMsg); err != nil {
-				slog.Error("Failed to publish websocket ready event", "error", err, "userID", client.UserID)
+				slog.Error("Failed to publish websocket ready event", "error", err, "userID", client.UserID, "clientID", client.ID)
 			}
 		}()
 
@@ -320,6 +321,7 @@ func (b *Bridge) readPump(client *Client) {
 		go func() {
 			payload, _ := json.Marshal(map[string]any{
 				"userID":   client.UserID,
+				"clientID": client.ID,
 				"endpoint": client.Endpoint,
 				"reason":   "connection_closed",
 			})
@@ -329,7 +331,7 @@ func (b *Bridge) readPump(client *Client) {
 				Payload: payload,
 			}
 			if err := b.publisher.Publish(context.Background(), disconnectMsg); err != nil {
-				slog.Error("Failed to publish websocket disconnect event", "error", err, "userID", client.UserID)
+				slog.Error("Failed to publish websocket disconnect event", "error", err, "userID", client.UserID, "clientID", client.ID)
 			}
 		}()
 		

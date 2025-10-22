@@ -9,21 +9,28 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/domain"
 	"github.com/nfrund/goby/internal/middleware"
+	"github.com/nfrund/goby/internal/modules/chat/templates/components"
 	"github.com/nfrund/goby/internal/modules/chat/templates/pages"
+	"github.com/nfrund/goby/internal/presence"
 	"github.com/nfrund/goby/internal/pubsub"
+	"github.com/nfrund/goby/internal/rendering"
 	"github.com/nfrund/goby/internal/view"
 	"github.com/nfrund/goby/web/src/templates/layouts"
 )
 
 // Handler manages the HTTP requests for the chat module.
 type Handler struct {
-	publisher pubsub.Publisher
+	publisher       pubsub.Publisher
+	presenceService *presence.Service
+	renderer        rendering.Renderer
 }
 
 // NewHandler creates a new chat handler.
-func NewHandler(pub pubsub.Publisher) *Handler {
+func NewHandler(pub pubsub.Publisher, presenceService *presence.Service, renderer rendering.Renderer) *Handler {
 	return &Handler{
-		publisher: pub,
+		publisher:       pub,
+		presenceService: presenceService,
+		renderer:        renderer,
 	}
 }
 
@@ -71,12 +78,20 @@ func (h *Handler) MessagePost(c echo.Context) error {
 
 // PresenceGet renders the presence component as HTML fragment for HTMX
 func (h *Handler) PresenceGet(c echo.Context) error {
-	// For now, return a simple message - the real-time updates will come via WebSocket
-	// In a production system, you might want to fetch current presence from the API
-	return c.HTML(http.StatusOK, `<div id="presence-container">
-		<div class="bg-gray-50 p-4 rounded-lg">
-			<h3 class="text-sm font-semibold text-gray-700 mb-2">Online Users</h3>
-			<div class="text-sm text-gray-500">Loading...</div>
-		</div>
-	</div>`)
+	// Fetch current online users from presence service
+	onlineUsers := h.presenceService.GetOnlineUsers()
+	
+	slog.Info("Rendering presence for HTMX request", 
+		"user_count", len(onlineUsers),
+		"users", onlineUsers)
+	
+	// Render the presence component
+	component := components.OnlineUsers(onlineUsers)
+	renderedHTML, err := h.renderer.RenderComponent(c.Request().Context(), component)
+	if err != nil {
+		slog.Error("Failed to render presence component", "error", err)
+		return c.HTML(http.StatusInternalServerError, `<div class="text-red-500">Error loading presence</div>`)
+	}
+	
+	return c.HTMLBlob(http.StatusOK, renderedHTML)
 }

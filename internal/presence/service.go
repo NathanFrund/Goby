@@ -29,6 +29,12 @@ const (
 
 	// DefaultStaleThreshold is the default time after which a presence is considered stale.
 	DefaultStaleThreshold = DefaultWebSocketPingInterval * StaleThresholdMultiplier
+	
+	// OfflineDebounceDelay is the time to wait before marking a user as offline after their last connection closes.
+	// This handles page reloads, double-clicks, and slow network conditions gracefully.
+	// Can be overridden using WithOfflineDebounce() option.
+	// Recommended: 3-10 seconds depending on your network conditions and browser quirks.
+	OfflineDebounceDelay = 5 * time.Second
 )
 
 type Presence struct {
@@ -41,8 +47,8 @@ type Presence struct {
 
 type Service struct {
 	mu        sync.RWMutex
-	presences map[string]Presence // userID -> Presence
-	clients   map[string]string   // clientID -> userID (for disconnect lookup)
+	presences map[string]map[string]Presence // userID -> clientID -> Presence
+	clients   map[string]string              // clientID -> userID (for disconnect lookup)
 	publisher pubsub.Publisher
 	logger    *slog.Logger
 
@@ -54,6 +60,11 @@ type Service struct {
 	cleanupTicker  *time.Ticker
 	stopCleanup    chan struct{}
 	staleThreshold time.Duration
+	
+	// Debouncing for offline events (to handle page reloads gracefully)
+	offlineDebounce      map[string]*time.Timer // userID -> debounce timer
+	offlineDebounceDelay time.Duration          // configurable delay
+	debounceMu           sync.Mutex
 }
 
 // Option is a function that configures a Service.
@@ -63,6 +74,15 @@ type Option func(*Service)
 func WithStaleThreshold(d time.Duration) Option {
 	return func(s *Service) {
 		s.staleThreshold = d
+	}
+}
+
+// WithOfflineDebounce sets a custom debounce delay for offline events.
+// This is useful for handling different network conditions or browser behaviors.
+// Set to 0 to disable debouncing (useful for testing).
+func WithOfflineDebounce(d time.Duration) Option {
+	return func(s *Service) {
+		s.offlineDebounceDelay = d
 	}
 }
 
@@ -100,14 +120,16 @@ func (s *Service) checkRateLimit(userID string) bool {
 // NewService creates a new presence service with the provided dependencies.
 func NewService(publisher pubsub.Publisher, subscriber pubsub.Subscriber, topicMgr *topicmgr.Manager, opts ...Option) *Service {
 	svc := &Service{
-		presences:      make(map[string]Presence),
-		clients:        make(map[string]string),
-		publisher:      publisher,
-		logger:         slog.Default().With("service", "presence"),
-		rateLimiter:    make(map[string]*time.Timer),
-		cleanupTicker:  time.NewTicker(30 * time.Second), // Cleanup every 30 seconds
-		stopCleanup:    make(chan struct{}),
-		staleThreshold: DefaultStaleThreshold,
+		presences:            make(map[string]map[string]Presence),
+		clients:              make(map[string]string),
+		publisher:            publisher,
+		logger:               slog.Default().With("service", "presence"),
+		rateLimiter:          make(map[string]*time.Timer),
+		cleanupTicker:        time.NewTicker(30 * time.Second), // Cleanup every 30 seconds
+		stopCleanup:          make(chan struct{}),
+		staleThreshold:       DefaultStaleThreshold,
+		offlineDebounce:      make(map[string]*time.Timer),
+		offlineDebounceDelay: OfflineDebounceDelay,
 	}
 
 	// Apply functional options
@@ -160,6 +182,7 @@ func (s *Service) handleClientConnected(ctx context.Context, msg pubsub.Message)
 	// WebSocket client ready event structure
 	var event struct {
 		UserID   string `json:"userID"`
+		ClientID string `json:"clientID"`
 		Endpoint string `json:"endpoint"`
 	}
 
@@ -168,10 +191,13 @@ func (s *Service) handleClientConnected(ctx context.Context, msg pubsub.Message)
 		return err
 	}
 
-	s.logger.Info("Processing client connection", "userID", event.UserID, "endpoint", event.Endpoint)
+	s.logger.Info("Processing client connection", 
+		"userID", event.UserID, 
+		"clientID", event.ClientID,
+		"endpoint", event.Endpoint)
 
-	// Use userID as clientID for now (can be enhanced later)
-	s.addPresence(event.UserID, event.UserID, "")
+	// Use the actual clientID from the WebSocket bridge
+	s.addPresence(event.UserID, event.ClientID, "")
 
 	return nil
 }
@@ -189,21 +215,34 @@ func (s *Service) addPresence(userID, clientID, userAgent string) {
 	// Track client to user mapping for disconnection
 	s.clients[clientID] = userID
 
-	// Check if user already has a presence
-	if existing, exists := s.presences[userID]; exists {
-		s.logger.Debug("Updating existing presence",
+	// Cancel any pending offline debounce for this user
+	s.debounceMu.Lock()
+	if timer, exists := s.offlineDebounce[userID]; exists {
+		timer.Stop()
+		delete(s.offlineDebounce, userID)
+		s.logger.Info("Cancelled offline debounce due to reconnection",
 			"user_id", userID,
-			"client_id", clientID,
-			"previous_client_id", existing.ClientID,
-			"user_agent", userAgent)
-	} else {
+			"client_id", clientID)
+	}
+	s.debounceMu.Unlock()
+
+	// Initialize user's presence map if needed
+	if s.presences[userID] == nil {
+		s.presences[userID] = make(map[string]Presence)
 		s.logger.Info("User came online",
 			"user_id", userID,
 			"client_id", clientID,
 			"user_agent", userAgent)
+	} else {
+		s.logger.Debug("Adding additional connection for user",
+			"user_id", userID,
+			"client_id", clientID,
+			"existing_connections", len(s.presences[userID]),
+			"user_agent", userAgent)
 	}
 
-	s.presences[userID] = Presence{
+	// Add this specific client's presence
+	s.presences[userID][clientID] = Presence{
 		UserID:    userID,
 		Status:    StatusOnline,
 		ClientID:  clientID,
@@ -212,16 +251,11 @@ func (s *Service) addPresence(userID, clientID, userAgent string) {
 	}
 
 	// Get current users while we have the lock
-	users := make(map[string]struct{})
-	for _, p := range s.presences {
-		users[p.UserID] = struct{}{}
-	}
-	onlineUsers := make([]string, 0, len(users))
-	for uid := range users {
-		onlineUsers = append(onlineUsers, uid)
-	}
+	onlineUsers := s.getOnlineUsersUnsafe()
 
-	s.logger.Debug("Current online users", "count", len(onlineUsers), "users", onlineUsers)
+	s.logger.Debug("Current online users",
+		"count", len(onlineUsers),
+		"total_connections", s.getTotalConnectionsUnsafe())
 
 	// Release lock before publishing to avoid deadlock
 	s.mu.Unlock()
@@ -238,6 +272,7 @@ func (s *Service) handleClientDisconnected(ctx context.Context, msg pubsub.Messa
 	// WebSocket client disconnected event structure
 	var event struct {
 		UserID   string `json:"userID"`
+		ClientID string `json:"clientID"`
 		Endpoint string `json:"endpoint"`
 		Reason   string `json:"reason"`
 	}
@@ -247,41 +282,146 @@ func (s *Service) handleClientDisconnected(ctx context.Context, msg pubsub.Messa
 		return err
 	}
 
-	s.logger.Info("Processing client disconnection", "userID", event.UserID, "endpoint", event.Endpoint, "reason", event.Reason)
+	s.logger.Info("Processing client disconnection", 
+		"userID", event.UserID, 
+		"clientID", event.ClientID,
+		"endpoint", event.Endpoint, 
+		"reason", event.Reason)
 
-	s.removePresence(event.UserID)
+	s.removePresenceForClient(event.UserID, event.ClientID)
 
 	return nil
 }
 
+// removePresenceForClient removes a specific client connection for a user
+func (s *Service) removePresenceForClient(userID, clientID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	clientPresences, exists := s.presences[userID]
+	if !exists {
+		s.logger.Debug("User not found in presence list", "user_id", userID, "client_id", clientID)
+		return
+	}
+
+	// Remove this specific client connection
+	if _, clientExists := clientPresences[clientID]; clientExists {
+		delete(clientPresences, clientID)
+		delete(s.clients, clientID)
+		
+		s.logger.Info("Client disconnected",
+			"user_id", userID,
+			"client_id", clientID,
+			"remaining_connections", len(clientPresences))
+	}
+
+	// If no more clients for this user, debounce the offline event
+	if len(clientPresences) == 0 {
+		// If debounce is disabled (0), mark offline immediately
+		if s.offlineDebounceDelay == 0 {
+			delete(s.presences, userID)
+			delete(s.rateLimiter, userID)
+			s.logger.Info("User went offline immediately (debounce disabled)",
+				"user_id", userID)
+			
+			onlineUsers := s.getOnlineUsersUnsafe()
+			s.mu.Unlock()
+			s.publishPresenceUpdateWithUsers(onlineUsers)
+			s.mu.Lock()
+			return
+		}
+		
+		s.logger.Info("User has no more connections, scheduling offline event",
+			"user_id", userID,
+			"debounce_delay", s.offlineDebounceDelay)
+		
+		// Cancel any existing debounce timer for this user
+		s.debounceMu.Lock()
+		if timer, exists := s.offlineDebounce[userID]; exists {
+			timer.Stop()
+		}
+		
+		// Schedule offline event after a delay (to handle page reloads, double-clicks, etc.)
+		s.offlineDebounce[userID] = time.AfterFunc(s.offlineDebounceDelay, func() {
+			s.handleDebouncedOffline(userID)
+		})
+		s.debounceMu.Unlock()
+		
+		// Don't publish update yet - wait for debounce
+		return
+	}
+
+	// User still has other connections, publish update immediately
+	onlineUsers := s.getOnlineUsersUnsafe()
+	s.mu.Unlock()
+	s.publishPresenceUpdateWithUsers(onlineUsers)
+	s.mu.Lock() // Re-acquire for defer
+}
+
+// handleDebouncedOffline is called after the debounce period to mark a user as offline
+func (s *Service) handleDebouncedOffline(userID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
+	// Check if user reconnected during debounce period
+	clientPresences, exists := s.presences[userID]
+	if !exists || len(clientPresences) == 0 {
+		// User is still offline, remove them
+		delete(s.presences, userID)
+		delete(s.rateLimiter, userID)
+		
+		s.logger.Info("User went offline after debounce period",
+			"user_id", userID)
+		
+		// Clean up debounce timer
+		s.debounceMu.Lock()
+		delete(s.offlineDebounce, userID)
+		s.debounceMu.Unlock()
+		
+		// Publish update
+		onlineUsers := s.getOnlineUsersUnsafe()
+		s.mu.Unlock()
+		s.publishPresenceUpdateWithUsers(onlineUsers)
+		s.mu.Lock() // Re-acquire for defer
+	} else {
+		// User reconnected, cancel offline event
+		s.logger.Info("User reconnected during debounce period, staying online",
+			"user_id", userID,
+			"connections", len(clientPresences))
+		
+		// Clean up debounce timer
+		s.debounceMu.Lock()
+		delete(s.offlineDebounce, userID)
+		s.debounceMu.Unlock()
+	}
+}
+
+// removePresence removes all client connections for a user
 func (s *Service) removePresence(userID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	presence, exists := s.presences[userID]
+	clientPresences, exists := s.presences[userID]
 	if !exists {
 		s.logger.Debug("User not found in presence list", "user_id", userID)
 		return
 	}
 
-	// Remove from both maps
+	// Remove all client connections for this user
+	for clientID := range clientPresences {
+		delete(s.clients, clientID)
+	}
+
+	// Remove user's presence map
 	delete(s.presences, userID)
-	delete(s.clients, presence.ClientID)
 
 	s.logger.Info("User disconnected",
-		"user_id", presence.UserID,
-		"client_id", presence.ClientID,
+		"user_id", userID,
+		"connections_removed", len(clientPresences),
 		"remaining_users", len(s.presences))
 
 	// Get current users while we have the lock
-	users := make(map[string]struct{})
-	for _, p := range s.presences {
-		users[p.UserID] = struct{}{}
-	}
-	onlineUsers := make([]string, 0, len(users))
-	for uid := range users {
-		onlineUsers = append(onlineUsers, uid)
-	}
+	onlineUsers := s.getOnlineUsersUnsafe()
 
 	// Release lock before publishing to avoid deadlock
 	s.mu.Unlock()
@@ -290,12 +430,25 @@ func (s *Service) removePresence(userID string) {
 }
 
 // GetPresence returns the current presence status for a user
+// If the user has multiple connections, returns the most recent one
 func (s *Service) GetPresence(userID string) (Presence, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	presence, exists := s.presences[userID]
-	return presence, exists
+	clientPresences, exists := s.presences[userID]
+	if !exists || len(clientPresences) == 0 {
+		return Presence{}, false
+	}
+
+	// Return the most recent presence
+	var mostRecent Presence
+	for _, p := range clientPresences {
+		if mostRecent.Timestamp.IsZero() || p.Timestamp.After(mostRecent.Timestamp) {
+			mostRecent = p
+		}
+	}
+
+	return mostRecent, true
 }
 
 // GetOnlineUsers returns a list of currently online user IDs
@@ -308,21 +461,24 @@ func (s *Service) GetOnlineUsers() []string {
 
 // getOnlineUsersUnsafe returns online users without acquiring lock (internal use)
 func (s *Service) getOnlineUsersUnsafe() []string {
-	users := make(map[string]struct{})
-	for _, p := range s.presences {
-		users[p.UserID] = struct{}{}
+	// A user is online if they have at least one active client
+	result := make([]string, 0, len(s.presences))
+	for userID, clientPresences := range s.presences {
+		if len(clientPresences) > 0 {
+			result = append(result, userID)
+		}
 	}
-
-	result := make([]string, 0, len(users))
-	for userID := range users {
-		result = append(result, userID)
-	}
-
-	s.logger.Debug("Retrieved online users",
-		"unique_users", len(result),
-		"total_connections", len(s.presences))
 
 	return result
+}
+
+// getTotalConnectionsUnsafe returns total number of connections without acquiring lock
+func (s *Service) getTotalConnectionsUnsafe() int {
+	total := 0
+	for _, clientPresences := range s.presences {
+		total += len(clientPresences)
+	}
+	return total
 }
 
 // publishPresenceUpdateWithUsers publishes presence update with provided user list (avoids deadlock)
@@ -396,28 +552,34 @@ func (s *Service) cleanupStalePresences() {
 
 	threshold := Now().Add(-s.staleThreshold)
 	var staleUsers []string
+	totalStaleConnections := 0
 
-	// Single pass to find stale users
-	for userID, presence := range s.presences {
-		if presence.Timestamp.Before(threshold) {
+	// Find and remove stale connections
+	for userID, clientPresences := range s.presences {
+		for clientID, presence := range clientPresences {
+			if presence.Timestamp.Before(threshold) {
+				delete(clientPresences, clientID)
+				delete(s.clients, clientID)
+				totalStaleConnections++
+			}
+		}
+
+		// Remove user if no clients remain
+		if len(clientPresences) == 0 {
+			delete(s.presences, userID)
+			delete(s.rateLimiter, userID)
 			staleUsers = append(staleUsers, userID)
 		}
 	}
 
-	if len(staleUsers) == 0 {
+	if len(staleUsers) == 0 && totalStaleConnections == 0 {
 		return
 	}
 
-	s.logger.Info("Cleaning up stale presences", "count", len(staleUsers), "users", staleUsers)
-
-	// Remove stale presences and associated data
-	for _, userID := range staleUsers {
-		if presence, exists := s.presences[userID]; exists {
-			delete(s.presences, userID)
-			delete(s.clients, presence.ClientID)
-			delete(s.rateLimiter, userID)
-		}
-	}
+	s.logger.Info("Cleaned up stale presences",
+		"users_removed", len(staleUsers),
+		"connections_removed", totalStaleConnections,
+		"users", staleUsers)
 
 	// Publish update asynchronously after getting the new list of online users
 	onlineUsers := s.getOnlineUsersUnsafe()

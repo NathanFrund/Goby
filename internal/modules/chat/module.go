@@ -7,6 +7,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/module"
 	"github.com/nfrund/goby/internal/modules/chat/topics"
+	"github.com/nfrund/goby/internal/presence"
 	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/registry"
 	"github.com/nfrund/goby/internal/rendering"
@@ -28,28 +29,31 @@ var (
 // ChatModule implements the module.Module interface for the chat feature.
 type ChatModule struct {
 	module.BaseModule
-	publisher  pubsub.Publisher
-	subscriber pubsub.Subscriber
-	renderer   rendering.Renderer
-	topicMgr   *topicmgr.Manager
+	publisher       pubsub.Publisher
+	subscriber      pubsub.Subscriber
+	renderer        rendering.Renderer
+	topicMgr        *topicmgr.Manager
+	presenceService *presence.Service
 }
 
 // Dependencies holds all the services that the ChatModule requires to operate.
 // This struct is used for constructor injection to make dependencies explicit.
 type Dependencies struct {
-	Publisher  pubsub.Publisher
-	Subscriber pubsub.Subscriber
-	Renderer   rendering.Renderer
-	TopicMgr   *topicmgr.Manager
+	Publisher       pubsub.Publisher
+	Subscriber      pubsub.Subscriber
+	Renderer        rendering.Renderer
+	TopicMgr        *topicmgr.Manager
+	PresenceService *presence.Service
 }
 
 // New creates a new instance of the ChatModule, injecting its dependencies.
 func New(deps Dependencies) *ChatModule {
 	return &ChatModule{
-		publisher:  deps.Publisher,
-		subscriber: deps.Subscriber,
-		renderer:   deps.Renderer,
-		topicMgr:   deps.TopicMgr,
+		publisher:       deps.Publisher,
+		subscriber:      deps.Subscriber,
+		renderer:        deps.Renderer,
+		topicMgr:        deps.TopicMgr,
+		presenceService: deps.PresenceService,
 	}
 }
 
@@ -84,7 +88,7 @@ func (m *ChatModule) Boot(ctx context.Context, g *echo.Group, reg *registry.Regi
 
 	// --- Register HTTP Handlers ---
 	slog.Info("Booting ChatModule: Setting up routes...")
-	handler := NewHandler(m.publisher)
+	handler := NewHandler(m.publisher, m.presenceService, m.renderer)
 
 	// Set up routes - the server mounts us under /app/chat, so we use root paths here
 	g.GET("", handler.ChatGet)

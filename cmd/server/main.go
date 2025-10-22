@@ -220,10 +220,11 @@ func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Serve
 	// all active application features.
 	slog.Info("Initializing application modules...")
 	moduleDeps := app.Dependencies{
-		Publisher:  ps,
-		Subscriber: ps,
-		Renderer:   renderer,
-		TopicMgr:   topicManager,
+		Publisher:       ps,
+		Subscriber:      ps,
+		Renderer:        renderer,
+		TopicMgr:        topicManager,
+		PresenceService: presenceService,
 	}
 	modules := app.NewModules(moduleDeps)
 	srv.InitModules(appCtx, modules, reg)

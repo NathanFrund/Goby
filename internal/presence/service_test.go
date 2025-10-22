@@ -190,9 +190,11 @@ func TestService_CleanupStalePresences(t *testing.T) {
 
 	// Manually set timestamp to be stale
 	service.mu.Lock()
-	if presence, exists := service.presences["user1"]; exists {
-		presence.Timestamp = time.Now().Add(-10 * time.Minute) // 10 minutes ago
-		service.presences["user1"] = presence
+	if clientPresences, exists := service.presences["user1"]; exists {
+		if presence, clientExists := clientPresences["client1"]; clientExists {
+			presence.Timestamp = time.Now().Add(-10 * time.Minute) // 10 minutes ago
+			clientPresences["client1"] = presence
+		}
 	}
 	service.mu.Unlock()
 
@@ -218,6 +220,86 @@ func TestService_GetOnlineUsers_UniqueUsers(t *testing.T) {
 
 	// Should only return unique users
 	users := service.GetOnlineUsers()
+	assert.Len(t, users, 1)
+	assert.Contains(t, users, "user1")
+}
+
+func TestService_MultipleConnections(t *testing.T) {
+	publisher := &mockPublisher{}
+	subscriber := &mockSubscriber{}
+	topicMgr := topicmgr.Default()
+
+	service := NewService(publisher, subscriber, topicMgr)
+	defer service.Shutdown()
+
+	// Add multiple connections for the same user
+	service.addPresence("user1", "client1", "browser-tab1")
+	
+	// Wait for rate limit to expire
+	time.Sleep(1100 * time.Millisecond)
+	
+	service.addPresence("user1", "client2", "browser-tab2")
+	
+	// Wait for rate limit to expire
+	time.Sleep(1100 * time.Millisecond)
+	
+	service.addPresence("user1", "client3", "mobile-app")
+
+	// User should still be online
+	users := service.GetOnlineUsers()
+	assert.Len(t, users, 1)
+	assert.Contains(t, users, "user1")
+
+	// Remove one connection - user should still be online
+	service.mu.Lock()
+	delete(service.presences["user1"], "client1")
+	service.mu.Unlock()
+
+	users = service.GetOnlineUsers()
+	assert.Len(t, users, 1)
+	assert.Contains(t, users, "user1")
+
+	// Remove all connections - user should go offline
+	service.removePresence("user1")
+	users = service.GetOnlineUsers()
+	assert.Len(t, users, 0)
+}
+
+func TestService_ReloadScenario(t *testing.T) {
+	publisher := &mockPublisher{}
+	subscriber := &mockSubscriber{}
+	topicMgr := topicmgr.Default()
+
+	service := NewService(publisher, subscriber, topicMgr)
+	defer service.Shutdown()
+
+	// Simulate initial connection
+	service.addPresence("user1", "client1", "browser")
+
+	// User should be online
+	users := service.GetOnlineUsers()
+	assert.Len(t, users, 1)
+	assert.Contains(t, users, "user1")
+
+	// Wait for rate limit to expire
+	time.Sleep(1100 * time.Millisecond)
+
+	// Simulate page reload - new connection before old one disconnects
+	service.addPresence("user1", "client2", "browser")
+
+	// User should still be online with 2 connections
+	users = service.GetOnlineUsers()
+	assert.Len(t, users, 1)
+	assert.Contains(t, users, "user1")
+
+	// Old connection disconnects (simulated by removing specific client)
+	service.mu.Lock()
+	delete(service.presences["user1"], "client1")
+	delete(service.clients, "client1")
+	service.mu.Unlock()
+
+	// User should STILL be online (this is the fix!)
+	users = service.GetOnlineUsers()
 	assert.Len(t, users, 1)
 	assert.Contains(t, users, "user1")
 }
