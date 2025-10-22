@@ -29,7 +29,7 @@ const (
 
 	// DefaultStaleThreshold is the default time after which a presence is considered stale.
 	DefaultStaleThreshold = DefaultWebSocketPingInterval * StaleThresholdMultiplier
-	
+
 	// OfflineDebounceDelay is the time to wait before marking a user as offline after their last connection closes.
 	// This handles page reloads, double-clicks, and slow network conditions gracefully.
 	// Can be overridden using WithOfflineDebounce() option.
@@ -60,7 +60,7 @@ type Service struct {
 	cleanupTicker  *time.Ticker
 	stopCleanup    chan struct{}
 	staleThreshold time.Duration
-	
+
 	// Debouncing for offline events (to handle page reloads gracefully)
 	offlineDebounce      map[string]*time.Timer // userID -> debounce timer
 	offlineDebounceDelay time.Duration          // configurable delay
@@ -191,8 +191,8 @@ func (s *Service) handleClientConnected(ctx context.Context, msg pubsub.Message)
 		return err
 	}
 
-	s.logger.Info("Processing client connection", 
-		"userID", event.UserID, 
+	s.logger.Info("Processing client connection",
+		"userID", event.UserID,
 		"clientID", event.ClientID,
 		"endpoint", event.Endpoint)
 
@@ -282,10 +282,10 @@ func (s *Service) handleClientDisconnected(ctx context.Context, msg pubsub.Messa
 		return err
 	}
 
-	s.logger.Info("Processing client disconnection", 
-		"userID", event.UserID, 
+	s.logger.Info("Processing client disconnection",
+		"userID", event.UserID,
 		"clientID", event.ClientID,
-		"endpoint", event.Endpoint, 
+		"endpoint", event.Endpoint,
 		"reason", event.Reason)
 
 	s.removePresenceForClient(event.UserID, event.ClientID)
@@ -308,7 +308,7 @@ func (s *Service) removePresenceForClient(userID, clientID string) {
 	if _, clientExists := clientPresences[clientID]; clientExists {
 		delete(clientPresences, clientID)
 		delete(s.clients, clientID)
-		
+
 		s.logger.Info("Client disconnected",
 			"user_id", userID,
 			"client_id", clientID,
@@ -323,30 +323,30 @@ func (s *Service) removePresenceForClient(userID, clientID string) {
 			delete(s.rateLimiter, userID)
 			s.logger.Info("User went offline immediately (debounce disabled)",
 				"user_id", userID)
-			
+
 			onlineUsers := s.getOnlineUsersUnsafe()
 			s.mu.Unlock()
 			s.publishPresenceUpdateWithUsers(onlineUsers)
 			s.mu.Lock()
 			return
 		}
-		
+
 		s.logger.Info("User has no more connections, scheduling offline event",
 			"user_id", userID,
 			"debounce_delay", s.offlineDebounceDelay)
-		
+
 		// Cancel any existing debounce timer for this user
 		s.debounceMu.Lock()
 		if timer, exists := s.offlineDebounce[userID]; exists {
 			timer.Stop()
 		}
-		
+
 		// Schedule offline event after a delay (to handle page reloads, double-clicks, etc.)
 		s.offlineDebounce[userID] = time.AfterFunc(s.offlineDebounceDelay, func() {
 			s.handleDebouncedOffline(userID)
 		})
 		s.debounceMu.Unlock()
-		
+
 		// Don't publish update yet - wait for debounce
 		return
 	}
@@ -362,22 +362,22 @@ func (s *Service) removePresenceForClient(userID, clientID string) {
 func (s *Service) handleDebouncedOffline(userID string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	// Check if user reconnected during debounce period
 	clientPresences, exists := s.presences[userID]
 	if !exists || len(clientPresences) == 0 {
 		// User is still offline, remove them
 		delete(s.presences, userID)
 		delete(s.rateLimiter, userID)
-		
+
 		s.logger.Info("User went offline after debounce period",
 			"user_id", userID)
-		
+
 		// Clean up debounce timer
 		s.debounceMu.Lock()
 		delete(s.offlineDebounce, userID)
 		s.debounceMu.Unlock()
-		
+
 		// Publish update
 		onlineUsers := s.getOnlineUsersUnsafe()
 		s.mu.Unlock()
@@ -388,7 +388,7 @@ func (s *Service) handleDebouncedOffline(userID string) {
 		s.logger.Info("User reconnected during debounce period, staying online",
 			"user_id", userID,
 			"connections", len(clientPresences))
-		
+
 		// Clean up debounce timer
 		s.debounceMu.Lock()
 		delete(s.offlineDebounce, userID)
@@ -548,7 +548,6 @@ func (s *Service) startCleanup() {
 // cleanupStalePresences removes presences that haven't been updated recently
 func (s *Service) cleanupStalePresences() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	threshold := Now().Add(-s.staleThreshold)
 	var staleUsers []string
@@ -573,16 +572,23 @@ func (s *Service) cleanupStalePresences() {
 	}
 
 	if len(staleUsers) == 0 && totalStaleConnections == 0 {
+		s.mu.Unlock()
 		return
 	}
 
 	s.logger.Info("Cleaned up stale presences",
 		"users_removed", len(staleUsers),
 		"connections_removed", totalStaleConnections,
-		"users", staleUsers)
+		"users", staleUsers,
+	)
 
-	// Publish update asynchronously after getting the new list of online users
+	// Get the new list of online users while still holding the lock
 	onlineUsers := s.getOnlineUsersUnsafe()
+
+	// Unlock before spawning the goroutine to reduce lock contention
+	s.mu.Unlock()
+
+	// Publish update asynchronously
 	go s.publishPresenceUpdateWithUsers(onlineUsers)
 }
 

@@ -212,5 +212,12 @@ templ ChatPage() {
                 }
             });
         </script>
+        <script>
+        htmx.logger = function(elt, event, data) {
+            if(console) {
+            console.log(event, elt, data);
+            }
+        }
+        </script>
     </div>
 }
