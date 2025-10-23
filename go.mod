@@ -6,6 +6,8 @@ require (
 	github.com/ThreeDotsLabs/watermill v1.3.5
 	github.com/a-h/templ v0.3.943
 	github.com/coder/websocket v1.8.14
+	github.com/d5/tengo/v2 v2.17.0
+	github.com/fsnotify/fsnotify v1.9.0
 	github.com/go-playground/validator/v10 v10.28.0
 	github.com/google/uuid v1.3.1
 	github.com/gorilla/sessions v1.3.0

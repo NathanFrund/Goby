@@ -1,0 +1,18 @@
+// Event Processor Script - With Logging
+
+// Get event type from simple variable
+event_type := "unknown"
+if message_topic {
+    event_type = message_topic
+}
+
+log("Processing event: " + event_type)
+
+// Always return success for simplicity
+result := {
+    "processed": true,
+    "event_type": event_type,
+    "message": "Event processed successfully"
+}
+
+log("Event processing complete")

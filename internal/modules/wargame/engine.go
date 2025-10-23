@@ -42,6 +42,8 @@ func (e *Engine) SimulateHit(ctx context.Context) {
 	// Generate random event data
 	target := targetUnits[rand.Intn(len(targetUnits))]
 	attacker := attackingUnits[rand.Intn(len(attackingUnits))]
+
+	// Use default damage for now - this could be enhanced to use script-based calculation
 	damage := rand.Intn(30) + 5
 
 	// Create and publish damage event
