@@ -3,11 +3,13 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
 	"log"
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -24,6 +26,7 @@ import (
 	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/registry"
 	"github.com/nfrund/goby/internal/rendering"
+	"github.com/nfrund/goby/internal/script"
 	"github.com/nfrund/goby/internal/server"
 	"github.com/nfrund/goby/internal/storage"
 	"github.com/nfrund/goby/internal/topicmgr"
@@ -37,6 +40,13 @@ import (
 var AppStatic string
 
 func main() {
+	// Parse command line flags
+	var (
+		extractScripts = flag.String("extract-scripts", "", "Extract embedded scripts to specified directory and exit")
+		forceExtract   = flag.Bool("force-extract", false, "Overwrite existing files when extracting scripts")
+	)
+	flag.Parse()
+
 	// 1. Initialize Configuration and Logging
 	if err := godotenv.Load(); err != nil {
 		log.Println("No .env file found, relying on environment variables.")
@@ -44,7 +54,16 @@ func main() {
 	cfg := config.New()
 	logging.New()
 
-	// 2. Build and Start Server
+	// 2. Handle script extraction if requested
+	if *extractScripts != "" {
+		if err := handleScriptExtraction(*extractScripts, *forceExtract, cfg); err != nil {
+			slog.Error("Script extraction failed", "error", err)
+			os.Exit(1)
+		}
+		return // Exit after extraction
+	}
+
+	// 3. Build and Start Server (normal operation)
 	appCtx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
@@ -55,7 +74,7 @@ func main() {
 	}
 	defer cleanup()
 
-	// 3. Start the server and its background processes
+	// 4. Start the server and its background processes
 	srv.Start(appCtx)
 }
 
@@ -159,6 +178,17 @@ func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Serve
 	reg.Set((*presence.Service)(nil), presenceService)
 	slog.Info("Presence service initialized")
 
+	// Script Engine
+	scriptEngine, err := script.RegisterService(reg, cfg)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to register script engine: %w", err)
+	}
+	closers = append(closers, func() error {
+		slog.Info("Shutting down script engine...")
+		return scriptEngine.Shutdown(context.Background())
+	})
+	slog.Info("Script engine initialized")
+
 	// User Store (using the new v2 client)
 	userDBClient, err := database.NewClient[domain.User](dbConn, cfg)
 	if err != nil {
@@ -210,6 +240,7 @@ func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Serve
 		DashboardHandler: dashboardHandler,
 		PresenceHandler:  presenceHandler,
 		FileHandler:      fileHandler,
+		ScriptEngine:     scriptEngine,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create server: %w", err)
@@ -225,6 +256,7 @@ func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Serve
 		Renderer:        renderer,
 		TopicMgr:        topicManager,
 		PresenceService: presenceService,
+		ScriptEngine:    scriptEngine,
 	}
 	modules := app.NewModules(moduleDeps)
 	srv.InitModules(appCtx, modules, reg)
@@ -266,4 +298,118 @@ func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Serve
 	}
 
 	return srv, cleanup, nil
+}
+
+// handleScriptExtraction extracts embedded scripts to the filesystem
+func handleScriptExtraction(targetDir string, force bool, cfg config.Provider) error {
+	fmt.Printf("Goby Script Extractor\n")
+	fmt.Printf("=====================\n\n")
+	fmt.Printf("Target directory: %s\n", targetDir)
+	fmt.Printf("Force overwrite: %v\n\n", force)
+
+	// Check if target directory exists and handle force flag
+	if err := prepareTargetDirectory(targetDir, force); err != nil {
+		return err
+	}
+
+	// Create script engine
+	scriptEngine := script.NewEngine(script.Dependencies{
+		Config: cfg,
+	})
+
+	// Create minimal dependencies for modules to register their embedded scripts
+	ps := pubsub.NewWatermillBridge()
+	defer ps.Close()
+
+	renderer := rendering.NewUniversalRenderer()
+	topicManager := topicmgr.Default()
+	presenceService := presence.NewService(ps, ps, topicManager)
+
+	moduleDeps := app.Dependencies{
+		Publisher:       ps,
+		Subscriber:      ps,
+		Renderer:        renderer,
+		TopicMgr:        topicManager,
+		PresenceService: presenceService,
+		ScriptEngine:    scriptEngine,
+	}
+
+	// Initialize modules to register their embedded scripts
+	slog.Info("Initializing modules to register embedded scripts...")
+	_ = app.NewModules(moduleDeps)
+
+	// The modules will register their embedded scripts during creation
+	// No need to manually register them here since they do it in their constructors
+
+	// Initialize the script engine to load embedded scripts
+	ctx := context.Background()
+	// Enable hot-reload by default, disable with HOT_RELOAD_SCRIPTS=false
+	hotReloadEnabled := os.Getenv("HOT_RELOAD_SCRIPTS") != "false"
+	if err := scriptEngine.Initialize(ctx, hotReloadEnabled); err != nil {
+		return fmt.Errorf("failed to initialize script engine: %w", err)
+	}
+
+	// Extract the scripts
+	slog.Info("Extracting embedded scripts...")
+	if err := scriptEngine.ExtractDefaultScripts(targetDir); err != nil {
+		return fmt.Errorf("failed to extract scripts: %w", err)
+	}
+
+	// Show summary and next steps
+	showExtractionSummary(targetDir)
+
+	fmt.Printf("\n✅ Script extraction completed successfully!\n")
+	fmt.Printf("\nNext steps:\n")
+	fmt.Printf("1. Review the extracted scripts in: %s\n", targetDir)
+	fmt.Printf("2. Modify scripts as needed for your use case\n")
+	fmt.Printf("3. Start the Goby server normally - it will automatically detect and use your custom scripts\n")
+	fmt.Printf("4. Scripts will be hot-reloaded when you save changes\n\n")
+
+	return nil
+}
+
+// prepareTargetDirectory prepares the target directory for extraction
+func prepareTargetDirectory(targetDir string, force bool) error {
+	// Check if directory exists
+	if _, err := os.Stat(targetDir); err == nil {
+		if !force {
+			fmt.Printf("⚠️  Target directory '%s' already exists.\n", targetDir)
+			fmt.Printf("Use --force-extract to overwrite existing files, or choose a different directory.\n")
+			return fmt.Errorf("target directory exists and --force-extract not specified")
+		}
+		fmt.Printf("📁 Target directory exists, will overwrite files due to --force-extract flag\n")
+	} else if os.IsNotExist(err) {
+		// Directory doesn't exist, create it
+		if err := os.MkdirAll(targetDir, 0755); err != nil {
+			return fmt.Errorf("failed to create target directory: %w", err)
+		}
+		fmt.Printf("📁 Created target directory: %s\n", targetDir)
+	} else {
+		return fmt.Errorf("failed to check target directory: %w", err)
+	}
+
+	return nil
+}
+
+// showExtractionSummary displays a summary of extracted scripts
+func showExtractionSummary(targetDir string) {
+	fmt.Printf("\n📊 Extraction Summary:\n")
+	fmt.Printf("===================\n")
+
+	err := filepath.Walk(targetDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if !info.IsDir() && (filepath.Ext(path) == ".tengo" || filepath.Ext(path) == ".zygomys" || filepath.Ext(path) == "") {
+			relPath, _ := filepath.Rel(targetDir, path)
+			fmt.Printf("📄 %s (%d bytes)\n", relPath, info.Size())
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		slog.Error("Failed to walk extracted files", "error", err)
+	}
 }

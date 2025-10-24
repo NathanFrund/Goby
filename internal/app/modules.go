@@ -7,6 +7,7 @@ import (
 	"github.com/nfrund/goby/internal/presence"
 	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/rendering"
+	"github.com/nfrund/goby/internal/script"
 	"github.com/nfrund/goby/internal/topicmgr"
 )
 
@@ -18,6 +19,7 @@ type Dependencies struct {
 	Renderer        rendering.Renderer
 	TopicMgr        *topicmgr.Manager
 	PresenceService *presence.Service
+	ScriptEngine    script.ScriptEngine
 }
 
 // NewModules creates and returns the list of all active modules for the application.
@@ -27,10 +29,11 @@ func NewModules(deps Dependencies) []module.Module {
 	return []module.Module{
 		// Add new application modules here.
 		wargame.New(wargame.Dependencies{
-			Publisher:  deps.Publisher,
-			Subscriber: deps.Subscriber,
-			Renderer:   deps.Renderer,
-			TopicMgr:   deps.TopicMgr,
+			Publisher:    deps.Publisher,
+			Subscriber:   deps.Subscriber,
+			Renderer:     deps.Renderer,
+			TopicMgr:     deps.TopicMgr,
+			ScriptEngine: deps.ScriptEngine,
 		}),
 		chat.New(chat.Dependencies{
 			Publisher:       deps.Publisher,

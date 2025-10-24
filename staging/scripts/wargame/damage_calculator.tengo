@@ -1,0 +1,18 @@
+// Damage Calculator Script - Proper Tengo Version
+rand := import("rand")
+
+// Simple damage calculation with randomness
+base_damage := 20
+random_factor := 0.8 + (rand.float() * 0.4)
+calculated_damage := int(base_damage * random_factor)
+
+// Ensure minimum damage of 1
+if calculated_damage < 1 {
+    calculated_damage = 1
+}
+
+result := {
+    "damage": calculated_damage,
+    "base_damage": base_damage,
+    "message": "Calculated " + string(calculated_damage) + " damage"
+}

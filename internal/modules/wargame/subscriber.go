@@ -10,19 +10,24 @@ import (
 	"github.com/nfrund/goby/internal/modules/wargame/components"
 	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/rendering"
+	"github.com/nfrund/goby/internal/script"
 )
 
 type Subscriber struct {
-	subscriber pubsub.Subscriber
-	publisher  pubsub.Publisher
-	renderer   rendering.Renderer
+	subscriber     pubsub.Subscriber
+	publisher      pubsub.Publisher
+	renderer       rendering.Renderer
+	scriptExecutor *script.ScriptExecutor
+	exposedFuncs   map[string]interface{}
 }
 
-func NewSubscriber(sub pubsub.Subscriber, pub pubsub.Publisher, renderer rendering.Renderer) *Subscriber {
+func NewSubscriber(sub pubsub.Subscriber, pub pubsub.Publisher, renderer rendering.Renderer, scriptExecutor *script.ScriptExecutor, exposedFuncs map[string]interface{}) *Subscriber {
 	return &Subscriber{
-		subscriber: sub,
-		publisher:  pub,
-		renderer:   renderer,
+		subscriber:     sub,
+		publisher:      pub,
+		renderer:       renderer,
+		scriptExecutor: scriptExecutor,
+		exposedFuncs:   exposedFuncs,
 	}
 }
 
@@ -61,6 +66,27 @@ func (s *Subscriber) handleDamageEvent(ctx context.Context, msg pubsub.Message) 
 		return err
 	}
 
+	// Execute event processor script if available
+	if s.scriptExecutor != nil {
+		output, err := s.scriptExecutor.ExecuteMessageHandler(ctx, msg.Topic, &msg, s.exposedFuncs)
+		if err != nil {
+			slog.Error("Script execution failed for damage event", "error", err)
+			// Continue with original processing even if script fails
+		} else if output != nil {
+			slog.Info("Event processor script executed for damage event",
+				"execution_time", output.Metrics.ExecutionTime,
+				"chain_reaction", output.Result)
+
+			// Check if script indicates chain reaction
+			if result, ok := output.Result.(map[string]interface{}); ok {
+				if chainReaction, exists := result["chain_reaction"]; exists && chainReaction == true {
+					slog.Info("Chain reaction detected by script", "follow_up_events", result["follow_up_events"])
+					// Here you could process follow-up events if needed
+				}
+			}
+		}
+	}
+
 	// Generate a unique message ID for the HTML component
 	messageID := "damage-" + uuid.New().String()
 
@@ -94,6 +120,18 @@ func (s *Subscriber) handleDamageEvent(ctx context.Context, msg pubsub.Message) 
 }
 
 func (s *Subscriber) handleStateUpdateEvent(ctx context.Context, msg pubsub.Message) error {
+	// Execute event processor script if available
+	if s.scriptExecutor != nil {
+		output, err := s.scriptExecutor.ExecuteMessageHandler(ctx, msg.Topic, &msg, s.exposedFuncs)
+		if err != nil {
+			slog.Error("Script execution failed for state update event", "error", err)
+		} else if output != nil {
+			slog.Info("Event processor script executed for state update",
+				"execution_time", output.Metrics.ExecutionTime,
+				"active_units", output.Result)
+		}
+	}
+
 	// Forward the raw state to data clients
 	return s.publisher.Publish(ctx, pubsub.Message{
 		Topic:   "ws.data.broadcast", // Will be updated when WebSocket integration is complete
@@ -111,6 +149,26 @@ func (s *Subscriber) handlePlayerAction(ctx context.Context, msg pubsub.Message)
 		"player_id", action.PlayerID,
 		"action", action.Action,
 	)
+
+	// Execute event processor script if available
+	if s.scriptExecutor != nil {
+		output, err := s.scriptExecutor.ExecuteMessageHandler(ctx, msg.Topic, &msg, s.exposedFuncs)
+		if err != nil {
+			slog.Error("Script execution failed for player action", "error", err)
+		} else if output != nil {
+			slog.Info("Event processor script executed for player action",
+				"execution_time", output.Metrics.ExecutionTime,
+				"requires_validation", output.Result)
+
+			// Check if script indicates validation is required
+			if result, ok := output.Result.(map[string]interface{}); ok {
+				if requiresValidation, exists := result["requires_validation"]; exists && requiresValidation == true {
+					slog.Info("Player action requires validation", "action", action.Action, "player", action.PlayerID)
+					// Here you could add validation logic
+				}
+			}
+		}
+	}
 
 	// Process the action here
 	return nil

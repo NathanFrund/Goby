@@ -22,6 +22,7 @@ import (
 	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/registry"
 	"github.com/nfrund/goby/internal/rendering"
+	"github.com/nfrund/goby/internal/script"
 	"github.com/nfrund/goby/internal/websocket"
 	"github.com/nfrund/goby/web"
 )
@@ -38,6 +39,7 @@ type Server struct {
 	PresenceHandler  *handlers.PresenceHandler
 	HTMLBridge       *websocket.Bridge
 	DataBridge       *websocket.Bridge
+	ScriptEngine     script.ScriptEngine
 
 	modules []module.Module
 	PubSub  pubsub.Publisher
@@ -57,6 +59,7 @@ type Dependencies struct {
 	FileHandler      *handlers.FileHandler
 	DashboardHandler *handlers.DashboardHandler
 	PresenceHandler  *handlers.PresenceHandler
+	ScriptEngine     script.ScriptEngine
 }
 
 func setupErrorHandling(e *echo.Echo) {
@@ -147,6 +150,7 @@ func New(deps Dependencies) (*Server, error) {
 		FileHandler:      deps.FileHandler,
 		DashboardHandler: deps.DashboardHandler,
 		PresenceHandler:  deps.PresenceHandler,
+		ScriptEngine:     deps.ScriptEngine,
 	}
 
 	// Configure and use session middleware
@@ -224,6 +228,11 @@ func (s *Server) InitModules(ctx context.Context, modules []module.Module, reg *
 			slog.Error("Failed to boot module", "module", mod.Name(), "error", err)
 		}
 	}
+}
+
+// GetScriptEngine returns the script engine for use by modules
+func (s *Server) GetScriptEngine() script.ScriptEngine {
+	return s.ScriptEngine
 }
 
 // Start runs the HTTP server with graceful shutdown.

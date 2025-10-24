@@ -1,0 +1,31 @@
+log("Hello!")
+
+// Hit Simulator Script - With Logging
+rand := import("rand")
+
+log("Starting hit simulation...")
+
+// Simple hit calculation
+hit_chance := 0.7
+roll := rand.float()
+
+log("Roll: " + string(roll) + ", Hit chance: " + string(hit_chance))
+
+if roll <= hit_chance {
+    damage := 20 + int(rand.float() * 10)
+    log("Hit! Damage: " + string(damage))
+    result := {
+        "hit": true,
+        "damage": damage,
+        "roll": roll,
+        "message": "Hit for " + string(damage) + " damage!"
+    }
+} else {
+    log("Miss! Roll was too high")
+    result := {
+        "hit": false,
+        "damage": 0,
+        "roll": roll,
+        "message": "Attack missed!"
+    }
+}
