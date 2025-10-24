@@ -212,7 +212,7 @@ func TestContextAwareEngine_ExecuteWithContext(t *testing.T) {
 	provider := &MockEmbeddedScriptProvider{
 		moduleName: "test_module",
 		scripts: map[string]string{
-			"test_script": "result := test_var + '_processed'",
+			"test_script": "result := test_var + \"_processed\"",
 		},
 	}
 

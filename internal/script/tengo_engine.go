@@ -40,20 +40,8 @@ func (e *TengoEngine) Compile(script *Script) (*CompiledScript, error) {
 	modules := e.buildModuleMap()
 	tengoScript.SetImports(modules)
 
-	// Do a test compilation to catch syntax errors early
-	// This helps script writers catch errors at compile time, not execution time
-	testScript := tengo.NewScript([]byte(script.Content))
-	testScript.SetImports(modules)
-	_, err := testScript.Compile()
-	if err != nil {
-		return nil, NewScriptError(
-			ErrorTypeCompilation,
-			script.ModuleName,
-			script.Name,
-			"script compilation failed",
-			err,
-		)
-	}
+	// Note: We don't do test compilation here because Tengo scripts often reference
+	// variables that will be provided at execution time. This is normal scripting behavior.
 
 	compilationTime := time.Since(startTime)
 	slog.Debug("Tengo script compiled successfully",

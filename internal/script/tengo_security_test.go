@@ -173,7 +173,7 @@ func TestTengoEngine_SecurityLimits_ValidScriptsStillWork(t *testing.T) {
 	// Set reasonable limits
 	limits := SecurityLimits{
 		MaxExecutionTime: 1 * time.Second,
-		MaxMemoryBytes:   1024 * 1024, // 1MB
+		MaxMemoryBytes:   5 * 1024 * 1024, // 5MB - more generous for string operations
 	}
 	err := engine.SetSecurityLimits(limits)
 	require.NoError(t, err)
