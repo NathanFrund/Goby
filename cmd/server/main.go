@@ -343,7 +343,9 @@ func handleScriptExtraction(targetDir string, force bool, cfg config.Provider) e
 
 	// Initialize the script engine to load embedded scripts
 	ctx := context.Background()
-	if err := scriptEngine.Initialize(ctx); err != nil {
+	// Enable hot-reload by default, disable with HOT_RELOAD_SCRIPTS=false
+	hotReloadEnabled := os.Getenv("HOT_RELOAD_SCRIPTS") != "false"
+	if err := scriptEngine.Initialize(ctx, hotReloadEnabled); err != nil {
 		return fmt.Errorf("failed to initialize script engine: %w", err)
 	}
 

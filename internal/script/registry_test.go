@@ -29,9 +29,9 @@ func TestRegistry_RegisterAndLoadScripts(t *testing.T) {
 	provider := &MockEmbeddedScriptProvider{
 		moduleName: "test_module",
 		scripts: map[string]string{
-			"calculator.tengo":     "result := a + b",
-			"processor.zygomys":    "(defn process [x] (* x 2))",
-			"simple_script":        "x := 42",
+			"calculator.tengo":  "result := a + b",
+			"processor.zygomys": "(defn process [x] (* x 2))",
+			"simple_script":     "x := 42",
 		},
 	}
 
@@ -160,6 +160,6 @@ func TestRegistry_StartWatcher(t *testing.T) {
 	registry := NewRegistry()
 
 	// Should not error (placeholder implementation)
-	err := registry.StartWatcher(context.Background())
+	err := registry.StartWatcher(context.Background(), true)
 	assert.NoError(t, err)
 }

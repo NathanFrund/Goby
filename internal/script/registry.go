@@ -165,9 +165,15 @@ func (r *Registry) ListScripts() map[string][]string {
 }
 
 // StartWatcher begins monitoring external script files for changes
-func (r *Registry) StartWatcher(ctx context.Context) error {
+func (r *Registry) StartWatcher(ctx context.Context, enableHotReload bool) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	// Check if hot-reload is disabled
+	if !enableHotReload {
+		slog.Info("Hot-reload disabled, skipping file system watcher setup")
+		return nil
+	}
 
 	// Check if watcher is already active
 	if r.watcherActive {

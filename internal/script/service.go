@@ -3,6 +3,7 @@ package script
 import (
 	"context"
 	"log/slog"
+	"os"
 
 	"github.com/nfrund/goby/internal/config"
 	"github.com/nfrund/goby/internal/registry"
@@ -17,8 +18,12 @@ func RegisterService(reg *registry.Registry, cfg config.Provider) (*Engine, erro
 		Config: cfg,
 	})
 
+	// Check hot-reload configuration
+	hotReloadEnabled := os.Getenv("HOT_RELOAD_SCRIPTS") != "false" // Default to true
+	slog.Info("Script engine configuration", "hot_reload_enabled", hotReloadEnabled)
+
 	// Initialize the engine
-	if err := engine.Initialize(context.Background()); err != nil {
+	if err := engine.Initialize(context.Background(), hotReloadEnabled); err != nil {
 		return nil, err
 	}
 

@@ -14,30 +14,30 @@ import (
 // MockConfig implements config.Provider for testing
 type MockConfig struct{}
 
-func (m *MockConfig) GetServerAddr() string                 { return ":8080" }
-func (m *MockConfig) GetDBURL() string                      { return "" }
-func (m *MockConfig) GetDBNs() string                       { return "" }
-func (m *MockConfig) GetDBDb() string                       { return "" }
-func (m *MockConfig) GetDBUser() string                     { return "" }
-func (m *MockConfig) GetDBPass() string                     { return "" }
-func (m *MockConfig) GetEmailProvider() string              { return "mock" }
-func (m *MockConfig) GetEmailAPIKey() string                { return "" }
-func (m *MockConfig) GetEmailSender() string                { return "test@example.com" }
-func (m *MockConfig) GetAppBaseURL() string                  { return "http://localhost:8080" }
-func (m *MockConfig) GetSessionSecret() string              { return "test-secret" }
-func (m *MockConfig) GetDBQueryTimeout() time.Duration      { return 5 * time.Second }
-func (m *MockConfig) GetDBExecuteTimeout() time.Duration    { return 10 * time.Second }
-func (m *MockConfig) GetStorageBackend() string             { return "mem" }
-func (m *MockConfig) GetStoragePath() string                { return "/tmp" }
-func (m *MockConfig) GetMaxFileSize() int64                 { return 1024 * 1024 }
-func (m *MockConfig) GetAllowedMimeTypes() []string         { return []string{"text/plain"} }
+func (m *MockConfig) GetServerAddr() string                                 { return ":8080" }
+func (m *MockConfig) GetDBURL() string                                      { return "" }
+func (m *MockConfig) GetDBNs() string                                       { return "" }
+func (m *MockConfig) GetDBDb() string                                       { return "" }
+func (m *MockConfig) GetDBUser() string                                     { return "" }
+func (m *MockConfig) GetDBPass() string                                     { return "" }
+func (m *MockConfig) GetEmailProvider() string                              { return "mock" }
+func (m *MockConfig) GetEmailAPIKey() string                                { return "" }
+func (m *MockConfig) GetEmailSender() string                                { return "test@example.com" }
+func (m *MockConfig) GetAppBaseURL() string                                 { return "http://localhost:8080" }
+func (m *MockConfig) GetSessionSecret() string                              { return "test-secret" }
+func (m *MockConfig) GetDBQueryTimeout() time.Duration                      { return 5 * time.Second }
+func (m *MockConfig) GetDBExecuteTimeout() time.Duration                    { return 10 * time.Second }
+func (m *MockConfig) GetStorageBackend() string                             { return "mem" }
+func (m *MockConfig) GetStoragePath() string                                { return "/tmp" }
+func (m *MockConfig) GetMaxFileSize() int64                                 { return 1024 * 1024 }
+func (m *MockConfig) GetAllowedMimeTypes() []string                         { return []string{"text/plain"} }
 func (m *MockConfig) GetModuleConfig(moduleName string) (interface{}, bool) { return nil, false }
 
 func TestEngine_Initialize(t *testing.T) {
 	cfg := &MockConfig{}
 	engine := NewEngine(Dependencies{Config: cfg})
 
-	err := engine.Initialize(context.Background())
+	err := engine.Initialize(context.Background(), true)
 	assert.NoError(t, err)
 }
 
@@ -53,7 +53,7 @@ func TestEngine_RegisterEmbeddedProvider(t *testing.T) {
 	}
 
 	engine.RegisterEmbeddedProvider(provider)
-	err := engine.Initialize(context.Background())
+	err := engine.Initialize(context.Background(), true)
 	require.NoError(t, err)
 
 	// Test that we can get the script
@@ -76,7 +76,7 @@ func TestEngine_Execute(t *testing.T) {
 	}
 
 	engine.RegisterEmbeddedProvider(provider)
-	err := engine.Initialize(context.Background())
+	err := engine.Initialize(context.Background(), true)
 	require.NoError(t, err)
 
 	// Execute the script
@@ -110,7 +110,7 @@ func TestEngine_ExtractDefaultScripts(t *testing.T) {
 	}
 
 	engine.RegisterEmbeddedProvider(provider)
-	err := engine.Initialize(context.Background())
+	err := engine.Initialize(context.Background(), true)
 	require.NoError(t, err)
 
 	// Create temporary directory

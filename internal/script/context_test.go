@@ -217,7 +217,7 @@ func TestContextAwareEngine_ExecuteWithContext(t *testing.T) {
 	}
 
 	baseEngine.RegisterEmbeddedProvider(provider)
-	err := baseEngine.Initialize(context.Background())
+	err := baseEngine.Initialize(context.Background(), true)
 	require.NoError(t, err)
 
 	// Create context-aware engine
@@ -262,7 +262,7 @@ func TestContextAwareEngine_Timeout(t *testing.T) {
 	}
 
 	baseEngine.RegisterEmbeddedProvider(provider)
-	err := baseEngine.Initialize(context.Background())
+	err := baseEngine.Initialize(context.Background(), true)
 	require.NoError(t, err)
 
 	// Create context-aware engine

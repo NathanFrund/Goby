@@ -36,7 +36,7 @@ func NewEngine(deps Dependencies) *Engine {
 }
 
 // Initialize sets up the script engine and loads embedded scripts
-func (e *Engine) Initialize(ctx context.Context) error {
+func (e *Engine) Initialize(ctx context.Context, enableHotReload bool) error {
 	slog.Info("Initializing script engine")
 
 	// Load all embedded scripts
@@ -45,7 +45,7 @@ func (e *Engine) Initialize(ctx context.Context) error {
 	}
 
 	// Start file system watcher for hot-reloading
-	if err := e.registry.StartWatcher(ctx); err != nil {
+	if err := e.registry.StartWatcher(ctx, enableHotReload); err != nil {
 		slog.Error("Failed to start file system watcher", "error", err)
 		// Don't fail initialization if watcher fails to start
 	}

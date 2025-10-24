@@ -42,7 +42,7 @@ func TestRegistry_HotReloading(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	err = registry.StartWatcher(ctx)
+	err = registry.StartWatcher(ctx, true)
 	require.NoError(t, err)
 
 	// Give watcher time to initialize
@@ -95,7 +95,7 @@ func TestRegistry_HotReloadingNewFile(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	err = registry.StartWatcher(ctx)
+	err = registry.StartWatcher(ctx, true)
 	require.NoError(t, err)
 
 	// Give watcher time to initialize
@@ -164,7 +164,7 @@ func TestRegistry_HotReloadingDeleteFile(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	err = registry.StartWatcher(ctx)
+	err = registry.StartWatcher(ctx, true)
 	require.NoError(t, err)
 
 	// Give watcher time to initialize
@@ -296,6 +296,6 @@ func TestRegistry_WatcherWithoutScriptsDirectory(t *testing.T) {
 	defer cancel()
 
 	// Should not error when scripts directory doesn't exist
-	err = registry.StartWatcher(ctx)
+	err = registry.StartWatcher(ctx, true)
 	assert.NoError(t, err)
 }

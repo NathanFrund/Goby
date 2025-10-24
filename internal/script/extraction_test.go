@@ -33,7 +33,7 @@ func TestEngine_ExtractDefaultScripts_Detailed(t *testing.T) {
 	engine.RegisterEmbeddedProvider(provider)
 
 	// Initialize engine to load scripts
-	err = engine.Initialize(context.Background())
+	err = engine.Initialize(context.Background(), true)
 	require.NoError(t, err)
 
 	// Extract scripts
@@ -89,7 +89,7 @@ func TestEngine_ExtractDefaultScripts_SkipExisting(t *testing.T) {
 	engine.RegisterEmbeddedProvider(provider)
 
 	// Initialize engine to load scripts
-	err = engine.Initialize(context.Background())
+	err = engine.Initialize(context.Background(), true)
 	require.NoError(t, err)
 
 	// Create extraction directory and pre-existing file

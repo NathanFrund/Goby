@@ -22,7 +22,7 @@ func TestScriptExecutor_ExecuteMessageHandler(t *testing.T) {
 	}
 
 	engine.RegisterEmbeddedProvider(provider)
-	err := engine.Initialize(context.Background())
+	err := engine.Initialize(context.Background(), true)
 	require.NoError(t, err)
 
 	// Create script config
@@ -65,7 +65,7 @@ func TestScriptExecutor_ExecuteEndpointScript(t *testing.T) {
 	}
 
 	engine.RegisterEmbeddedProvider(provider)
-	err := engine.Initialize(context.Background())
+	err := engine.Initialize(context.Background(), true)
 	require.NoError(t, err)
 
 	// Create script config
@@ -109,7 +109,7 @@ func TestScriptExecutor_ExecuteScript(t *testing.T) {
 	}
 
 	engine.RegisterEmbeddedProvider(provider)
-	err := engine.Initialize(context.Background())
+	err := engine.Initialize(context.Background(), true)
 	require.NoError(t, err)
 
 	config := GetDefaultModuleScriptConfig()
@@ -131,7 +131,7 @@ func TestScriptExecutor_NoHandlerConfigured(t *testing.T) {
 	// Setup
 	cfg := &MockConfig{}
 	engine := NewEngine(Dependencies{Config: cfg})
-	err := engine.Initialize(context.Background())
+	err := engine.Initialize(context.Background(), true)
 	require.NoError(t, err)
 
 	config := GetDefaultModuleScriptConfig()
@@ -179,7 +179,7 @@ func TestModuleScriptHelper_RegisterEmbeddedScripts(t *testing.T) {
 	helper.RegisterEmbeddedScripts(provider)
 
 	// Initialize engine to load scripts
-	err := engine.Initialize(context.Background())
+	err := engine.Initialize(context.Background(), true)
 	require.NoError(t, err)
 
 	// Verify script was registered

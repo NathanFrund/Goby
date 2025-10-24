@@ -34,7 +34,7 @@ type ScriptRegistry interface {
 	ListScripts() map[string][]string
 
 	// StartWatcher begins monitoring external script files for changes
-	StartWatcher(ctx context.Context) error
+	StartWatcher(ctx context.Context, enableHotReload bool) error
 }
 
 // EngineFactory creates language-specific script engines
