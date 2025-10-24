@@ -40,17 +40,31 @@ func (e *TengoEngine) Compile(script *Script) (*CompiledScript, error) {
 	modules := e.buildModuleMap()
 	tengoScript.SetImports(modules)
 
-	// Store the script for later compilation with variables
+	// Do a test compilation to catch syntax errors early
+	// This helps script writers catch errors at compile time, not execution time
+	testScript := tengo.NewScript([]byte(script.Content))
+	testScript.SetImports(modules)
+	_, err := testScript.Compile()
+	if err != nil {
+		return nil, NewScriptError(
+			ErrorTypeCompilation,
+			script.ModuleName,
+			script.Name,
+			"script compilation failed",
+			err,
+		)
+	}
+
 	compilationTime := time.Since(startTime)
-	slog.Debug("Tengo script prepared for compilation",
+	slog.Debug("Tengo script compiled successfully",
 		"module", script.ModuleName,
 		"script", script.Name,
-		"preparation_time", compilationTime,
+		"compilation_time", compilationTime,
 	)
 
 	return &CompiledScript{
 		Script:   script,
-		Compiled: tengoScript, // Store the script, not the compiled version yet
+		Compiled: tengoScript, // Store the prepared script for execution
 	}, nil
 }
 
@@ -98,9 +112,15 @@ func (e *TengoEngine) Execute(ctx context.Context, compiled *CompiledScript, inp
 		)
 	}
 
-	// Execute the script in a goroutine to handle timeouts
+	// Execute the script in a goroutine to handle timeouts and panics
 	resultChan := make(chan error, 1)
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				// Convert panic to error
+				resultChan <- fmt.Errorf("script panic: %v", r)
+			}
+		}()
 		resultChan <- tengoCompiled.Run()
 	}()
 
