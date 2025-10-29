@@ -123,7 +123,7 @@ func (s *FileStore) FindLatestByUser(ctx context.Context, userID *surrealmodels.
 }
 
 // FindByUser retrieves file metadata records for a given user, ordered by creation date (newest first).
-// 
+//
 // Parameters:
 //   - ctx: The context for the database operation
 //   - userID: The ID of the user whose files to retrieve
@@ -136,14 +136,15 @@ func (s *FileStore) FindLatestByUser(ctx context.Context, userID *surrealmodels.
 //   - error: Any error that occurred during the operation
 //
 // Example usage:
-//   // Get all files without pagination
-//   files, total, err := fileStore.FindByUser(ctx, userID, 0, 0)
 //
-//   // Get paginated results (first page, 10 items)
-//   files, total, err := fileStore.FindByUser(ctx, userID, 10, 0)
+//	// Get all files without pagination
+//	files, total, err := fileStore.FindByUser(ctx, userID, 0, 0)
 //
-//   // Get next page
-//   files, total, err = fileStore.FindByUser(ctx, userID, 10, 10)
+//	// Get paginated results (first page, 10 items)
+//	files, total, err := fileStore.FindByUser(ctx, userID, 10, 0)
+//
+//	// Get next page
+//	files, total, err = fileStore.FindByUser(ctx, userID, 10, 10)
 //
 // Notes:
 // - Files are always ordered by created_at in descending order (newest first)
@@ -155,44 +156,57 @@ func (s *FileStore) FindByUser(ctx context.Context, userID *surrealmodels.Record
 		return nil, 0, NewDBError(ErrInvalidInput, "user ID is required")
 	}
 
-	// First, get all files to determine the total count
-	allFiles, err := s.client.Query(ctx, "SELECT * FROM file WHERE user_id = $userID",
-		map[string]any{"userID": userID})
-	if err != nil {
-		return nil, 0, fmt.Errorf("failed to get user files: %w", err)
+	// Define a local struct to unmarshal the query result, which includes the total count.
+	// The `total` field from the subquery will be an array with one object: `[{ "count": 5 }]`.
+	type fileWithTotal struct {
+		domain.File
+		Total []struct {
+			Count int64 `json:"count"`
+		} `json:"total"`
 	}
 
-	total := int64(len(allFiles))
-
-	// If no files, return early
-	if total == 0 {
-		return []*domain.File{}, 0, nil
-	}
-
-	// Build the base query
-	query := "SELECT * FROM file WHERE user_id = $userID ORDER BY created_at DESC"
+	// Use a single query to fetch both the paginated data and the total count.
+	// The outer SELECT handles pagination, and the inner subquery provides the total count.
+	query := `
+		SELECT
+			*,
+			(SELECT count() FROM file WHERE user_id = $userID GROUP ALL) AS total
+		FROM file WHERE user_id = $userID
+		ORDER BY created_at DESC
+	`
 	vars := map[string]any{"userID": userID}
 
 	// Add pagination only if limit > 0
 	if limit > 0 {
-		query += " LIMIT $limit"
+		query += " LIMIT $limit START $offset"
 		vars["limit"] = limit
-		if offset > 0 {
-			query += " START $offset"
-			vars["offset"] = offset
-		}
+		vars["offset"] = offset
 	}
 
-	// Execute the query
-	files, err := s.client.Query(ctx, query, vars)
+	// Since this query has a custom return shape (with the 'total' field), we create a
+	// temporary client typed to our local struct. This is a clean way to handle
+	// one-off query shapes without modifying the store's primary client.
+	// We can reuse the underlying connection from the main client.
+	tempClient, err := NewClient[fileWithTotal](s.client.(*client[domain.File]).conn)
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to query for user files: %w", err)
+		return nil, 0, fmt.Errorf("failed to create temporary client for user files query: %w", err)
 	}
 
-	// Convert the slice of values to a slice of pointers as required by the interface.
-	filePtrs := make([]*domain.File, 0, len(files))
-	for i := range files {
-		filePtrs = append(filePtrs, &files[i])
+	// Execute the query using the temporary client.
+	results, err := tempClient.Query(ctx, query, vars)
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to query for user files with count: %w", err)
+	}
+
+	if len(results) == 0 {
+		return []*domain.File{}, 0, nil
+	}
+
+	// The total count is returned on the first record of the subquery result.
+	total := results[0].Total[0].Count
+	filePtrs := make([]*domain.File, 0, len(results))
+	for i := range results {
+		filePtrs = append(filePtrs, &results[i].File)
 	}
 
 	return filePtrs, total, nil

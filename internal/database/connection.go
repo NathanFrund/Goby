@@ -265,3 +265,13 @@ func (c *Connection) GetDBNs() string {
 func (c *Connection) GetDBDb() string {
 	return c.cfg.GetDBDb()
 }
+
+// GetDBQueryTimeout returns the query timeout from the config provider.
+func (c *Connection) GetDBQueryTimeout() time.Duration {
+	return c.cfg.GetDBQueryTimeout()
+}
+
+// GetDBExecuteTimeout returns the execute timeout from the config provider.
+func (c *Connection) GetDBExecuteTimeout() time.Duration {
+	return c.cfg.GetDBExecuteTimeout()
+}

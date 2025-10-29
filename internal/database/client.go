@@ -4,32 +4,27 @@ import (
 	"context"
 	"fmt"
 	"time"
-
-	"github.com/nfrund/goby/internal/config"
 )
 
 type client[T any] struct {
-	conn           *Connection
+	conn           DBConnection
 	executor       QueryExecutor[T]
 	queryTimeout   time.Duration
 	executeTimeout time.Duration
 }
 
 // NewClient creates a new type-safe database client
-func NewClient[T any](conn *Connection, cfg config.Provider, opts ...ClientOption[T]) (Client[T], error) {
+func NewClient[T any](conn DBConnection, opts ...ClientOption[T]) (Client[T], error) {
 	if conn == nil {
 		return nil, NewDBError(ErrInvalidInput, "connection cannot be nil")
 	}
-	if cfg == nil {
-		return nil, NewDBError(ErrInvalidInput, "config provider cannot be nil")
-	}
 
 	// Validate configuration values
-	queryTimeout := cfg.GetDBQueryTimeout()
+	queryTimeout := conn.GetDBQueryTimeout()
 	if queryTimeout <= 0 {
 		return nil, NewDBError(ErrInvalidInput, "DB_QUERY_TIMEOUT must be a positive duration")
 	}
-	executeTimeout := cfg.GetDBExecuteTimeout()
+	executeTimeout := conn.GetDBExecuteTimeout()
 	if executeTimeout <= 0 {
 		return nil, NewDBError(ErrInvalidInput, "DB_EXECUTE_TIMEOUT must be a positive duration")
 	}
@@ -37,8 +32,8 @@ func NewClient[T any](conn *Connection, cfg config.Provider, opts ...ClientOptio
 	c := &client[T]{
 		conn:           conn,
 		executor:       NewSurrealExecutor[T](conn),
-		queryTimeout:   cfg.GetDBQueryTimeout(),
-		executeTimeout: cfg.GetDBExecuteTimeout(),
+		queryTimeout:   conn.GetDBQueryTimeout(),
+		executeTimeout: conn.GetDBExecuteTimeout(),
 	}
 
 	// Apply options
@@ -154,7 +149,7 @@ func (c *client[T]) Delete(ctx context.Context, id string) error {
 func (c *client[T]) Close() error {
 	// The connection manager owns the close logic
 	if c.conn != nil {
-		return c.conn.Close(context.Background())
+		return c.conn.Close(context.Background()) // DBConnection has a Close method
 	}
 	return nil
 }

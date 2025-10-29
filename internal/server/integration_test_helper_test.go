@@ -56,7 +56,7 @@ func setupIntegrationTest(t *testing.T) (*server.Server, *httptest.Server, func(
 	require.NoError(t, err)
 	dbConn.StartMonitoring()
 
-	userDBClient, err := database.NewClient[domain.User](dbConn, cfg)
+	userDBClient, err := database.NewClient[domain.User](dbConn)
 	require.NoError(t, err)
 
 	userStore := database.NewUserStore(userDBClient, dbConn)

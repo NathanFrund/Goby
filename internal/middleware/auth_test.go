@@ -35,7 +35,7 @@ func TestAuthMiddleware(t *testing.T) {
 	defer cleanup()
 
 	// Create a client and user store
-	userDBClient, err := database.NewClient[domain.User](conn, cfg)
+	userDBClient, err := database.NewClient[domain.User](conn)
 	require.NoError(t, err)
 	userStore := database.NewUserStore(userDBClient, conn)
 

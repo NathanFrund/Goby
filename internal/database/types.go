@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"time"
 
 	"github.com/surrealdb/surrealdb.go"
 )
@@ -19,6 +20,8 @@ type DBConnection interface {
 	Connect(ctx context.Context) error
 	GetDBNs() string
 	GetDBDb() string
+	GetDBQueryTimeout() time.Duration
+	GetDBExecuteTimeout() time.Duration
 }
 
 // Client defines the main database client interface with type-safe methods.
