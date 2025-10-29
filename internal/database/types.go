@@ -6,6 +6,21 @@ import (
 	"github.com/surrealdb/surrealdb.go"
 )
 
+// DBConnection defines the interface for a managed database connection.
+// It abstracts the underlying database driver and handles connection logic,
+// allowing repositories to perform driver-specific operations without being
+// tied to a concrete implementation.
+type DBConnection interface {
+	DB() (*surrealdb.DB, error)
+	WithConnection(ctx context.Context, fn func(*surrealdb.DB) error) error
+	Close(ctx context.Context) error
+	IsHealthy() bool
+	StartMonitoring()
+	Connect(ctx context.Context) error
+	GetDBNs() string
+	GetDBDb() string
+}
+
 // Client defines the main database client interface with type-safe methods.
 // It provides a generic interface for database operations on a specific type T.
 type Client[T any] interface {
@@ -42,11 +57,6 @@ type Client[T any] interface {
 	// Execute runs a query that doesn't return any rows (e.g., INSERT, UPDATE, DELETE).
 	// Use this for operations where you don't need to process the returned data.
 	Execute(ctx context.Context, query string, params map[string]any) error
-
-	// DB returns the raw underlying database connection.
-	// Use this method sparingly, only when you need to perform operations
-	// not supported by the generic client interface.
-	DB() (*surrealdb.DB, error)
 
 	// Close releases any resources associated with the client.
 	// Always call this when the client is no longer needed.

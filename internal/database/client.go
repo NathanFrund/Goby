@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/nfrund/goby/internal/config"
-	"github.com/surrealdb/surrealdb.go"
 )
 
 type client[T any] struct {
@@ -69,11 +68,6 @@ func (c *client[T]) Execute(ctx context.Context, query string, params map[string
 	ctx, cancel := getTimeoutFromContext(ctx, c.executeTimeout, ContextKeyExecuteTimeout)
 	defer cancel()
 	return c.executor.Execute(ctx, query, params)
-}
-
-// DB implements the Client interface
-func (c *client[T]) DB() (*surrealdb.DB, error) {
-	return c.conn.DB()
 }
 
 // Create implements the Client interface

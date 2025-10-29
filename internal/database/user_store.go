@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/nfrund/goby/internal/config"
 	"github.com/nfrund/goby/internal/domain"
 )
 
@@ -17,16 +16,14 @@ import (
 // type-safe v2 database client.
 type UserStore struct {
 	client Client[domain.User]
-	ns     string
-	dbName string
+	dbConn DBConnection
 }
 
 // NewUserStore creates a new user repository with a type-safe client.
-func NewUserStore(dbClient Client[domain.User], cfg config.Provider) domain.UserRepository {
+func NewUserStore(dbClient Client[domain.User], dbConn DBConnection) domain.UserRepository {
 	return &UserStore{
 		client: dbClient,
-		ns:     cfg.GetDBNs(),
-		dbName: cfg.GetDBDb(),
+		dbConn: dbConn,
 	}
 }
 
@@ -85,7 +82,7 @@ func (s *UserStore) GetUserWithPassword(ctx context.Context, email string) (*dom
 // SignUp registers a new user atomically. It checks for an existing user and
 // creates a new one with a hashed password in a single query.
 func (s *UserStore) SignUp(ctx context.Context, user *domain.User, password string) (string, error) {
-	db, err := s.client.DB()
+	db, err := s.dbConn.DB()
 	if err != nil {
 		return "", fmt.Errorf("could not get database connection for sign up: %w", err)
 	}
@@ -93,9 +90,9 @@ func (s *UserStore) SignUp(ctx context.Context, user *domain.User, password stri
 	// Use the driver's built-in SignUp method. It handles the scope-based user creation.
 	// The returned token is discarded here; signing in is a separate, explicit step.
 	// Format matches the JavaScript SDK's implementation
-	_, err = db.SignUp(ctx, map[string]interface{}{
-		"ns":       s.ns,
-		"db":       s.dbName,
+	_, err = db.SignUp(ctx, map[string]any{
+		"ns":       s.dbConn.GetDBNs(),
+		"db":       s.dbConn.GetDBDb(),
 		"ac":       "account", // 'ac' for access control, as expected by the driver
 		"email":    user.Email,
 		"password": password,
@@ -116,15 +113,15 @@ func (s *UserStore) SignUp(ctx context.Context, user *domain.User, password stri
 
 // SignIn validates user credentials and returns a session token.
 func (s *UserStore) SignIn(ctx context.Context, user *domain.User, password string) (string, error) {
-	db, err := s.client.DB()
+	db, err := s.dbConn.DB()
 	if err != nil {
 		return "", fmt.Errorf("could not get database connection for sign in: %w", err)
 	}
 
 	// Use the driver's built-in SignIn method, which is the most reliable way.
-	data := map[string]interface{}{
-		"ns":       s.ns,
-		"db":       s.dbName,
+	data := map[string]any{
+		"ns":       s.dbConn.GetDBNs(),
+		"db":       s.dbConn.GetDBDb(),
 		"ac":       "account", // 'ac' for access control, as expected by the driver
 		"email":    user.Email,
 		"password": password,
@@ -135,7 +132,7 @@ func (s *UserStore) SignIn(ctx context.Context, user *domain.User, password stri
 
 // Authenticate validates a session token and returns the associated user.
 func (s *UserStore) Authenticate(ctx context.Context, token string) (*domain.User, error) {
-	db, err := s.client.DB()
+	db, err := s.dbConn.DB()
 	if err != nil {
 		return nil, fmt.Errorf("could not get database connection for authentication: %w", err)
 	}

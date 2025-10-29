@@ -23,7 +23,6 @@ import (
 	"github.com/nfrund/goby/internal/server"
 	"github.com/nfrund/goby/internal/topicmgr"
 	wsTopics "github.com/nfrund/goby/internal/websocket"
-	ws "github.com/nfrund/goby/internal/websocket"
 	"github.com/stretchr/testify/require"
 )
 
@@ -60,7 +59,7 @@ func setupIntegrationTest(t *testing.T) (*server.Server, *httptest.Server, func(
 	userDBClient, err := database.NewClient[domain.User](dbConn, cfg)
 	require.NoError(t, err)
 
-	userStore := database.NewUserStore(userDBClient, cfg)
+	userStore := database.NewUserStore(userDBClient, dbConn)
 
 	reg.Set((*config.Provider)(nil), cfg)
 	reg.Set((*domain.UserRepository)(nil), userStore)
@@ -74,18 +73,18 @@ func setupIntegrationTest(t *testing.T) (*server.Server, *httptest.Server, func(
 	topicManager := topicmgr.Default()
 
 	// Register WebSocket framework topics
-	err = wsTopics.RegisterTopics()
+	err = wsTopics.RegisterTopics() // Retain wsTopics alias for clarity if desired, or change to `ws.RegisterTopics()`
 	require.NoError(t, err, "Failed to register WebSocket topics")
 
 	// Create bridges with dependencies
-	htmlBridge := ws.NewBridge("html", ws.BridgeDependencies{
+	htmlBridge := wsTopics.NewBridge("html", wsTopics.BridgeDependencies{ // Use wsTopics alias
 		Publisher:    ps,
 		Subscriber:   ps,
 		TopicManager: topicManager,
 		ReadyTopic:   wsTopics.TopicClientReady,
 	})
 
-	dataBridge := ws.NewBridge("data", ws.BridgeDependencies{
+	dataBridge := wsTopics.NewBridge("data", wsTopics.BridgeDependencies{ // Use wsTopics alias
 		Publisher:    ps,
 		Subscriber:   ps,
 		TopicManager: topicManager,

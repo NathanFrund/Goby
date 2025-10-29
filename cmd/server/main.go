@@ -101,7 +101,7 @@ func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Serve
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
-	dbConn.StartMonitoring()
+	dbConn.StartMonitoring() // This is a concrete type `*database.Connection`
 
 	closers = append(closers, func() error {
 		slog.Info("Closing database connection...")
@@ -194,7 +194,7 @@ func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Serve
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create user db client: %w", err)
 	}
-	userStore := database.NewUserStore(userDBClient, cfg)
+	userStore := database.NewUserStore(userDBClient, dbConn) // Pass the connection manager
 
 	// Web Framework (renderer already created above)
 	e := echo.New()

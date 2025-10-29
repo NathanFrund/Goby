@@ -16,7 +16,7 @@ import (
 )
 
 // Connection manages a SurrealDB connection with reconnection support
-type Connection struct {
+type Connection struct { // Implements DBConnection
 	cfg     config.Provider
 	conn    *surrealdb.DB
 	mu      sync.RWMutex
@@ -254,4 +254,14 @@ func redactDBURL(dbURL string) string {
 	// The `Redacted()` method on url.URL safely returns the URL string
 	// with the password replaced by "xxxxx".
 	return parsedURL.Redacted()
+}
+
+// GetDBNs returns the database namespace from the config provider.
+func (c *Connection) GetDBNs() string {
+	return c.cfg.GetDBNs()
+}
+
+// GetDBDb returns the database name from the config provider.
+func (c *Connection) GetDBDb() string {
+	return c.cfg.GetDBDb()
 }
