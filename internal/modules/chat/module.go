@@ -62,6 +62,15 @@ func (m *ChatModule) Name() string {
 	return "chat"
 }
 
+// Register registers the chat module's services and topics with the registry.
+func (m *ChatModule) Register(reg *registry.Registry) error {
+	// Register chat module topics
+	if err := topics.RegisterTopics(); err != nil {
+		return err
+	}
+	return nil
+}
+
 // Shutdown is called on application termination.
 func (m *ChatModule) Shutdown(ctx context.Context) error {
 	slog.Info("Shutting down ChatModule...")
@@ -71,11 +80,6 @@ func (m *ChatModule) Shutdown(ctx context.Context) error {
 
 // Boot sets up the routes and starts background services for the chat module.
 func (m *ChatModule) Boot(ctx context.Context, g *echo.Group, reg *registry.Registry) error {
-	// Register chat module topics
-	if err := topics.RegisterTopics(); err != nil {
-		return err
-	}
-
 	// --- Start Background Services ---
 
 	// Create and start the chat subscriber in a goroutine.

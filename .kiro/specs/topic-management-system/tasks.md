@@ -102,7 +102,7 @@
 
 - [ ] 7. Create CLI tools for topic management and debugging
 
-  - [ ] 7.1 Implement topic listing and inspection commands
+  - [x] 7.1 Implement topic listing and inspection commands
 
     - Create cmd/topics/list.go for listing all registered topics
     - Add filtering options by module, scope, and pattern matching
