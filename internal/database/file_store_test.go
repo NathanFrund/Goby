@@ -23,11 +23,11 @@ func setupFileStoreTest(t *testing.T) (*FileStore, Client[domain.File], Client[T
 	conn.StartMonitoring()
 
 	// Client for file operations.
-	fileClient, err := NewClient[domain.File](conn, cfg)
+	fileClient, err := NewClient[domain.File](conn)
 	require.NoError(t, err)
 
 	// Client for creating test users.
-	userClient, err := NewClient[TestUser](conn, cfg)
+	userClient, err := NewClient[TestUser](conn)
 	require.NoError(t, err)
 
 	store := NewFileStore(fileClient)

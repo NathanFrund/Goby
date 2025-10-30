@@ -10,11 +10,11 @@ import (
 
 // surrealExecutor implements the QueryExecutor interface for SurrealDB
 type surrealExecutor[T any] struct {
-	conn *Connection
+	conn DBConnection
 }
 
 // NewSurrealExecutor creates a new SurrealDB query executor
-func NewSurrealExecutor[T any](conn *Connection) QueryExecutor[T] {
+func NewSurrealExecutor[T any](conn DBConnection) QueryExecutor[T] {
 	return &surrealExecutor[T]{conn: conn}
 }
 

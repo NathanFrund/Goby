@@ -38,10 +38,10 @@ func TestClient(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	conn, cfg, cleanup := setupTestDB(t)
+	conn, _, cleanup := setupTestDB(t)
 	defer cleanup()
 
-	client, err := NewClient[TestUser](conn, cfg)
+	client, err := NewClient[TestUser](conn)
 	require.NoError(t, err)
 
 	t.Run("Create and Select", func(t *testing.T) {
@@ -175,7 +175,7 @@ func TestClient_Timeouts(t *testing.T) {
 	defer cleanup()
 
 	// Use a generic client for this test
-	client, err := NewClient[any](conn, cfg)
+	client, err := NewClient[any](conn)
 	require.NoError(t, err)
 
 	// Retrieve the configured execution timeout to use as the test boundary.

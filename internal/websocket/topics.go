@@ -1,6 +1,10 @@
 package websocket
 
-import "github.com/nfrund/goby/internal/topicmgr"
+import (
+	"strings"
+
+	"github.com/nfrund/goby/internal/topicmgr"
+)
 
 // Framework topics for WebSocket communication
 // These topics are used by the WebSocket bridge for routing messages
@@ -65,7 +69,7 @@ var (
 		Pattern:     "ws.client.ready",
 		Example:     `{"endpoint":"html","userID":"user123","connectionID":"conn456"}`,
 		Metadata: map[string]interface{}{
-			"event_type": "lifecycle",
+			"event_type":     "lifecycle",
 			"payload_fields": []string{"endpoint", "userID", "connectionID"},
 		},
 	})
@@ -77,16 +81,21 @@ var (
 		Pattern:     "ws.client.disconnected",
 		Example:     `{"endpoint":"html","userID":"user123","connectionID":"conn456","reason":"client_closed"}`,
 		Metadata: map[string]interface{}{
-			"event_type": "lifecycle",
+			"event_type":     "lifecycle",
 			"payload_fields": []string{"endpoint", "userID", "connectionID", "reason"},
 		},
 	})
 )
 
-// RegisterTopics registers all WebSocket framework topics with the topic manager
+// RegisterTopics registers all WebSocket framework topics with the default topic manager
+// This function is idempotent - it will not fail if topics are already registered
 func RegisterTopics() error {
-	manager := topicmgr.Default()
-	
+	return RegisterTopicsWithManager(topicmgr.Default())
+}
+
+// RegisterTopicsWithManager registers all WebSocket framework topics with the specified topic manager
+// This function is idempotent - it will not fail if topics are already registered
+func RegisterTopicsWithManager(manager *topicmgr.Manager) error {
 	topics := []topicmgr.Topic{
 		TopicHTMLBroadcast,
 		TopicHTMLDirect,
@@ -95,13 +104,17 @@ func RegisterTopics() error {
 		TopicClientReady,
 		TopicClientDisconnected,
 	}
-	
+
 	for _, topic := range topics {
 		if err := manager.Register(topic); err != nil {
-			return err
+			// Check if this is a "already registered" error, which we can ignore
+			if strings.Contains(err.Error(), "already registered") {
+				continue // Skip already registered topics
+			}
+			return err // Return other errors
 		}
 	}
-	
+
 	return nil
 }
 

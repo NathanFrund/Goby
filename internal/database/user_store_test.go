@@ -29,14 +29,14 @@ func setupUserStoreTest(t *testing.T) (*UserStore, Client[TestUser], func()) {
 	conn.StartMonitoring()
 
 	// Client for the UserStore, typed to the domain model.
-	domainClient, err := NewClient[domain.User](conn, cfg)
+	domainClient, err := NewClient[domain.User](conn)
 	require.NoError(t, err)
 
 	// Client for the test functions, typed to the test model to handle the password field.
-	testClient, err := NewClient[TestUser](conn, cfg)
+	testClient, err := NewClient[TestUser](conn)
 	require.NoError(t, err)
 
-	store := NewUserStore(domainClient, cfg).(*UserStore)
+	store := NewUserStore(domainClient, conn).(*UserStore)
 
 	cleanup := func() {
 		conn.Close(context.Background())

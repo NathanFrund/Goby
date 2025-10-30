@@ -101,7 +101,7 @@ func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Serve
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
-	dbConn.StartMonitoring()
+	dbConn.StartMonitoring() // This is a concrete type `*database.Connection`
 
 	closers = append(closers, func() error {
 		slog.Info("Closing database connection...")
@@ -190,11 +190,11 @@ func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Serve
 	slog.Info("Script engine initialized")
 
 	// User Store (using the new v2 client)
-	userDBClient, err := database.NewClient[domain.User](dbConn, cfg)
+	userDBClient, err := database.NewClient[domain.User](dbConn)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create user db client: %w", err)
 	}
-	userStore := database.NewUserStore(userDBClient, cfg)
+	userStore := database.NewUserStore(userDBClient, dbConn) // Pass the connection manager
 
 	// Web Framework (renderer already created above)
 	e := echo.New()
@@ -209,7 +209,7 @@ func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Serve
 		fileStorage = storage.NewAferoStore(afero.NewBasePathFs(afero.NewOsFs(), cfg.GetStoragePath()))
 	}
 
-	fileClient, err := database.NewClient[domain.File](dbConn, cfg)
+	fileClient, err := database.NewClient[domain.File](dbConn)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create file db client: %w", err)
 	}

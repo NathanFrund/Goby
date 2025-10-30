@@ -199,6 +199,7 @@ Goby provides two WebSocket endpoints for different types of communication:
 #### Message Types
 
 1. **Broadcast Messages**
+
    - Sent to all connected clients
    - Use topic: `ws.{endpoint}.broadcast` (e.g., `ws.html.broadcast`)
    - Example:
@@ -227,16 +228,18 @@ Goby provides two WebSocket endpoints for different types of communication:
 Goby supports multiple client types through its flexible architecture:
 
 1. **Web Browsers (HTMX)**
+
    - Connects to `/ws/html` for HTML fragments
    - Zero client-side JavaScript required for basic interactions
    - Automatic DOM updates via HTMX WebSockets
 
 2. **Data Clients**
+
    - Connects to `/ws/data` for JSON data
    - Ideal for mobile apps or custom JavaScript applications
    - Example WebSocket endpoint: `/ws/html`
 
-2. **Native Mobile/Desktop Apps**
+3. **Native Mobile/Desktop Apps**
    - Connects via WebSockets or HTTP/2 Server-Sent Events (SSE)
    - Receives structured JSON data instead of HTML
    - Can subscribe to specific data channels
@@ -334,6 +337,7 @@ h.publisher.Publish("html-broadcast", message.NewMessage(
 Goby includes a security feature that requires all WebSocket actions to be explicitly whitelisted. This prevents unauthorized clients from publishing to arbitrary topics.
 
 #### Key Features:
+
 - **Whitelist-based Security**: Only actions explicitly allowed can be published by clients
 - **Thread-Safe**: Safe for concurrent access from multiple goroutines
 - **Dynamic Registration**: Modules can register their allowed actions during initialization
@@ -346,12 +350,12 @@ Goby includes a security feature that requires all WebSocket actions to be expli
 func (m *ChatModule) Register(sl registry.ServiceLocator, cfg config.Provider) error {
     // Get the WebSocket bridge
     wsBridge := sl.Get(registry.WebSocketBridgeKey).(*websocket.Bridge)
-    
+
     // Register allowed WebSocket actions
     if err := wsBridge.AllowAction("chat.message"); err != nil {
         return fmt.Errorf("failed to register chat.message action: %w", err)
     }
-    
+
     // Register more actions as needed
     return nil
 }
@@ -714,29 +718,32 @@ This approach offers several benefits:
 
 #### Database Access
 
-Modules that need to interact with the database can do so by resolving the core, resilient `database.Connection` manager from the registry during their `Boot` phase. This allows a module to create its own type-safe clients or executors for its specific data models without modifying `main.go`.
+Modules that need to interact with the database can do so by resolving the core, resilient `database.DBConnection` interface from the registry during their `Boot` phase. This allows a module to create its own type-safe clients for its specific data models without modifying `main.go`.
 
 This pattern provides both flexibility and type safety, empowering module authors to choose the right level of abstraction for their needs.
 
-**Example: Using a Type-Safe Query Executor (Recommended)**
+**Example: Using a Type-Safe Client (Recommended)**
 
-For most modules that need to run custom queries, the `database.QueryExecutor[T]` provides the ideal balance of flexibility and resilience.
+For most modules, the `database.Client[T]` provides the ideal balance of type-safety, resilience, and ease of use.
 
 ```go
 // in your module's Boot method
 func (m *YourModule) Boot(ctx context.Context, g *echo.Group, reg *registry.Registry) error {
     // 1. Resolve the core connection manager.
-    conn, err := registry.Get[*database.Connection](reg)
+    dbConn, err := registry.Get[database.DBConnection](reg)
     if err != nil {
         return fmt.Errorf("failed to get database connection: %w", err)
     }
 
-    // 2. Create a type-safe executor for this module's specific data model.
+    // 2. Create a type-safe client for this module's specific data model.
     // This is a lightweight operation.
-    productExecutor := database.NewSurrealExecutor[domain.Product](conn)
+    productClient, err := database.NewClient[domain.Product](dbConn)
+    if err != nil {
+        return fmt.Errorf("failed to create product client: %w", err)
+    }
 
-    // 3. Use the executor in your handlers.
-    handler := NewHandler(productExecutor)
+    // 3. Use the client in your handlers.
+    handler := NewHandler(productClient)
     g.GET("/products", handler.HandleListProducts)
 
     return nil

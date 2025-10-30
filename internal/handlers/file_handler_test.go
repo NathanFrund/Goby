@@ -44,7 +44,7 @@ func TestFileHandler_Upload(t *testing.T) {
 	defer conn.Close(ctx)
 	conn.StartMonitoring()
 
-	fileClient, err := database.NewClient[domain.File](conn, cfg)
+	fileClient, err := database.NewClient[domain.File](conn)
 	require.NoError(t, err)
 	fileStore := database.NewFileStore(fileClient)
 
@@ -53,7 +53,7 @@ func TestFileHandler_Upload(t *testing.T) {
 	aferoStore := storage.NewAferoStore(memFs)
 
 	// 3. Create a test user to own the file
-	userClient, err := database.NewClient[testutils.TestUser](conn, cfg)
+	userClient, err := database.NewClient[testutils.TestUser](conn)
 	require.NoError(t, err)
 	testUserName := "File Uploader"
 	testUser := testutils.TestUser{
@@ -154,14 +154,14 @@ func TestFileHandler_Delete(t *testing.T) {
 	require.NoError(t, err)
 	defer conn.Close(ctx)
 
-	fileClient, err := database.NewClient[domain.File](conn, cfg)
+	fileClient, err := database.NewClient[domain.File](conn)
 	require.NoError(t, err)
 	fileStore := database.NewFileStore(fileClient)
 
 	memFs := afero.NewMemMapFs()
 	aferoStore := storage.NewAferoStore(memFs)
 
-	userClient, err := database.NewClient[testutils.TestUser](conn, cfg)
+	userClient, err := database.NewClient[testutils.TestUser](conn)
 	require.NoError(t, err)
 	testUserName := "File Deleter"
 	testUser := testutils.TestUser{
@@ -238,14 +238,14 @@ func TestFileHandler_Download(t *testing.T) {
 	require.NoError(t, err)
 	defer conn.Close(ctx)
 
-	fileClient, err := database.NewClient[domain.File](conn, cfg)
+	fileClient, err := database.NewClient[domain.File](conn)
 	require.NoError(t, err)
 	fileStore := database.NewFileStore(fileClient)
 
 	memFs := afero.NewMemMapFs()
 	aferoStore := storage.NewAferoStore(memFs)
 
-	userClient, err := database.NewClient[testutils.TestUser](conn, cfg)
+	userClient, err := database.NewClient[testutils.TestUser](conn)
 	require.NoError(t, err)
 	testUserName := "File Downloader"
 	testUser := testutils.TestUser{
@@ -388,14 +388,14 @@ func TestFileHandler_Authorization(t *testing.T) {
 	require.NoError(t, err)
 	defer conn.Close(ctx)
 
-	fileClient, err := database.NewClient[domain.File](conn, cfg)
+	fileClient, err := database.NewClient[domain.File](conn)
 	require.NoError(t, err)
 	fileStore := database.NewFileStore(fileClient)
 
 	memFs := afero.NewMemMapFs()
 	aferoStore := storage.NewAferoStore(memFs)
 
-	userClient, err := database.NewClient[testutils.TestUser](conn, cfg)
+	userClient, err := database.NewClient[testutils.TestUser](conn)
 	require.NoError(t, err)
 
 	// 1. Create two users
@@ -473,11 +473,11 @@ func TestFileHandler_List(t *testing.T) {
 	require.NoError(t, err)
 	defer conn.Close(ctx)
 
-	fileClient, err := database.NewClient[domain.File](conn, cfg)
+	fileClient, err := database.NewClient[domain.File](conn)
 	require.NoError(t, err)
 	fileStore := database.NewFileStore(fileClient)
 
-	userClient, err := database.NewClient[testutils.TestUser](conn, cfg)
+	userClient, err := database.NewClient[testutils.TestUser](conn)
 	require.NoError(t, err)
 
 	// 1. Create a user

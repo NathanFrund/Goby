@@ -20,9 +20,39 @@ import (
 
 	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/topicmgr"
-	wsTopics "github.com/nfrund/goby/internal/websocket"
 	ws "github.com/nfrund/goby/internal/websocket"
+	wsTopics "github.com/nfrund/goby/internal/websocket"
 )
+
+// TestTopicManager provides utilities for managing topics in tests
+type TestTopicManager struct {
+	manager *topicmgr.Manager
+	t       *testing.T
+}
+
+// NewTestTopicManager creates a new isolated topic manager for testing
+func NewTestTopicManager(t *testing.T) *TestTopicManager {
+	t.Helper()
+
+	// Create a new isolated manager for this test
+	testManager := topicmgr.NewManager()
+
+	return &TestTopicManager{
+		manager: testManager,
+		t:       t,
+	}
+}
+
+// Manager returns the test-specific topic manager
+func (ttm *TestTopicManager) Manager() *topicmgr.Manager {
+	return ttm.manager
+}
+
+// Cleanup resets the test topic manager
+func (ttm *TestTopicManager) Cleanup() {
+	ttm.t.Helper()
+	ttm.manager.Reset()
+}
 
 // mockPubSub implements both pubsub.Publisher and pubsub.Subscriber for testing.
 // It correctly routes published messages to subscribed handlers.
@@ -85,7 +115,7 @@ func newMockTopic(name string) *mockTopic {
 	return &mockTopic{
 		name:        name,
 		description: "Test topic: " + name,
-		module:      "test",
+		module:      "", // Framework topics should not have a module
 		scope:       topicmgr.ScopeFramework,
 	}
 }
@@ -129,17 +159,21 @@ type testFixture struct {
 	cancel context.CancelFunc
 }
 
-// setupTestFixture creates and starts all components for a test.
+// setupTestFixture creates and starts all components for a test with proper isolation.
 func setupTestFixture(t *testing.T) (*testFixture, func()) {
 	t.Helper()
 
 	// Use the integrated mockPubSub for both publisher and subscriber
 	ps := newMockPubSub()
 
-	topicManager := topicmgr.NewManager()
+	// Create isolated topic manager for this test
+	testTopicManager := NewTestTopicManager(t)
+	topicManager := testTopicManager.Manager()
+
+	// Create mock ready topic
 	readyTopic := newMockTopic("ws.ready")
 
-	// Register WebSocket topics
+	// Register WebSocket topics with the isolated manager
 	require.NoError(t, topicManager.Register(wsTopics.TopicHTMLBroadcast))
 	require.NoError(t, topicManager.Register(wsTopics.TopicHTMLDirect))
 	require.NoError(t, topicManager.Register(readyTopic))
@@ -160,8 +194,11 @@ func setupTestFixture(t *testing.T) (*testFixture, func()) {
 	server := httptest.NewServer(e)
 
 	cleanup := func() {
+		// Clean up in reverse order
 		server.Close()
 		cancel()
+		// Clean up the isolated topic manager
+		testTopicManager.Cleanup()
 	}
 
 	fixture := &testFixture{
