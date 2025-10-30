@@ -94,6 +94,9 @@ func (cm *ContextManager) CreateExecutionContext(req ExecutionRequest, userID, r
 	// Populate context from request input
 	if req.Input != nil {
 		execCtx.populateFromInput(req.Input)
+	} else {
+		// Always add standard functions even when no input is provided
+		execCtx.addStandardFunctions()
 	}
 
 	// Register active context
@@ -428,10 +431,14 @@ func (cae *ContextAwareEngine) ExecuteWithContext(ctx context.Context, req Enhan
 
 	// Create enhanced script input
 	enhancedInput := &ScriptInput{
-		Context:     execCtx.Variables,
-		Functions:   execCtx.Functions,
-		Message:     req.Input.Message,
-		HTTPRequest: req.Input.HTTPRequest,
+		Context:   execCtx.Variables,
+		Functions: execCtx.Functions,
+	}
+
+	// Safely add message and HTTP request data if available
+	if req.Input != nil {
+		enhancedInput.Message = req.Input.Message
+		enhancedInput.HTTPRequest = req.Input.HTTPRequest
 	}
 
 	// Create enhanced execution request

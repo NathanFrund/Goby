@@ -69,11 +69,11 @@ func setupIntegrationTest(t *testing.T) (*server.Server, *httptest.Server, func(
 
 	ps := pubsub.NewWatermillBridge()
 
-	// Create the topic manager for testing
-	topicManager := topicmgr.Default()
+	// Create an isolated topic manager for testing to avoid conflicts between tests
+	topicManager := topicmgr.NewManager()
 
-	// Register WebSocket framework topics
-	err = wsTopics.RegisterTopics() // Retain wsTopics alias for clarity if desired, or change to `ws.RegisterTopics()`
+	// Register WebSocket framework topics with the isolated manager
+	err = wsTopics.RegisterTopicsWithManager(topicManager)
 	require.NoError(t, err, "Failed to register WebSocket topics")
 
 	// Create bridges with dependencies
@@ -197,7 +197,10 @@ func setupIntegrationTest(t *testing.T) (*server.Server, *httptest.Server, func(
 		// 2. Close the pub/sub system.
 		_ = ps.Close()
 
-		// 3. Close the test server and database connection.
+		// 3. Reset the isolated topic manager to prevent state leakage between tests.
+		topicManager.Reset()
+
+		// 4. Close the test server and database connection.
 		testServer.Close()
 		dbConn.Close(shutdownCtx)
 		_ = os.Chdir(originalWD) // Restore original working directory.
