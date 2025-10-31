@@ -32,6 +32,7 @@ import (
 	"github.com/nfrund/goby/internal/topicmgr"
 	"github.com/nfrund/goby/internal/websocket"
 	wsTopics "github.com/nfrund/goby/internal/websocket"
+	"github.com/samber/do/v2"
 	"github.com/spf13/afero"
 )
 
@@ -79,190 +80,135 @@ func main() {
 }
 
 // buildServer is the "Composition Root" of the application. It's responsible for
-// creating and connecting all the application's components.
+// creating and connecting all the application's components using dependency injection.
 func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Server, cleanup func(), err error) {
 	// Set static asset loading strategy if specified
 	if AppStatic != "" {
 		os.Setenv("APP_STATIC", AppStatic)
 	}
 
-	// 1. Create the service registry and a list for cleanup functions.
-	// The registry is used for inter-module communication, not for core dependency injection.
-	reg := registry.New(cfg)
-	var closers []func() error
+	// Create the DI container
+	injector := do.New()
 
-	// 2. Initialize Core Services (Database, Pub/Sub, etc.)
-	// Each service is created, and its cleanup function is added to the closers list.
-	slog.Info("Initializing core services...")
+	// Provide the configuration and app context
+	do.ProvideValue(injector, cfg)
+	do.ProvideValue(injector, appCtx)
 
-	// Database
-	dbConn := database.NewConnection(cfg)
-	err = dbConn.Connect(context.Background())
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to connect to database: %w", err)
-	}
-	dbConn.StartMonitoring() // This is a concrete type `*database.Connection`
-
-	closers = append(closers, func() error {
-		slog.Info("Closing database connection...")
-		return dbConn.Close(context.Background())
-	})
-	// Register the core connection manager in the registry so modules can access it.
-	reg.Set((*database.Connection)(nil), dbConn)
-
-	// Email
-	emailer, err := email.NewEmailService(cfg)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create email service: %w", err)
-	}
-
-	// Pub/Sub and WebSocket Bridge
-	ps := pubsub.NewWatermillBridge()
-	closers = append(closers, func() error {
-		slog.Info("Shutting down Pub/Sub system...")
-		return ps.Close()
+	// Provide the service registry (framework-agnostic - doesn't know about do/v2)
+	do.Provide(injector, func(i do.Injector) (*registry.Registry, error) {
+		cfg := do.MustInvoke[config.Provider](i)
+		return registry.New(cfg), nil
 	})
 
-	// Create the topic manager
-	topicManager := topicmgr.Default()
+	// Provide core services
+	do.Provide(injector, provideDatabaseConnection)
+	do.Provide(injector, provideEmailService)
+	// Provide pubsub as both Publisher and Subscriber (WatermillBridge implements both)
+	do.Provide(injector, providePubSub)
+	do.Provide(injector, provideSubscriber)
+	do.Provide(injector, provideTopicManager)
+	do.Provide(injector, provideRenderer)
+	// Provide renderer as echo.Renderer as well (UniversalRenderer implements both)
+	do.Provide(injector, provideEchoRenderer)
+	do.Provide(injector, providePresenceService)
+	do.Provide(injector, provideScriptEngine)
+	do.Provide(injector, provideEcho)
+	do.Provide(injector, provideStorage)
 
-	// Register all WebSocket framework topics
+	// Provide database clients and stores
+	do.Provide(injector, provideUserStore)
+	do.Provide(injector, provideFileStore)
+
+	// Provide WebSocket bridges (after pubsub and topic manager)
+	do.ProvideNamed(injector, "html", provideHTMLBridge)
+	do.ProvideNamed(injector, "data", provideDataBridge)
+
+	// Provide handlers
+	do.Provide(injector, provideFileHandler)
+	do.Provide(injector, provideDashboardHandler)
+	do.Provide(injector, providePresenceHandler)
+
+	// Provide module dependencies
+	do.Provide(injector, provideModuleDependencies)
+
+	// Provide the server (depends on everything above)
+	do.Provide(injector, provideServer)
+
+	// Register topics (must be done before bridges start)
 	if err := wsTopics.RegisterTopics(); err != nil {
 		return nil, nil, fmt.Errorf("failed to register WebSocket topics: %w", err)
 	}
-
-	// Register presence framework topics
 	if err := presence.RegisterTopics(); err != nil {
 		return nil, nil, fmt.Errorf("failed to register presence topics: %w", err)
 	}
 
-	// Create the dual WebSocket bridges
-	htmlBridge := websocket.NewBridge("html", websocket.BridgeDependencies{
-		Publisher:    ps,
-		Subscriber:   ps,
-		TopicManager: topicManager,
-		ReadyTopic:   wsTopics.TopicClientReady,
-	})
-
-	dataBridge := websocket.NewBridge("data", websocket.BridgeDependencies{
-		Publisher:    ps,
-		Subscriber:   ps,
-		TopicManager: topicManager,
-		ReadyTopic:   wsTopics.TopicClientReady,
-	})
-
-	// Start the WebSocket bridges
-	if err := htmlBridge.Start(appCtx); err != nil {
-		return nil, nil, fmt.Errorf("failed to start HTML WebSocket bridge: %w", err)
+	// Get services from DI container and initialize them
+	reg, err := do.Invoke[*registry.Registry](injector)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get registry: %w", err)
 	}
-	closers = append(closers, func() error {
-		slog.Info("Shutting down HTML WebSocket bridge...")
-		htmlBridge.Shutdown(context.Background())
-		return nil
-	})
 
-	if err := dataBridge.Start(appCtx); err != nil {
-		return nil, nil, fmt.Errorf("failed to start Data WebSocket bridge: %w", err)
+	// Database connection needs explicit initialization
+	dbConn, err := do.Invoke[*database.Connection](injector)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get database connection: %w", err)
 	}
-	closers = append(closers, func() error {
-		slog.Info("Shutting down Data WebSocket bridge...")
-		dataBridge.Shutdown(context.Background())
-		return nil
-	})
+	if err := dbConn.Connect(context.Background()); err != nil {
+		return nil, nil, fmt.Errorf("failed to connect to database: %w", err)
+	}
+	dbConn.StartMonitoring()
 
-	// Renderer (needed for presence service)
-	renderer := rendering.NewUniversalRenderer()
+	// Register the core connection manager in the registry (registry receives plain value)
+	reg.Set((*database.Connection)(nil), dbConn)
 
-	// Presence Service
-	presenceService := presence.NewService(ps, ps, topicManager) // Using default options
+	// Get presence service and register in registry (registry is agnostic)
+	presenceService, err := do.Invoke[*presence.Service](injector)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get presence service: %w", err)
+	}
 	reg.Set((*presence.Service)(nil), presenceService)
 	slog.Info("Presence service initialized")
 
-	// Script Engine
-	scriptEngine, err := script.RegisterService(reg, cfg)
+	// Get script engine (provideScriptEngine already handles registry registration)
+	scriptEngine, err := do.Invoke[script.ScriptEngine](injector)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to register script engine: %w", err)
+		return nil, nil, fmt.Errorf("failed to get script engine: %w", err)
 	}
-	closers = append(closers, func() error {
-		slog.Info("Shutting down script engine...")
-		return scriptEngine.Shutdown(context.Background())
-	})
 	slog.Info("Script engine initialized")
 
-	// User Store (using the new v2 client)
-	userDBClient, err := database.NewClient[domain.User](dbConn)
+	// Start WebSocket bridges (they need explicit startup)
+	htmlBridge, err := do.InvokeNamed[*websocket.Bridge](injector, "html")
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create user db client: %w", err)
+		return nil, nil, fmt.Errorf("failed to get HTML bridge: %w", err)
 	}
-	userStore := database.NewUserStore(userDBClient, dbConn) // Pass the connection manager
-
-	// Web Framework (renderer already created above)
-	e := echo.New()
-
-	// Storage and File Handler
-	var fileStorage storage.Store
-	if cfg.GetStorageBackend() == "mem" {
-		slog.Info("Using in-memory file storage")
-		fileStorage = storage.NewAferoStore(afero.NewMemMapFs())
-	} else {
-		slog.Info("Using OS file storage", "path", cfg.GetStoragePath())
-		fileStorage = storage.NewAferoStore(afero.NewBasePathFs(afero.NewOsFs(), cfg.GetStoragePath()))
+	if err := htmlBridge.Start(appCtx); err != nil {
+		return nil, nil, fmt.Errorf("failed to start HTML WebSocket bridge: %w", err)
 	}
 
-	fileClient, err := database.NewClient[domain.File](dbConn)
+	dataBridge, err := do.InvokeNamed[*websocket.Bridge](injector, "data")
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create file db client: %w", err)
+		return nil, nil, fmt.Errorf("failed to get data bridge: %w", err)
 	}
-	fileRepo := database.NewFileStore(fileClient)
+	if err := dataBridge.Start(appCtx); err != nil {
+		return nil, nil, fmt.Errorf("failed to start Data WebSocket bridge: %w", err)
+	}
 
-	fileHandler := handlers.NewFileHandler(
-		fileStorage,
-		fileRepo,
-		cfg.GetMaxFileSize(),
-		cfg.GetAllowedMimeTypes(),
-	)
-
-	dashboardHandler := handlers.NewDashboardHandler(fileRepo)
-	presenceHandler := handlers.NewPresenceHandler(presenceService)
-
-	// 3. Assemble and Create the Main Server Instance
-	// All core dependencies are explicitly passed to the server's constructor.
-	slog.Info("Creating server instance...")
-	srv, err = server.New(server.Dependencies{
-		Config:           cfg,
-		Emailer:          emailer,
-		UserStore:        userStore,
-		Renderer:         renderer,
-		Publisher:        ps,
-		Echo:             e,
-		HTMLBridge:       htmlBridge,
-		DataBridge:       dataBridge,
-		DashboardHandler: dashboardHandler,
-		PresenceHandler:  presenceHandler,
-		FileHandler:      fileHandler,
-		ScriptEngine:     scriptEngine,
-	})
+	// Get the server
+	srv, err = do.Invoke[*server.Server](injector)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create server: %w", err)
 	}
 
-	// 4. Initialize Application Modules
-	// Core services are passed to the module container, which then wires up
-	// all active application features.
-	slog.Info("Initializing application modules...")
-	moduleDeps := app.Dependencies{
-		Publisher:       ps,
-		Subscriber:      ps,
-		Renderer:        renderer,
-		TopicMgr:        topicManager,
-		PresenceService: presenceService,
-		ScriptEngine:    scriptEngine,
+	// Initialize modules
+	moduleDeps, err := do.Invoke[app.Dependencies](injector)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get module dependencies: %w", err)
 	}
 	modules := app.NewModules(moduleDeps)
 	srv.InitModules(appCtx, modules, reg)
 	srv.RegisterRoutes()
 
-	// 5. Define the master cleanup function.
+	// Define cleanup function
 	cleanup = func() {
 		slog.Info("Shutting down application...")
 
@@ -284,11 +230,34 @@ func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Serve
 			errs = errors.Join(errs, mod.Shutdown(shutdownCtx))
 		}
 
-		// 3. Shut down core services in reverse order of creation.
-		//    The closers slice is already in the correct reverse order.
-		for _, closeFn := range closers {
-			errs = errors.Join(errs, closeFn())
+		// 3. Shut down bridges
+		slog.Info("Shutting down WebSocket bridges...")
+		htmlBridge.Shutdown(context.Background())
+		dataBridge.Shutdown(context.Background())
+
+		// 4. Shut down script engine
+		slog.Info("Shutting down script engine...")
+		if err := scriptEngine.Shutdown(context.Background()); err != nil {
+			errs = errors.Join(errs, err)
 		}
+
+		// 5. Shut down database
+		slog.Info("Closing database connection...")
+		if err := dbConn.Close(context.Background()); err != nil {
+			errs = errors.Join(errs, err)
+		}
+
+		// 6. Shut down pubsub
+		slog.Info("Shutting down Pub/Sub system...")
+		ps := do.MustInvoke[pubsub.Publisher](injector)
+		if pubSubBridge, ok := ps.(interface{ Close() error }); ok {
+			if err := pubSubBridge.Close(); err != nil {
+				errs = errors.Join(errs, err)
+			}
+		}
+
+		// 7. Shutdown the container
+		_ = injector.Shutdown()
 
 		if errs != nil {
 			slog.Error("Errors during shutdown", "errors", errs)
@@ -298,6 +267,188 @@ func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Serve
 	}
 
 	return srv, cleanup, nil
+}
+
+// Provider functions for dependency injection
+// Note: Provider[T] signature is func(Injector) (T, error)
+// Dependencies are resolved using do.Invoke or do.MustInvoke within providers
+
+func provideDatabaseConnection(i do.Injector) (*database.Connection, error) {
+	cfg := do.MustInvoke[config.Provider](i)
+	return database.NewConnection(cfg), nil
+}
+
+func provideEmailService(i do.Injector) (domain.EmailSender, error) {
+	cfg := do.MustInvoke[config.Provider](i)
+	return email.NewEmailService(cfg)
+}
+
+func providePubSub(i do.Injector) (pubsub.Publisher, error) {
+	return pubsub.NewWatermillBridge(), nil
+}
+
+func provideSubscriber(i do.Injector) (pubsub.Subscriber, error) {
+	// WatermillBridge implements both Publisher and Subscriber
+	ps := do.MustInvoke[pubsub.Publisher](i)
+	return ps.(pubsub.Subscriber), nil
+}
+
+func provideTopicManager(i do.Injector) (*topicmgr.Manager, error) {
+	return topicmgr.Default(), nil
+}
+
+func provideRenderer(i do.Injector) (rendering.Renderer, error) {
+	return rendering.NewUniversalRenderer(), nil
+}
+
+func provideEchoRenderer(i do.Injector) (echo.Renderer, error) {
+	// UniversalRenderer implements both rendering.Renderer and echo.Renderer
+	r := do.MustInvoke[rendering.Renderer](i)
+	return r.(echo.Renderer), nil
+}
+
+func providePresenceService(i do.Injector) (*presence.Service, error) {
+	ps := do.MustInvoke[pubsub.Publisher](i)
+	sub := do.MustInvoke[pubsub.Subscriber](i)
+	topicMgr := do.MustInvoke[*topicmgr.Manager](i)
+	return presence.NewService(ps, sub, topicMgr), nil
+}
+
+func provideScriptEngine(i do.Injector) (script.ScriptEngine, error) {
+	reg := do.MustInvoke[*registry.Registry](i)
+	cfg := do.MustInvoke[config.Provider](i)
+	// Register the script service in the registry first
+	// The registry is agnostic - it just receives the service as a value
+	scriptEngine, err := script.RegisterService(reg, cfg)
+	if err != nil {
+		return nil, err
+	}
+	return scriptEngine, nil
+}
+
+func provideEcho(i do.Injector) (*echo.Echo, error) {
+	return echo.New(), nil
+}
+
+func provideStorage(i do.Injector) (storage.Store, error) {
+	cfg := do.MustInvoke[config.Provider](i)
+	if cfg.GetStorageBackend() == "mem" {
+		slog.Info("Using in-memory file storage")
+		return storage.NewAferoStore(afero.NewMemMapFs()), nil
+	}
+	slog.Info("Using OS file storage", "path", cfg.GetStoragePath())
+	return storage.NewAferoStore(afero.NewBasePathFs(afero.NewOsFs(), cfg.GetStoragePath())), nil
+}
+
+func provideUserStore(i do.Injector) (domain.UserRepository, error) {
+	dbConn := do.MustInvoke[*database.Connection](i)
+	userDBClient, err := database.NewClient[domain.User](dbConn)
+	if err != nil {
+		return nil, err
+	}
+	return database.NewUserStore(userDBClient, dbConn), nil
+}
+
+func provideFileStore(i do.Injector) (*database.FileStore, error) {
+	dbConn := do.MustInvoke[*database.Connection](i)
+	fileClient, err := database.NewClient[domain.File](dbConn)
+	if err != nil {
+		return nil, err
+	}
+	return database.NewFileStore(fileClient), nil
+}
+
+func provideHTMLBridge(i do.Injector) (*websocket.Bridge, error) {
+	ps := do.MustInvoke[pubsub.Publisher](i)
+	sub := do.MustInvoke[pubsub.Subscriber](i)
+	topicMgr := do.MustInvoke[*topicmgr.Manager](i)
+	return websocket.NewBridge("html", websocket.BridgeDependencies{
+		Publisher:    ps,
+		Subscriber:   sub,
+		TopicManager: topicMgr,
+		ReadyTopic:   wsTopics.TopicClientReady,
+	}), nil
+}
+
+func provideDataBridge(i do.Injector) (*websocket.Bridge, error) {
+	ps := do.MustInvoke[pubsub.Publisher](i)
+	sub := do.MustInvoke[pubsub.Subscriber](i)
+	topicMgr := do.MustInvoke[*topicmgr.Manager](i)
+	return websocket.NewBridge("data", websocket.BridgeDependencies{
+		Publisher:    ps,
+		Subscriber:   sub,
+		TopicManager: topicMgr,
+		ReadyTopic:   wsTopics.TopicClientReady,
+	}), nil
+}
+
+func provideFileHandler(i do.Injector) (*handlers.FileHandler, error) {
+	fileStorage := do.MustInvoke[storage.Store](i)
+	fileRepo := do.MustInvoke[*database.FileStore](i)
+	cfg := do.MustInvoke[config.Provider](i)
+	return handlers.NewFileHandler(
+		fileStorage,
+		fileRepo,
+		cfg.GetMaxFileSize(),
+		cfg.GetAllowedMimeTypes(),
+	), nil
+}
+
+func provideDashboardHandler(i do.Injector) (*handlers.DashboardHandler, error) {
+	fileRepo := do.MustInvoke[*database.FileStore](i)
+	return handlers.NewDashboardHandler(fileRepo), nil
+}
+
+func providePresenceHandler(i do.Injector) (*handlers.PresenceHandler, error) {
+	presenceService := do.MustInvoke[*presence.Service](i)
+	return handlers.NewPresenceHandler(presenceService), nil
+}
+
+// provideModuleDependencies creates the app.Dependencies struct for module initialization
+func provideModuleDependencies(i do.Injector) (app.Dependencies, error) {
+	ps := do.MustInvoke[pubsub.Publisher](i)
+	sub := do.MustInvoke[pubsub.Subscriber](i)
+	renderer := do.MustInvoke[rendering.Renderer](i)
+	topicMgr := do.MustInvoke[*topicmgr.Manager](i)
+	presenceService := do.MustInvoke[*presence.Service](i)
+	scriptEngine := do.MustInvoke[script.ScriptEngine](i)
+	return app.Dependencies{
+		Publisher:       ps,
+		Subscriber:      sub,
+		Renderer:        renderer,
+		TopicMgr:        topicMgr,
+		PresenceService: presenceService,
+		ScriptEngine:    scriptEngine,
+	}, nil
+}
+
+func provideServer(i do.Injector) (*server.Server, error) {
+	cfg := do.MustInvoke[config.Provider](i)
+	emailer := do.MustInvoke[domain.EmailSender](i)
+	userStore := do.MustInvoke[domain.UserRepository](i)
+	echoRenderer := do.MustInvoke[echo.Renderer](i)
+	ps := do.MustInvoke[pubsub.Publisher](i)
+	echo := do.MustInvoke[*echo.Echo](i)
+	htmlBridge := do.MustInvokeNamed[*websocket.Bridge](i, "html")
+	dataBridge := do.MustInvokeNamed[*websocket.Bridge](i, "data")
+	fileHandler := do.MustInvoke[*handlers.FileHandler](i)
+	dashboardHandler := do.MustInvoke[*handlers.DashboardHandler](i)
+	presenceHandler := do.MustInvoke[*handlers.PresenceHandler](i)
+	scriptEngine := do.MustInvoke[script.ScriptEngine](i)
+	return server.New(server.Dependencies{
+		Config:           cfg,
+		Emailer:          emailer,
+		UserStore:        userStore,
+		Renderer:         echoRenderer,
+		Publisher:        ps,
+		Echo:             echo,
+		HTMLBridge:       htmlBridge,
+		DataBridge:       dataBridge,
+		FileHandler:      fileHandler,
+		DashboardHandler: dashboardHandler,
+		PresenceHandler:  presenceHandler,
+		ScriptEngine:     scriptEngine,
+	})
 }
 
 // handleScriptExtraction extracts embedded scripts to the filesystem
