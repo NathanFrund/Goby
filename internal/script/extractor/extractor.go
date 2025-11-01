@@ -8,11 +8,11 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/app"
 	"github.com/nfrund/goby/internal/config"
 	"github.com/nfrund/goby/internal/presence"
 	"github.com/nfrund/goby/internal/pubsub"
-	"github.com/nfrund/goby/internal/rendering"
 	"github.com/nfrund/goby/internal/script"
 	"github.com/nfrund/goby/internal/topicmgr"
 )
@@ -74,30 +74,30 @@ func (e *Extractor) ExtractScripts(targetDir string) error {
 }
 
 func (e *Extractor) initializeScriptEngine() (script.ScriptEngine, func(), error) {
-	// Create script engine
+	// Create script engine with minimal dependencies
 	scriptEngine := script.NewEngine(script.Dependencies{
 		Config: e.cfg,
 	})
 
-	// Create minimal dependencies for modules to register their embedded scripts
-	ps := pubsub.NewWatermillBridge()
-	cleanup := func() { ps.Close() }
+	// Create a minimal pubsub implementation that won't initialize Watermill
+	ps := &noopPubSub{}
+	cleanup := func() {}
 
-	renderer := rendering.NewUniversalRenderer()
+	// Create minimal dependencies for module initialization
+	renderer := &noopRenderer{}
 	topicManager := topicmgr.Default()
-	presenceService := presence.NewService(ps, ps, topicManager)
 
+	// Create module dependencies
 	moduleDeps := app.Dependencies{
 		Publisher:       ps,
 		Subscriber:      ps,
 		Renderer:        renderer,
 		TopicMgr:        topicManager,
-		PresenceService: presenceService,
-		ScriptEngine:    scriptEngine,
+		PresenceService: presence.NewService(ps, ps, topicManager),
+		// ScriptEngine will be set after initialization
 	}
 
 	// Initialize modules to register their embedded scripts
-	slog.Info("Initializing modules to register embedded scripts...")
 	_ = app.NewModules(moduleDeps)
 
 	// Initialize the script engine to load embedded scripts
@@ -152,4 +152,50 @@ func (e *Extractor) showExtractionSummary(targetDir string) {
 	if err != nil {
 		fmt.Printf("⚠️  Warning: Failed to generate full extraction summary: %v\n", err)
 	}
+}
+
+// noopPubSub is a minimal pubsub implementation that does nothing
+// and doesn't initialize Watermill
+type noopPubSub struct{}
+
+func (n *noopPubSub) Publish(ctx context.Context, msg pubsub.Message) error { 
+	return nil 
+}
+
+func (n *noopPubSub) Subscribe(ctx context.Context, topic string, handler pubsub.Handler) error {
+	return nil
+}
+
+func (n *noopPubSub) Close() error { 
+	return nil 
+}
+
+// noopRenderer is a minimal renderer implementation
+type noopRenderer struct{}
+
+func (n *noopRenderer) Render(template string, data interface{}) (string, error) {
+	return "", nil
+}
+
+func (n *noopRenderer) RenderComponent(ctx context.Context, data interface{}) ([]byte, error) {
+	return []byte(""), nil
+}
+
+func (n *noopRenderer) RenderPage(ctx echo.Context, code int, data interface{}) error {
+	return nil
+}
+
+// noopPresenceService is a minimal presence service implementation
+type noopPresenceService struct{}
+
+func (n *noopPresenceService) UpdatePresence(ctx context.Context, userID string, status presence.Status) error {
+	return nil
+}
+
+func (n *noopPresenceService) GetPresence(ctx context.Context, userID string) (presence.Status, error) {
+	return presence.StatusOffline, nil
+}
+
+func (n *noopPresenceService) ListOnlineUsers(ctx context.Context) ([]string, error) {
+	return nil, nil
 }

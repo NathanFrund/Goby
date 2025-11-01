@@ -12,13 +12,8 @@ import (
 	"github.com/joho/godotenv"
 	"github.com/nfrund/goby/internal/app"
 	"github.com/nfrund/goby/internal/config"
-	"github.com/nfrund/goby/internal/presence"
-	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/registry"
-	"github.com/nfrund/goby/internal/rendering"
-	"github.com/nfrund/goby/internal/script"
 	"github.com/nfrund/goby/internal/topicmgr"
-	"github.com/nfrund/goby/internal/websocket"
 )
 
 func main() {
@@ -65,50 +60,29 @@ func main() {
 
 // initializeTopics sets up minimal dependencies to register all topics
 func initializeTopics() error {
-	// Load environment variables
-	_ = godotenv.Load()
+	// Load .env file if it exists
+	if err := godotenv.Load(); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("error loading .env file: %w", err)
+	}
 
-	// Create minimal config
+	// Create minimal configuration
 	cfg := config.New()
 
-	// Create minimal dependencies for modules with silent logging
-	ps := createSilentPubSub()
-	defer ps.Close()
+	// Create a minimal registry
+	reg := registry.New(cfg)
 
-	renderer := rendering.NewUniversalRenderer()
-	topicManager := topicmgr.Default()
-
-	// Register framework topics (ignore "already registered" errors)
-	if err := websocket.RegisterTopics(); err != nil && !strings.Contains(err.Error(), "already registered") {
-		return fmt.Errorf("failed to register WebSocket topics: %w", err)
-	}
-
-	if err := presence.RegisterTopics(); err != nil && !strings.Contains(err.Error(), "already registered") {
-		return fmt.Errorf("failed to register presence topics: %w", err)
-	}
-
-	// Create script engine for modules that need it
-	scriptEngine := script.NewEngine(script.Dependencies{
-		Config: cfg,
-	})
-
-	presenceService := presence.NewService(ps, ps, topicManager)
-
-	// Create module dependencies
+	// Create minimal module dependencies
 	moduleDeps := app.Dependencies{
-		Publisher:       ps,
-		Subscriber:      ps,
-		Renderer:        renderer,
-		TopicMgr:        topicManager,
-		PresenceService: presenceService,
-		ScriptEngine:    scriptEngine,
+		Publisher:       nil,
+		Subscriber:      nil,
+		Renderer:        nil,
+		TopicMgr:        topicmgr.Default(),
+		PresenceService: nil,
+		// Other fields will be zero values
 	}
 
 	// Initialize modules to register their topics
 	modules := app.NewModules(moduleDeps)
-
-	// Create a minimal registry for modules that need it
-	reg := registry.New(cfg)
 
 	// Register module topics by calling their Register methods
 	for _, mod := range modules {
@@ -127,10 +101,6 @@ func initializeTopics() error {
 	return nil
 }
 
-// createSilentPubSub creates a pubsub bridge (one watermill log line is acceptable)
-func createSilentPubSub() *pubsub.WatermillBridge {
-	return pubsub.NewWatermillBridge()
-}
 
 func printUsage() {
 	fmt.Println("Topic Registry CLI")
