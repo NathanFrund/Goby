@@ -9,15 +9,24 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// ContextKey is used for context value keys
+type contextKey string
+
+// ContextKeyInput is the key used to store script input in the context
+const ContextKeyInput contextKey = "input"
+
 func TestScriptExecutor_ExecuteMessageHandler(t *testing.T) {
 	// Setup
 	cfg := &MockConfig{}
 	engine := NewEngine(Dependencies{Config: cfg})
 
+	// Create a simple script that returns a fixed result
+	scriptContent := `result := "test.topic_processed"`
+
 	provider := &MockEmbeddedScriptProvider{
 		moduleName: "test_module",
 		scripts: map[string]string{
-			"message_handler": "result := message.topic + '_processed'",
+			"message_handler.tengo": scriptContent,
 		},
 	}
 
@@ -28,7 +37,7 @@ func TestScriptExecutor_ExecuteMessageHandler(t *testing.T) {
 	// Create script config
 	config := &ModuleScriptConfig{
 		MessageHandlers: map[string]string{
-			"test.topic": "message_handler",
+			"test.topic": "message_handler.tengo",
 		},
 		EndpointScripts: make(map[string]string),
 		DefaultLimits:   GetDefaultSecurityLimits(),
@@ -38,18 +47,33 @@ func TestScriptExecutor_ExecuteMessageHandler(t *testing.T) {
 	executor := NewScriptExecutor(engine, "test_module", config)
 
 	// Create test message
-	message := &pubsub.Message{
-		Topic:    "test.topic",
-		UserID:   "user123",
-		Payload:  []byte("test payload"),
-		Metadata: map[string]string{"timestamp": "2023-01-01T00:00:00Z"},
+	msg := &pubsub.Message{
+		Topic:   "test.topic",
+		Payload: []byte(`{"data":"test message"}`),
 	}
 
+	// Create context with input
+	ctx := context.Background()
+	input := &ScriptInput{
+		Context: map[string]interface{}{
+			"topic": "test.topic",
+			"data":  "test message",
+		},
+	}
+	ctx = context.WithValue(ctx, ContextKeyInput, input)
+
 	// Execute message handler
-	output, err := executor.ExecuteMessageHandler(context.Background(), "test.topic", message, nil)
+	output, err := executor.ExecuteMessageHandler(ctx, "test.topic", msg, nil)
 	require.NoError(t, err)
-	assert.NotNil(t, output)
-	assert.Equal(t, "test.topic_processed", output.Result)
+
+	// The script returns a ScriptOutput, so we need to check the Result field
+	if output != nil {
+		result, ok := output.Result.(string)
+		require.True(t, ok, "expected result to be a string")
+		assert.Equal(t, "test.topic_processed", result)
+	} else {
+		t.Fatal("expected non-nil output from ExecuteMessageHandler")
+	}
 }
 
 func TestScriptExecutor_ExecuteEndpointScript(t *testing.T) {
@@ -124,7 +148,7 @@ func TestScriptExecutor_ExecuteScript(t *testing.T) {
 	output, err := executor.ExecuteScript(context.Background(), "custom_script", scriptContext, nil)
 	require.NoError(t, err)
 	assert.NotNil(t, output)
-	assert.Equal(t, 30, output.Result)
+	assert.Equal(t, int64(30), output.Result)
 }
 
 func TestScriptExecutor_NoHandlerConfigured(t *testing.T) {

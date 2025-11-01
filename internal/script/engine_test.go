@@ -93,7 +93,10 @@ func TestEngine_Execute(t *testing.T) {
 
 	output, err := engine.Execute(context.Background(), req)
 	require.NoError(t, err)
-	assert.Equal(t, 30, output.Result)
+	// Convert int64 to int for the test assertion
+	result, ok := output.Result.(int64)
+	require.True(t, ok, "expected result to be int64")
+	assert.Equal(t, int64(30), result)
 	assert.True(t, output.Metrics.Success)
 }
 
