@@ -2,12 +2,16 @@ package script
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 
 	"github.com/nfrund/goby/internal/config"
 	"github.com/nfrund/goby/internal/registry"
 )
+
+// KeyScriptEngine is the type-safe key for accessing the script engine service from the registry.
+var KeyScriptEngine = registry.Key[ScriptEngine]("core.script.Engine")
 
 // RegisterService registers the script engine in the application registry
 func RegisterService(reg *registry.Registry, cfg config.Provider) (*Engine, error) {
@@ -28,7 +32,7 @@ func RegisterService(reg *registry.Registry, cfg config.Provider) (*Engine, erro
 	}
 
 	// Register the engine in the registry
-	reg.Set((*ScriptEngine)(nil), engine)
+	registry.Set[ScriptEngine](reg, KeyScriptEngine, engine)
 
 	slog.Info("Script engine service registered successfully")
 	return engine, nil
@@ -36,10 +40,14 @@ func RegisterService(reg *registry.Registry, cfg config.Provider) (*Engine, erro
 
 // GetService retrieves the script engine from the registry
 func GetService(reg *registry.Registry) (ScriptEngine, error) {
-	return registry.Get[ScriptEngine](reg)
+	engine, ok := registry.Get(reg, KeyScriptEngine)
+	if !ok {
+		return nil, fmt.Errorf("script engine not found in registry")
+	}
+	return engine, nil
 }
 
 // MustGetService retrieves the script engine from the registry or panics
 func MustGetService(reg *registry.Registry) ScriptEngine {
-	return registry.MustGet[ScriptEngine](reg)
+	return registry.MustGet(reg, KeyScriptEngine)
 }

@@ -26,6 +26,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// Define registry keys for services needed in integration tests.
+var (
+	KeyTestConfigProvider = registry.Key[config.Provider]("test.config.Provider")
+	KeyTestUserRepository = registry.Key[domain.UserRepository]("test.domain.UserRepository")
+)
+
 // TestMain runs once for the entire package before any tests are run.
 // It's the perfect place to load test-specific environment variables.
 func TestMain(m *testing.M) {
@@ -61,8 +67,8 @@ func setupIntegrationTest(t *testing.T) (*server.Server, *httptest.Server, func(
 
 	userStore := database.NewUserStore(userDBClient, dbConn)
 
-	reg.Set((*config.Provider)(nil), cfg)
-	reg.Set((*domain.UserRepository)(nil), userStore)
+	registry.Set(reg, KeyTestConfigProvider, cfg)
+	registry.Set(reg, KeyTestUserRepository, userStore)
 
 	emailer, err := email.NewEmailService(cfg)
 	require.NoError(t, err)

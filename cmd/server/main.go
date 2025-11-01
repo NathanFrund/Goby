@@ -36,6 +36,12 @@ import (
 	"github.com/spf13/afero"
 )
 
+// Define registry keys for core services that modules might need to access.
+var (
+	KeyDatabaseConnection = registry.Key[*database.Connection]("core.database.Connection")
+	KeyPresenceService    = registry.Key[*presence.Service]("core.presence.Service")
+)
+
 // AppStatic can be set at build time to force an asset loading strategy.
 // Example: go build -ldflags "-X 'main.AppStatic=embed'"
 var AppStatic string
@@ -160,14 +166,14 @@ func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Serve
 	dbConn.StartMonitoring()
 
 	// Register the core connection manager in the registry (registry receives plain value)
-	reg.Set((*database.Connection)(nil), dbConn)
+	registry.Set(reg, KeyDatabaseConnection, dbConn)
 
 	// Get presence service and register in registry (registry is agnostic)
 	presenceService, err := do.Invoke[*presence.Service](injector)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get presence service: %w", err)
 	}
-	reg.Set((*presence.Service)(nil), presenceService)
+	registry.Set(reg, KeyPresenceService, presenceService)
 	slog.Info("Presence service initialized")
 
 	// Get script engine (provideScriptEngine already handles registry registration)
