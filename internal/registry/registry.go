@@ -2,24 +2,26 @@ package registry
 
 import (
 	"fmt"
-	"reflect"
 	"sync"
 
 	"github.com/nfrund/goby/internal/config"
 )
 
-// Registry is a type-safe dependency injection container.
+// Key is a type-safe, generic key for registering and retrieving services.
+// The string value should be a unique identifier, e.g., "moduleName.serviceName".
+type Key[T any] string
+
+// Registry provides a type-safe way for modules to share and discover services at runtime.
+// It uses a sync.Map for concurrent-safe access.
 type Registry struct {
-	mu       sync.RWMutex
-	services map[reflect.Type]any
+	services sync.Map
 	cfg      config.Provider
 }
 
 // New creates a new registry with the application's configuration provider.
 func New(cfg config.Provider) *Registry {
 	return &Registry{
-		services: make(map[reflect.Type]any),
-		cfg:      cfg,
+		cfg: cfg,
 	}
 }
 
@@ -28,57 +30,37 @@ func (r *Registry) Config() config.Provider {
 	return r.cfg
 }
 
-// Set registers a service instance against a specific type.
-// ifacePtr should be a nil pointer to the type, e.g. (*MyInterface)(nil) or (**MyConcreteType)(nil)
-func (r *Registry) Set(ifacePtr any, impl any) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	// Handle the case where ifacePtr is a nil interface value
-	if ifacePtr == nil {
-		panic("cannot register service with nil interface pointer")
-	}
-
-	// Get the type of the pointer's element
-	ptrType := reflect.TypeOf(ifacePtr)
-	if ptrType.Kind() != reflect.Ptr {
-		panic(fmt.Sprintf("expected pointer type, got %T", ifacePtr))
-	}
-
-	elemType := ptrType.Elem()
-	r.services[elemType] = impl
+// Set registers a service instance against a type-safe key.
+func Set[T any](r *Registry, key Key[T], value T) {
+	r.services.Store(key, value)
 }
 
 // Get retrieves a service from the registry by its type.
-// T can be either an interface type or a concrete type.
-func Get[T any](r *Registry) (T, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	var iface T
-	// Get the type of T
-	typ := reflect.TypeOf((*T)(nil)).Elem()
-
-	service, exists := r.services[typ]
-	if !exists {
-		return iface, fmt.Errorf("service not found: %v", typ)
+func Get[T any](r *Registry, key Key[T]) (T, bool) {
+	val, ok := r.services.Load(string(key))
+	if !ok {
+		var zero T
+		return zero, false
 	}
 
 	// Convert the service to the expected type
-	result, ok := service.(T)
+	result, ok := val.(T)
 	if !ok {
-		return iface, fmt.Errorf("type assertion failed: %T is not %T", service, iface)
+		// This should ideally never happen if keys are used correctly,
+		// but it's a good safeguard.
+		var zero T
+		return zero, false
 	}
 
-	return result, nil
+	return result, true
 }
 
 // MustGet retrieves a service or panics if not found. This is useful for
 // wiring up essential dependencies at startup.
-func MustGet[T any](r *Registry) T {
-	service, err := Get[T](r)
-	if err != nil {
-		panic(fmt.Sprintf("failed to get service: %v", err))
+func MustGet[T any](r *Registry, key Key[T]) T {
+	val, ok := Get(r, key)
+	if !ok {
+		panic(fmt.Sprintf("service not found for key: %v", key))
 	}
-	return service
+	return val
 }
