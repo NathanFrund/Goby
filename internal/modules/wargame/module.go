@@ -17,8 +17,8 @@ import (
 	"github.com/nfrund/goby/internal/topicmgr"
 )
 
-// KeyEngine is the type-safe key for accessing the wargame engine service.
-var KeyEngine = registry.Key[*Engine]("wargame.Engine")
+// KeyGameEngine is the type-safe key for accessing the wargame engine service.
+var KeyGameEngine = registry.Key[*Engine]("wargame.Engine")
 
 type WargameModule struct {
 	module.BaseModule
@@ -161,7 +161,7 @@ func (m *WargameModule) Register(reg *registry.Registry) error {
 	// Scripts are already registered during module creation
 
 	m.engine = NewEngine(m.publisher, m.topicMgr)
-	registry.Set(reg, KeyEngine, m.engine)
+	registry.Set(reg, KeyGameEngine, m.engine)
 	return nil
 }
 
