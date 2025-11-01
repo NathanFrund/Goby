@@ -198,12 +198,33 @@ func (s *FileStore) FindByUser(ctx context.Context, userID *surrealmodels.Record
 		return nil, 0, fmt.Errorf("failed to query for user files with count: %w", err)
 	}
 
-	if len(results) == 0 {
-		return []*domain.File{}, 0, nil
+	// Extract total count - it's always on the first record if results exist
+	var total int64
+	if len(results) > 0 {
+		// The total count is returned on the first record of the subquery result.
+		total = results[0].Total[0].Count
+	} else {
+		// When offset is beyond total count, we still need to get the total.
+		// Run a separate count query to get the total count.
+		countQuery := "SELECT count() FROM file WHERE user_id = $userID GROUP ALL"
+		countVars := map[string]any{"userID": userID}
+		type countResult struct {
+			Count int64 `json:"count"`
+		}
+		countClient, err := NewClient[countResult](s.client.(*client[domain.File]).conn)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to create count client: %w", err)
+		}
+		countResults, err := countClient.Query(ctx, countQuery, countVars)
+		if err != nil {
+			return nil, 0, fmt.Errorf("failed to query for total count: %w", err)
+		}
+		if len(countResults) > 0 {
+			total = countResults[0].Count
+		}
+		return []*domain.File{}, total, nil
 	}
 
-	// The total count is returned on the first record of the subquery result.
-	total := results[0].Total[0].Count
 	filePtrs := make([]*domain.File, 0, len(results))
 	for i := range results {
 		filePtrs = append(filePtrs, &results[i].File)

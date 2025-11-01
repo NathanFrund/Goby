@@ -85,29 +85,16 @@ func TestTengoEngine_SecurityLimits_MemoryUsage(t *testing.T) {
 
 	_, err = engine.Execute(context.Background(), compiled, &ScriptInput{})
 
-	// Tengo doesn't enforce memory limits strictly, so this test documents expected behavior
-	// The script may succeed or timeout, but shouldn't crash
-	if err != nil {
-		var scriptErr *ScriptError
-		if assert.ErrorAs(t, err, &scriptErr) {
-			// Could be timeout or execution error depending on implementation
-			assert.Contains(t, []ErrorType{ErrorTypeTimeout, ErrorTypeExecution}, scriptErr.Type)
-		}
-	} else {
-		// If it succeeds, that's also acceptable since Tengo doesn't enforce memory limits
-		t.Log("Memory limit test passed - Tengo doesn't strictly enforce memory limits")
-	}
+	// The script should fail with a memory limit error.
+	require.Error(t, err)
+	var scriptErr *ScriptError
+	require.ErrorAs(t, err, &scriptErr)
+
+	// The error could be a memory limit, or a timeout if the allocation is slow.
+	assert.Contains(t, []ErrorType{ErrorTypeMemoryLimit, ErrorTypeTimeout}, scriptErr.Type)
 }
 
 func TestTengoEngine_SecurityLimits_NoInfiniteLoops(t *testing.T) {
-	engine := NewTengoEngine()
-
-	limits := SecurityLimits{
-		MaxExecutionTime: 50 * time.Millisecond,
-		MaxMemoryBytes:   1024 * 1024,
-	}
-	err := engine.SetSecurityLimits(limits)
-	require.NoError(t, err)
 
 	testCases := []struct {
 		name   string
@@ -142,6 +129,15 @@ func TestTengoEngine_SecurityLimits_NoInfiniteLoops(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			engine := NewTengoEngine()
+
+			limits := SecurityLimits{
+				MaxExecutionTime: 50 * time.Millisecond,
+				MaxMemoryBytes:   1024 * 1024,
+			}
+			err := engine.SetSecurityLimits(limits)
+			require.NoError(t, err)
+
 			testScript := &Script{
 				ModuleName: "test",
 				Name:       tc.name,
@@ -168,16 +164,6 @@ func TestTengoEngine_SecurityLimits_NoInfiniteLoops(t *testing.T) {
 }
 
 func TestTengoEngine_SecurityLimits_ValidScriptsStillWork(t *testing.T) {
-	engine := NewTengoEngine()
-
-	// Set reasonable limits
-	limits := SecurityLimits{
-		MaxExecutionTime: 1 * time.Second,
-		MaxMemoryBytes:   5 * 1024 * 1024, // 5MB - more generous for string operations
-	}
-	err := engine.SetSecurityLimits(limits)
-	require.NoError(t, err)
-
 	testCases := []struct {
 		name     string
 		script   string
@@ -216,6 +202,16 @@ func TestTengoEngine_SecurityLimits_ValidScriptsStillWork(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			engine := NewTengoEngine()
+
+			// Set reasonable limits for each sub-test to ensure isolation
+			limits := SecurityLimits{
+				MaxExecutionTime: 1 * time.Second,
+				MaxMemoryBytes:   5 * 1024 * 1024, // 5MB
+			}
+			err := engine.SetSecurityLimits(limits)
+			require.NoError(t, err)
+
 			testScript := &Script{
 				ModuleName: "test",
 				Name:       tc.name,

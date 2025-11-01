@@ -381,6 +381,11 @@ func (r *Registry) parseScriptPath(filePath string) (moduleName, scriptName stri
 		return "", "", err
 	}
 
+	// Check if the path is actually within the scripts directory
+	if strings.HasPrefix(relPath, "..") || filepath.IsAbs(relPath) {
+		return "", "", fmt.Errorf("path %s is not within the scripts directory", filePath)
+	}
+
 	// Split path components
 	pathParts := strings.Split(relPath, string(filepath.Separator))
 	if len(pathParts) < 2 {
