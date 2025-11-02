@@ -504,52 +504,52 @@ Goby's architecture is built around the concept of modules - self-contained pack
 
 ### Creating a New Module
 
-Follow these steps to create and integrate a new module:
+Creating a new module follows a clear, three-step pattern that ensures consistency and promotes a decoupled architecture.
 
 #### 1. Create the Module Structure
+
+First, create the directory and files for your module. A typical module includes a `module.go` file to define its structure and dependencies, and a `handler.go` for its HTTP endpoints.
 
 ```sh
 internal/modules/
   yourmodule/
     ├── handler.go     # HTTP request handlers
-    ├── service.go     # Business logic and core functionality
-    ├── module.go      # Module definition and lifecycle hooks
-    ├── templates/     # Optional: Template files (.templ)
-    └── static/        # Optional: Static assets (CSS, JS, images)
+    ├── module.go      # Module definition and lifecycle
+    └── ...            # Other files (services, templates, etc.)
 ```
 
-Key files:
-
-- `module.go`: Implements the `module.Module` interface
-- `handler.go`: Defines HTTP request handlers (optional)
-- `service.go`: Contains business logic (optional)
-- `templates/`: Server-rendered templates (optional)
-- `static/`: Static assets (optional)
-
-#### 2. Define Service Interfaces (Recommended)
-
-Define interfaces for your services to enable better testability and dependency injection:
+In `module.go`, define the module's dependencies as a struct. This is the module's **contract**—it explicitly declares exactly what it needs to operate.
 
 ```go
-// internal/modules/yourmodule/service.go
+// internal/modules/yourmodule/module.go
 package yourmodule
 
-// YourService defines the core functionality of your module
-type YourService interface {
-    DoSomething() error
+import (
+    // ... other imports
+    "github.com/nfrund/goby/internal/pubsub"
+)
+
+// YourModule implements the module.Module interface.
+type YourModule struct {
+    module.BaseModule
+    publisher pubsub.Publisher
+    // ... other dependencies
 }
 
-// Implementation of the service
-type serviceImpl struct{}
-
-func NewService() YourService {
-    return &serviceImpl{}
+// Dependencies is the module's contract, listing the services it needs.
+type Dependencies struct {
+	Publisher pubsub.Publisher
+    // ... other dependencies
 }
 
-func (s *serviceImpl) DoSomething() error {
-    // Implementation here
-    return nil
+// New is the constructor. It accepts the specific dependencies and returns a new module instance.
+func New(deps Dependencies) *YourModule {
+	return &YourModule{
+		publisher: deps.Publisher,
+	}
 }
+
+// ... other module methods (Name, Boot, etc.)
 ```
 
 #### 3. Implement the Module Interface
