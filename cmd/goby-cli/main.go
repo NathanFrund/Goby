@@ -4,11 +4,17 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
+	"go/ast"
+	"go/format"
+	"go/parser"
+	"go/token"
 	"log"
 	"os"
 	"path/filepath"
 	"strings"
 	"text/template"
+
+	"golang.org/x/tools/go/ast/astutil"
 )
 
 func main() {
@@ -30,7 +36,22 @@ func main() {
 		if err := generateModule(*moduleName); err != nil {
 			log.Fatalf("Failed to generate module: %v", err)
 		}
-		printNextSteps(*moduleName)
+
+		errModules := updateModulesFile(*moduleName)
+		errDeps := updateDependenciesFile(*moduleName)
+
+		if errModules != nil || errDeps != nil {
+			log.Println("Automatic file updates failed. Please add the following manually:")
+			if errModules != nil {
+				log.Printf(" - modules.go error: %v", errModules)
+			}
+			if errDeps != nil {
+				log.Printf(" - dependencies.go error: %v", errDeps)
+			}
+			printNextSteps(*moduleName) // Fallback to printing instructions
+		} else {
+			printSuccessMessage(*moduleName)
+		}
 	default:
 		log.Println("Expected 'new-module' subcommand")
 		os.Exit(1)
@@ -80,6 +101,148 @@ func generateFile(path string, tmpl string, data TemplateData) error {
 	return os.WriteFile(path, buf.Bytes(), 0644)
 }
 
+func updateModulesFile(name string) error {
+	// --- Step 1: Update internal/app/modules.go ---
+	modulesPath := "internal/app/modules.go"
+	fset := token.NewFileSet()
+	node, err := parser.ParseFile(fset, modulesPath, nil, parser.ParseComments)
+	if err != nil {
+		return fmt.Errorf("failed to parse %s: %w", modulesPath, err)
+	}
+
+	// Add the new module import
+	newImportPath := fmt.Sprintf("github.com/nfrund/goby/internal/modules/%s", name)
+	astutil.AddImport(fset, node, newImportPath)
+
+	// Find the NewModules function and add the new module to its return statement
+	ast.Inspect(node, func(n ast.Node) bool {
+		// Find function declaration
+		fn, ok := n.(*ast.FuncDecl)
+		if !ok || fn.Name.Name != "NewModules" {
+			return true // Continue searching
+		}
+
+		// Find the return statement inside the function
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			ret, ok := n.(*ast.ReturnStmt)
+			if !ok {
+				return true
+			}
+
+			// Find the composite literal (the slice)
+			compLit, ok := ret.Results[0].(*ast.CompositeLit)
+			if !ok {
+				return false
+			}
+
+			// Create the new element to add to the slice
+			newElement := &ast.CallExpr{
+				Fun: &ast.SelectorExpr{
+					X:   ast.NewIdent(name),
+					Sel: ast.NewIdent("New"),
+				},
+				Args: []ast.Expr{
+					ast.NewIdent(fmt.Sprintf("%sDeps(deps)", name)),
+				},
+			}
+
+			// Prepend the new element to the slice
+			compLit.Elts = append([]ast.Expr{newElement}, compLit.Elts...)
+			return false // Stop searching within this return statement
+		})
+		return false // Stop searching, we found the function
+	})
+
+	// Write the modified AST back to the file
+	return writeASTToFile(fset, node, modulesPath)
+}
+
+func updateDependenciesFile(name string) error {
+	depsPath := "internal/app/dependencies.go"
+	fset := token.NewFileSet()
+	node, err := parser.ParseFile(fset, depsPath, nil, parser.ParseComments)
+	if err != nil {
+		return fmt.Errorf("failed to parse %s: %w", depsPath, err)
+	}
+
+	// Add the new module import
+	newImportPath := fmt.Sprintf("github.com/nfrund/goby/internal/modules/%s", name)
+	astutil.AddImport(fset, node, newImportPath)
+
+	// Create the new function declaration
+	funcName := fmt.Sprintf("%sDeps", name)
+	newFunc := &ast.FuncDecl{
+		Doc: &ast.CommentGroup{
+			List: []*ast.Comment{
+				{Text: fmt.Sprintf("// %s creates the dependency struct for the %s module.", funcName, name)},
+			},
+		},
+		Name: ast.NewIdent(funcName),
+		Type: &ast.FuncType{
+			Params: &ast.FieldList{
+				List: []*ast.Field{
+					{Names: []*ast.Ident{ast.NewIdent("deps")}, Type: ast.NewIdent("Dependencies")},
+				},
+			},
+			Results: &ast.FieldList{
+				List: []*ast.Field{
+					{Type: &ast.SelectorExpr{X: ast.NewIdent(name), Sel: ast.NewIdent("Dependencies")}},
+				},
+			},
+		},
+		Body: &ast.BlockStmt{
+			List: []ast.Stmt{
+				&ast.ReturnStmt{
+					Results: []ast.Expr{
+						&ast.CompositeLit{
+							Type: &ast.SelectorExpr{X: ast.NewIdent(name), Sel: ast.NewIdent("Dependencies")},
+							Elts: []ast.Expr{
+								&ast.KeyValueExpr{
+									Key:   ast.NewIdent("Renderer"),
+									Value: &ast.SelectorExpr{X: ast.NewIdent("deps"), Sel: ast.NewIdent("Renderer")},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	// Add the new function to the file's declarations
+	node.Decls = append(node.Decls, newFunc)
+
+	return writeASTToFile(fset, node, depsPath)
+}
+
+func printSuccessMessage(name string) {
+	data := TemplateData{
+		Name: name,
+	}
+
+	fmt.Printf("✅ Successfully created module '%s' in internal/modules/%s/\n", name, name)
+	fmt.Println("✅ Automatically updated application files:")
+	fmt.Println("-----------------------------------------------------------------")
+
+	// --- Step 1: Show what was added to dependencies.go ---
+	fmt.Print("\n1. Added dependency helper to 'internal/app/dependencies.go':\n\n")
+	fmt.Printf(`
+func %sDeps(deps Dependencies) %s.Dependencies {
+	return %s.Dependencies{
+		Renderer: deps.Renderer,
+	}
+}
+`, data.Name, data.Name, data.Name)
+
+	// --- Step 2: Show what was added to modules.go ---
+	fmt.Print("\n2. Registered the new module in 'internal/app/modules.go':\n\n")
+	fmt.Printf(`
+%s.New(%sDeps(deps)),
+`, data.Name, data.Name)
+	fmt.Println("\n-----------------------------------------------------------------")
+	fmt.Println("Ready to start building your new module!")
+}
+
 func printNextSteps(name string) {
 	data := TemplateData{
 		Name: name,
@@ -111,6 +274,17 @@ import "github.com/nfrund/goby/internal/modules/%s"
 %s.New(%sDeps(deps)),
 `, data.Name, data.Name, data.Name)
 	fmt.Println("-----------------------------------------------------------------")
+}
+
+func writeASTToFile(fset *token.FileSet, node *ast.File, filename string) error {
+	var buf bytes.Buffer
+	if err := format.Node(&buf, fset, node); err != nil {
+		return fmt.Errorf("failed to format AST: %w", err)
+	}
+	if err := os.WriteFile(filename, buf.Bytes(), 0644); err != nil {
+		return fmt.Errorf("failed to write to file %s: %w", filename, err)
+	}
+	return nil
 }
 
 const moduleTemplate = `package {{.Name}}
