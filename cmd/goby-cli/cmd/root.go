@@ -7,10 +7,14 @@ import (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "goby",
+	Use:   "goby-cli",
 	Short: "Goby CLI tool",
 	Long: `Goby CLI is a command-line interface for the Goby framework.
-Use it to create new modules, manage dependencies, and more.`,
+
+Available commands:
+  list-services    Discover and list registered services in the Goby registry
+  
+Use "goby [command] --help" for more information about a specific command.`,
 }
 
 // Execute executes the root command
