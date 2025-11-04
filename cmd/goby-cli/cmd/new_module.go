@@ -250,26 +250,41 @@ const moduleTemplate = `package {{.Name}}
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/module"
+	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/registry"
 	"github.com/nfrund/goby/internal/rendering"
+	"github.com/nfrund/goby/internal/topicmgr"
 )
 
+// {{.PascalName}}Module implements the module.Module interface for the {{.Name}} module.
 type {{.PascalName}}Module struct {
 	module.BaseModule
-	renderer rendering.Renderer
+	publisher  pubsub.Publisher
+	subscriber pubsub.Subscriber
+	renderer   rendering.Renderer
+	topicMgr   *topicmgr.Manager
 }
 
-type Dependencies struct{
-	Renderer rendering.Renderer
+// Dependencies contains all the dependencies required by the {{.Name}} module.
+type Dependencies struct {
+	Publisher  pubsub.Publisher
+	Subscriber pubsub.Subscriber
+	Renderer   rendering.Renderer
+	TopicMgr   *topicmgr.Manager
 }
 
+// New creates a new instance of {{.PascalName}}Module with the provided dependencies.
 func New(deps Dependencies) *{{.PascalName}}Module {
 	return &{{.PascalName}}Module{
-		renderer: deps.Renderer,
+		publisher:  deps.Publisher,
+		subscriber: deps.Subscriber,
+		renderer:   deps.Renderer,
+		topicMgr:   deps.TopicMgr,
 	}
 }
 
@@ -279,13 +294,49 @@ func (m *{{.PascalName}}Module) Name() string {
 
 func (m *{{.PascalName}}Module) Register(reg *registry.Registry) error {
 	slog.Info("Registering {{.PascalName}}Module")
+	
+	// Register topics for this module
+	if err := m.registerTopics(); err != nil {
+		return fmt.Errorf("failed to register topics: %w", err)
+	}
+
+	// Register any message handlers
+	if err := m.registerHandlers(); err != nil {
+		return fmt.Errorf("failed to register message handlers: %w", err)
+	}
+
+	return nil
+}
+
+func (m *{{.PascalName}}Module) registerTopics() error {
+	// Example: Register topics for this module
+	// if err := m.topicMgr.Register("{{.Name}}.event", "Events for the {{.Name}} module"); err != nil {
+	// 	return err
+	// }
+	return nil
+}
+
+func (m *{{.PascalName}}Module) registerHandlers() error {
+	// Example: Subscribe to events
+	// if err := m.subscriber.Subscribe("some.topic", m.handleSomeEvent); err != nil {
+	// 	return fmt.Errorf("failed to subscribe to some.topic: %w", err)
+	// }
 	return nil
 }
 
 func (m *{{.PascalName}}Module) Boot(ctx context.Context, g *echo.Group, reg *registry.Registry) error {
 	slog.Info("Booting {{.PascalName}}Module: Setting up routes...")
 	handler := NewHandler(m.renderer)
+
+	// Public routes (no authentication required)
+	g.GET("/public", handler.GetPublic)
+
+	// Protected routes (require authentication)
+	// The authentication middleware is typically added at the router group level
+	// in the application's route setup. If you need to add it here, you would do:
+	// protected := g.Group("", middleware.RequireAuth())
 	g.GET("", handler.Get)
+
 	return nil
 }
 `
@@ -294,35 +345,107 @@ const handlerTemplate = `package {{.Name}}
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 
 	"github.com/a-h/templ"
 	"github.com/labstack/echo/v4"
+	"github.com/nfrund/goby/internal/domain"
+	"github.com/nfrund/goby/internal/middleware"
 	"github.com/nfrund/goby/internal/rendering"
 	"github.com/nfrund/goby/internal/view"
 	"github.com/nfrund/goby/web/src/templates/layouts"
 )
 
-type Handler struct{
+// UserContextKey is the key used to store the authenticated user in the request context.
+// This is set by the authentication middleware.
+const UserContextKey = middleware.UserContextKey
+
+// ErrUnauthorized is returned when a request requires authentication but no user is found.
+var ErrUnauthorized = errors.New("authentication required")
+
+// Handler handles HTTP requests for the {{.Name}} module.
+type Handler struct {
 	renderer rendering.Renderer
 }
 
+// NewHandler creates a new handler instance with the required dependencies.
 func NewHandler(renderer rendering.Renderer) *Handler {
 	return &Handler{
 		renderer: renderer,
 	}
 }
 
+// getUserDisplayName returns the best available display name for the user.
+// Checks name and email in order, returning the first non-empty value.
+// Returns an empty string if neither is available.
+func getUserDisplayName(user *domain.User) string {
+	switch {
+	case user == nil:
+		return ""
+	case user.Name != nil && *user.Name != "":
+		return *user.Name
+	case user.Email != "":
+		return user.Email
+	default:
+		return ""
+	}
+}
+
+// getCurrentUser retrieves the authenticated user from the request context.
+// Returns ErrUnauthorized if no user is found.
+func (h *Handler) getCurrentUser(c echo.Context) (*domain.User, error) {
+	user, ok := c.Get(UserContextKey).(*domain.User)
+	if !ok || user == nil {
+		return nil, ErrUnauthorized
+	}
+	return user, nil
+}
+
+// Get handles GET /{{.Name}} requests.
+// This is an example of a protected route that requires authentication.
 func (h *Handler) Get(c echo.Context) error {
-	pageContent := page("{{.Name}}")
+	// Get the current user (requires authentication)
+	user, err := h.getCurrentUser(c)
+	if err != nil {
+		// Redirect to login or return an error
+		return echo.NewHTTPError(http.StatusUnauthorized, "Authentication required")
+	}
+
+	// Get the best available display name (name or email)
+	displayName := getUserDisplayName(user)
+	pageContent := page("{{.Name}}", displayName)
 	finalComponent := templ.Component(layouts.Base("{{.PascalName}}", view.GetFlashData(c).Messages, pageContent))
 	return c.Render(http.StatusOK, "", finalComponent)
 }
 
-func page(name string) templ.Component {
+// GetPublic handles GET /{{.Name}}/public requests.
+// This is an example of a public route that doesn't require authentication.
+func (h *Handler) GetPublic(c echo.Context) error {
+	// This route is public, but we can still check if there's a user
+	user, _ := h.getCurrentUser(c)
+	
+	// Get the best available display name (name or email) if user is logged in
+	displayName := ""
+	if user != nil {
+		displayName = getUserDisplayName(user)
+	}
+	
+	pageContent := page("Public {{.Name}}", displayName)
+	finalComponent := templ.Component(layouts.Base("Public {{.PascalName}}", view.GetFlashData(c).Messages, pageContent))
+	return c.Render(http.StatusOK, "", finalComponent)
+}
+
+// page is an example template function that shows how to use the user's name.
+// In a real application, you would use a proper templ component.
+func page(name string, userName string) templ.Component {
 	return templ.ComponentFunc(func(ctx context.Context, w io.Writer) error {
-		_, err := w.Write([]byte("Hello from the " + name + " module!"))
+		greeting := "Hello"
+		if userName != "" {
+			greeting += ", " + userName
+		}
+		_, err := w.Write([]byte(greeting + "! Welcome to the " + name + " module!"))
 		return err
 	})
 }
