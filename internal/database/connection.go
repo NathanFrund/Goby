@@ -238,6 +238,19 @@ func (c *Connection) reconnect(ctx context.Context) error {
 		c.conn = conn
 	}
 
+	// Select namespace/database first (required for some SurrealDB auth methods)
+	if err := c.conn.Use(ctx, c.cfg.GetDBNs(), c.cfg.GetDBDb()); err != nil {
+		c.conn.Close(ctx)
+		slog.ErrorContext(ctx, "Failed to use namespace/database", "event", "db_namespace_failure", "version", "1.0",
+			"db_url", redactDBURL(dbURL),
+			"namespace", c.cfg.GetDBNs(),
+			"database", c.cfg.GetDBDb(),
+			"error", err,
+		)
+		c.healthy = false
+		return fmt.Errorf("failed to use namespace/db: %w", err)
+	}
+
 	// Authenticate
 	authData := &surrealdb.Auth{
 		Username: c.cfg.GetDBUser(),
@@ -253,19 +266,6 @@ func (c *Connection) reconnect(ctx context.Context) error {
 		)
 		c.healthy = false
 		return fmt.Errorf("failed to sign in: %w", err)
-	}
-
-	// Select namespace/database
-	if err := c.conn.Use(ctx, c.cfg.GetDBNs(), c.cfg.GetDBDb()); err != nil {
-		c.conn.Close(ctx)
-		slog.ErrorContext(ctx, "Failed to use namespace/database", "event", "db_namespace_failure", "version", "1.0",
-			"db_url", redactDBURL(dbURL),
-			"namespace", c.cfg.GetDBNs(),
-			"database", c.cfg.GetDBDb(),
-			"error", err,
-		)
-		c.healthy = false
-		return fmt.Errorf("failed to use namespace/db: %w", err)
 	}
 
 	// Update connection and health status
