@@ -19,7 +19,7 @@ require (
 	github.com/spf13/afero v1.15.0
 	github.com/spf13/cobra v1.10.1
 	github.com/stretchr/testify v1.11.1
-	github.com/surrealdb/surrealdb.go v0.9.0
+	github.com/surrealdb/surrealdb.go v1.0.0
 	golang.org/x/text v0.30.0
 	golang.org/x/tools v0.38.0
 	maragu.dev/gomponents v1.2.0
