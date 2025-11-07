@@ -59,6 +59,14 @@ func (cs *ChatSubscriber) Start(ctx context.Context) {
 			slog.Error("Chat client connect subscriber stopped with error", "error", err)
 		}
 	}()
+
+	// Listen for user creation events from the announcer module
+	go func() {
+		err := cs.subscriber.Subscribe(ctx, "announcer.user.created", cs.handleUserCreated)
+		if err != nil && err != context.Canceled {
+			slog.Error("User created subscriber stopped with error", "error", err)
+		}
+	}()
 }
 
 // handleClientConnect sends a welcome message to a newly connected client.
@@ -154,4 +162,44 @@ func (cs *ChatSubscriber) handleChatMessage(ctx context.Context, msg pubsub.Mess
 	}
 
 	return cs.publisher.Publish(ctx, pubMsg)
+}
+
+// handleUserCreated processes user creation events from the announcer module
+func (cs *ChatSubscriber) handleUserCreated(ctx context.Context, msg pubsub.Message) error {
+	var eventData struct {
+		UserID    string `json:"userID"`
+		Email     string `json:"email"`
+		Name      string `json:"name"`
+		Timestamp string `json:"timestamp"`
+	}
+
+	if err := json.Unmarshal(msg.Payload, &eventData); err != nil {
+		slog.Error("Failed to unmarshal user created event", "error", err)
+		return nil // Don't stop the subscriber for a bad message
+	}
+
+	// Create a broadcast message announcing the new user
+	content := "🎉 " + eventData.Email + " has joined!"
+	announcement := struct {
+		Content string `json:"content"`
+		User    string `json:"user"`
+	}{
+		Content: content,
+		User:    "system", // System-generated announcement
+	}
+
+	payload, err := json.Marshal(announcement)
+	if err != nil {
+		slog.Error("Failed to marshal user join announcement", "error", err)
+		return err
+	}
+
+	// Use the existing handleChatMessage method to process and broadcast this message
+	announcementMsg := pubsub.Message{
+		Topic:   Messages.Name(), // Send to the chat messages topic
+		Payload: payload,
+		UserID:  "system",
+	}
+
+	return cs.handleChatMessage(ctx, announcementMsg)
 }

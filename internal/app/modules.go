@@ -2,6 +2,7 @@ package app
 
 import (
 	"github.com/nfrund/goby/internal/module"
+	"github.com/nfrund/goby/internal/modules/announcer"
 	"github.com/nfrund/goby/internal/modules/chat"
 	"github.com/nfrund/goby/internal/modules/wargame"
 )
@@ -13,5 +14,6 @@ func NewModules(deps Dependencies) []module.Module {
 		// Add new application modules here.
 		wargame.New(wargameDeps(deps)),
 		chat.New(chatDeps(deps)),
+		announcer.New(announcerDeps(deps)),
 	}
 }

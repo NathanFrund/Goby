@@ -1,6 +1,8 @@
 package app
 
 import (
+	"github.com/nfrund/goby/internal/database"
+	"github.com/nfrund/goby/internal/modules/announcer"
 	"github.com/nfrund/goby/internal/modules/chat"
 	"github.com/nfrund/goby/internal/modules/wargame"
 	"github.com/nfrund/goby/internal/presence"
@@ -13,12 +15,13 @@ import (
 // Dependencies holds the core services that are required by the application's modules.
 // This struct is passed from the main application entrypoint to wire up the modules.
 type Dependencies struct {
-	Publisher       pubsub.Publisher
-	Subscriber      pubsub.Subscriber
-	Renderer        rendering.Renderer
-	TopicMgr        *topicmgr.Manager
-	PresenceService *presence.Service
-	ScriptEngine    script.ScriptEngine
+	Publisher        pubsub.Publisher
+	Subscriber       pubsub.Subscriber
+	Renderer         rendering.Renderer
+	TopicMgr         *topicmgr.Manager
+	PresenceService  *presence.Service
+	ScriptEngine     script.ScriptEngine
+	LiveQueryService database.LiveQueryService
 }
 
 // chatDeps creates the dependency struct for the chat module.
@@ -40,5 +43,13 @@ func wargameDeps(deps Dependencies) wargame.Dependencies {
 		Renderer:     deps.Renderer,
 		TopicMgr:     deps.TopicMgr,
 		ScriptEngine: deps.ScriptEngine,
+	}
+}
+
+// announcerDeps creates the dependency struct for the announcer module.
+func announcerDeps(deps Dependencies) announcer.Dependencies {
+	return announcer.Dependencies{
+		LiveQueryService: deps.LiveQueryService,
+		Publisher:        deps.Publisher,
 	}
 }

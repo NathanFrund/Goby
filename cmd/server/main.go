@@ -31,7 +31,6 @@ import (
 	"github.com/nfrund/goby/internal/storage"
 	"github.com/nfrund/goby/internal/topicmgr"
 	"github.com/nfrund/goby/internal/websocket"
-	wsTopics "github.com/nfrund/goby/internal/websocket"
 	"github.com/samber/do/v2"
 	"github.com/spf13/afero"
 )
@@ -119,6 +118,7 @@ func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Serve
 	do.Provide(injector, provideEchoRenderer)
 	do.Provide(injector, providePresenceService)
 	do.Provide(injector, provideScriptEngine)
+	do.Provide(injector, provideLiveQueryService)
 	do.Provide(injector, provideEcho)
 	do.Provide(injector, provideStorage)
 
@@ -142,7 +142,7 @@ func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Serve
 	do.Provide(injector, provideServer)
 
 	// Register topics (must be done before bridges start)
-	if err := wsTopics.RegisterTopics(); err != nil {
+	if err := websocket.RegisterTopics(); err != nil {
 		return nil, nil, fmt.Errorf("failed to register WebSocket topics: %w", err)
 	}
 	if err := presence.RegisterTopics(); err != nil {
@@ -373,7 +373,7 @@ func provideHTMLBridge(i do.Injector) (*websocket.Bridge, error) {
 		Publisher:    ps,
 		Subscriber:   sub,
 		TopicManager: topicMgr,
-		ReadyTopic:   wsTopics.TopicClientReady,
+		ReadyTopic:   websocket.TopicClientReady,
 	}), nil
 }
 
@@ -385,7 +385,7 @@ func provideDataBridge(i do.Injector) (*websocket.Bridge, error) {
 		Publisher:    ps,
 		Subscriber:   sub,
 		TopicManager: topicMgr,
-		ReadyTopic:   wsTopics.TopicClientReady,
+		ReadyTopic:   websocket.TopicClientReady,
 	}), nil
 }
 
@@ -411,6 +411,11 @@ func providePresenceHandler(i do.Injector) (*handlers.PresenceHandler, error) {
 	return handlers.NewPresenceHandler(presenceService), nil
 }
 
+func provideLiveQueryService(i do.Injector) (database.LiveQueryService, error) {
+	dbConn := do.MustInvoke[*database.Connection](i)
+	return database.NewSurrealLiveQueryService(dbConn), nil
+}
+
 // provideModuleDependencies creates the app.Dependencies struct for module initialization
 func provideModuleDependencies(i do.Injector) (app.Dependencies, error) {
 	ps := do.MustInvoke[pubsub.Publisher](i)
@@ -419,13 +424,15 @@ func provideModuleDependencies(i do.Injector) (app.Dependencies, error) {
 	topicMgr := do.MustInvoke[*topicmgr.Manager](i)
 	presenceService := do.MustInvoke[*presence.Service](i)
 	scriptEngine := do.MustInvoke[script.ScriptEngine](i)
+	liveQueryService := do.MustInvoke[database.LiveQueryService](i)
 	return app.Dependencies{
-		Publisher:       ps,
-		Subscriber:      sub,
-		Renderer:        renderer,
-		TopicMgr:        topicMgr,
-		PresenceService: presenceService,
-		ScriptEngine:    scriptEngine,
+		Publisher:        ps,
+		Subscriber:       sub,
+		Renderer:         renderer,
+		TopicMgr:         topicMgr,
+		PresenceService:  presenceService,
+		ScriptEngine:     scriptEngine,
+		LiveQueryService: liveQueryService,
 	}, nil
 }
 
