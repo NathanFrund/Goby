@@ -48,11 +48,12 @@ const (
 )
 
 type Presence struct {
-	UserID    string    `json:"user_id"`
-	Status    Status    `json:"status"`
-	ClientID  string    `json:"client_id,omitempty"`
-	Timestamp time.Time `json:"timestamp"`
-	UserAgent string    `json:"user_agent,omitempty"`
+	UserID     string    `json:"user_id"`
+	Status     Status    `json:"status"`
+	ClientID   string    `json:"client_id,omitempty"`
+	ClientType string    `json:"client_type,omitempty"`
+	Timestamp  time.Time `json:"timestamp"`
+	UserAgent  string    `json:"user_agent,omitempty"`
 }
 
 type ConnectionState struct {
@@ -260,9 +261,10 @@ func (s *Service) handleClientConnected(ctx context.Context, msg pubsub.Message)
 
 	// WebSocket client ready event structure
 	var event struct {
-		UserID   string `json:"userID"`
-		ClientID string `json:"clientID"`
-		Endpoint string `json:"endpoint"`
+		UserID     string `json:"userID"`
+		ClientID   string `json:"clientID"`
+		ClientType string `json:"clientType"`
+		Endpoint   string `json:"endpoint"`
 	}
 
 	if err := json.Unmarshal(msg.Payload, &event); err != nil {
@@ -273,10 +275,11 @@ func (s *Service) handleClientConnected(ctx context.Context, msg pubsub.Message)
 	s.logger.Info("Processing client connection",
 		"userID", event.UserID,
 		"clientID", event.ClientID,
+		"clientType", event.ClientType,
 		"endpoint", event.Endpoint)
 
 	// Use the actual clientID from the WebSocket bridge
-	s.addPresence(event.UserID, event.ClientID, "")
+	s.addPresenceWithClientType(event.UserID, event.ClientID, "", event.ClientType)
 
 	// Update timestamp for this client to prevent premature cleanup
 	s.updateClientActivity(event.UserID, event.ClientID)
@@ -285,6 +288,11 @@ func (s *Service) handleClientConnected(ctx context.Context, msg pubsub.Message)
 }
 
 func (s *Service) addPresence(userID, clientID, userAgent string) {
+	s.addPresenceWithClientType(userID, clientID, userAgent, "")
+}
+
+// addPresenceWithClientType adds a presence entry with client type information
+func (s *Service) addPresenceWithClientType(userID, clientID, userAgent, clientType string) {
 	// Rate limiting check
 	if !s.checkRateLimit(userID) {
 		s.logger.Debug("Rate limit exceeded for user", "user_id", userID)
@@ -330,11 +338,12 @@ func (s *Service) addPresence(userID, clientID, userAgent string) {
 
 	// Add this specific client's presence
 	s.presences[userID][clientID] = Presence{
-		UserID:    userID,
-		Status:    StatusOnline,
-		ClientID:  clientID,
-		Timestamp: Now(),
-		UserAgent: userAgent,
+		UserID:     userID,
+		Status:     StatusOnline,
+		ClientID:   clientID,
+		ClientType: clientType,
+		Timestamp:  Now(),
+		UserAgent:  userAgent,
 	}
 	s.metrics.totalConnections++
 	s.metrics.totalUsers = int64(len(s.presences))
@@ -380,10 +389,11 @@ func (s *Service) handleClientDisconnected(ctx context.Context, msg pubsub.Messa
 
 	// WebSocket client disconnected event structure
 	var event struct {
-		UserID   string `json:"userID"`
-		ClientID string `json:"clientID"`
-		Endpoint string `json:"endpoint"`
-		Reason   string `json:"reason"`
+		UserID     string `json:"userID"`
+		ClientID   string `json:"clientID"`
+		ClientType string `json:"clientType"`
+		Endpoint   string `json:"endpoint"`
+		Reason     string `json:"reason"`
 	}
 
 	if err := json.Unmarshal(msg.Payload, &event); err != nil {

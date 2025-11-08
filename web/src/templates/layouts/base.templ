@@ -19,50 +19,7 @@ templ Base(title string, flashes partials.FlashData, children templ.Component) {
 			<script src="/static/js/htmx.min.js"></script>
 			<script src="/static/js/ws.js"></script>
 			<script defer src="/static/js/alpine.min.js"></script>
-			<script>
-// Presence heartbeat management
-document.addEventListener('DOMContentLoaded', function() {
-			 // Generate unique client ID for this session
-			 const clientId = 'client_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-
-			 // Function to send heartbeat
-			 const sendHeartbeat = async () => {
-			     try {
-			         const response = await fetch('/app/api/presence/heartbeat', {
-			             method: 'POST',
-			             headers: {
-			                 'Content-Type': 'application/x-www-form-urlencoded',
-			                 'X-Requested-With': 'XMLHttpRequest'
-			             },
-			             body: new URLSearchParams({ client_id: clientId })
-			         });
-
-			         if (!response.ok) {
-			             console.warn('Heartbeat failed:', response.status);
-			         }
-			     } catch (error) {
-			         console.warn('Heartbeat error:', error);
-			     }
-			 };
-
-			 // Send immediate heartbeat on page load
-			 sendHeartbeat();
-
-			 // Start heartbeat interval
-			 const heartbeatInterval = setInterval(sendHeartbeat, 30000); // 30 second intervals
-
-			 // Mark offline when leaving
-			 window.addEventListener('beforeunload', function() {
-			     // Use sendBeacon for reliable delivery during page unload
-			     navigator.sendBeacon('/app/api/presence/offline',
-			         new URLSearchParams({ client_id: clientId })
-			     );
-
-			     // Clear heartbeat
-			     clearInterval(heartbeatInterval);
-			 });
-});
-</script>
+			<script src="/static/js/heartbeat.js"></script>
 		</head>
 		<body>
 			@partials.FlashMessages(flashes)

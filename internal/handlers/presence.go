@@ -152,10 +152,16 @@ func (h *PresenceHandler) Heartbeat(c echo.Context) error {
 	}
 
 	// Publish the same event that WebSocket bridge publishes for client ready
+	clientType := c.FormValue("client_type")
+	if clientType == "" {
+		clientType = "unknown" // Default if not provided
+	}
+
 	payload, err := json.Marshal(map[string]any{
-		"userID":   user.Email,
-		"clientID": clientID,
-		"endpoint": "http", // Indicate this came from HTTP heartbeat
+		"userID":     user.Email,
+		"clientID":   clientID,
+		"clientType": clientType,
+		"endpoint":   "http", // Indicate this came from HTTP heartbeat
 	})
 	if err != nil {
 		c.Logger().Error("Failed to marshal heartbeat payload", "error", err)
@@ -203,11 +209,17 @@ func (h *PresenceHandler) Offline(c echo.Context) error {
 	}
 
 	// Publish the same event that WebSocket bridge publishes for client disconnect
+	clientType := c.FormValue("client_type")
+	if clientType == "" {
+		clientType = "unknown" // Default if not provided
+	}
+
 	payload, err := json.Marshal(map[string]any{
-		"userID":   user.Email,
-		"clientID": clientID,
-		"endpoint": "http", // Indicate this came from HTTP offline
-		"reason":   "client_offline",
+		"userID":     user.Email,
+		"clientID":   clientID,
+		"clientType": clientType,
+		"endpoint":   "http", // Indicate this came from HTTP offline
+		"reason":     "client_offline",
 	})
 	if err != nil {
 		c.Logger().Error("Failed to marshal offline payload", "error", err)
