@@ -1,29 +1,36 @@
 package handlers
 
 import (
+	"context"
+	"encoding/json"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
+	"github.com/nfrund/goby/internal/domain"
+	"github.com/nfrund/goby/internal/middleware"
 	"github.com/nfrund/goby/internal/modules/chat/templates/components"
 	"github.com/nfrund/goby/internal/presence"
+	"github.com/nfrund/goby/internal/pubsub"
 )
 
 // PresenceHandler handles presence-related HTTP requests
 type PresenceHandler struct {
 	presenceService *presence.Service
+	publisher       pubsub.Publisher
 }
 
 // NewPresenceHandler creates a new presence handler
-func NewPresenceHandler(presenceService *presence.Service) *PresenceHandler {
+func NewPresenceHandler(presenceService *presence.Service, publisher pubsub.Publisher) *PresenceHandler {
 	return &PresenceHandler{
 		presenceService: presenceService,
+		publisher:       publisher,
 	}
 }
 
 // GetPresence returns the current online users as JSON
 func (h *PresenceHandler) GetPresence(c echo.Context) error {
 	c.Logger().Info("Presence JSON endpoint called")
-	
+
 	if h.presenceService == nil {
 		c.Logger().Error("Presence service is nil")
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{
@@ -34,12 +41,12 @@ func (h *PresenceHandler) GetPresence(c echo.Context) error {
 	c.Logger().Info("About to call GetOnlineUsers")
 	onlineUsers := h.presenceService.GetOnlineUsers()
 	c.Logger().Info("GetOnlineUsers returned", "count", len(onlineUsers))
-	
+
 	response := map[string]interface{}{
 		"online_users": onlineUsers,
 		"count":        len(onlineUsers),
 	}
-	
+
 	c.Logger().Info("About to return JSON response")
 	return c.JSON(http.StatusOK, response)
 }
@@ -49,7 +56,7 @@ func (h *PresenceHandler) GetPresenceHTML(c echo.Context) error {
 	c.Logger().Info("=== PRESENCE HTML ENDPOINT CALLED ===")
 	c.Logger().Info("Request path", "path", c.Request().URL.Path)
 	c.Logger().Info("Request method", "method", c.Request().Method)
-	
+
 	if h.presenceService == nil {
 		c.Logger().Error("Presence service is nil")
 		return c.HTML(http.StatusServiceUnavailable, `<div class="text-red-500">Presence service unavailable</div>`)
@@ -58,11 +65,11 @@ func (h *PresenceHandler) GetPresenceHTML(c echo.Context) error {
 	c.Logger().Info("About to get online users")
 	onlineUsers := h.presenceService.GetOnlineUsers()
 	c.Logger().Info("Retrieved online users", "count", len(onlineUsers), "users", onlineUsers)
-	
+
 	// Render the presence component
 	c.Logger().Info("About to render component")
 	component := components.OnlineUsers(onlineUsers)
-	
+
 	c.Logger().Info("About to return rendered component")
 	return c.Render(http.StatusOK, "", component)
 }
@@ -95,7 +102,7 @@ func (h *PresenceHandler) GetUserPresence(c echo.Context) error {
 // DebugAddUser manually adds a user for testing (remove in production)
 func (h *PresenceHandler) DebugAddUser(c echo.Context) error {
 	c.Logger().Info("Debug endpoint called")
-	
+
 	if h.presenceService == nil {
 		c.Logger().Error("Presence service is nil in debug endpoint")
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{
@@ -104,7 +111,7 @@ func (h *PresenceHandler) DebugAddUser(c echo.Context) error {
 	}
 
 	c.Logger().Info("Presence service is available in debug endpoint")
-	
+
 	return c.JSON(http.StatusOK, map[string]string{
 		"message": "Presence service is available",
 		"status":  "ok",
@@ -114,17 +121,120 @@ func (h *PresenceHandler) DebugAddUser(c echo.Context) error {
 // HealthCheck returns the health status of the presence service
 func (h *PresenceHandler) HealthCheck(c echo.Context) error {
 	c.Logger().Info("Health check endpoint called")
-	
+
 	if h.presenceService == nil {
 		return c.JSON(http.StatusServiceUnavailable, map[string]string{
 			"status": "error",
 			"error":  "presence service not available",
 		})
 	}
-	
+
+	return c.JSON(http.StatusOK, map[string]string{
+		"status":  "ok",
+		"message": "presence service is available",
+	})
+}
+
+// Heartbeat handles client heartbeat requests by publishing TopicClientReady events
+func (h *PresenceHandler) Heartbeat(c echo.Context) error {
+	user, ok := c.Get(middleware.UserContextKey).(*domain.User)
+	if !ok || user == nil {
+		return c.JSON(http.StatusUnauthorized, map[string]string{
+			"error": "user not authenticated",
+		})
+	}
+
+	clientID := c.FormValue("client_id")
+	if clientID == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "client_id parameter required",
+		})
+	}
+
+	// Publish the same event that WebSocket bridge publishes for client ready
+	payload, err := json.Marshal(map[string]any{
+		"userID":   user.Email,
+		"clientID": clientID,
+		"endpoint": "http", // Indicate this came from HTTP heartbeat
+	})
+	if err != nil {
+		c.Logger().Error("Failed to marshal heartbeat payload", "error", err)
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "internal server error",
+		})
+	}
+
+	msg := pubsub.Message{
+		Topic:   "ws.client.ready",
+		UserID:  user.Email,
+		Payload: payload,
+	}
+
+	if err := h.publisher.Publish(context.Background(), msg); err != nil {
+		c.Logger().Error("Failed to publish heartbeat event", "error", err)
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "failed to publish heartbeat",
+		})
+	}
+
+	c.Logger().Info("Heartbeat received and published",
+		"userID", user.Email,
+		"clientID", clientID)
+
 	return c.JSON(http.StatusOK, map[string]string{
 		"status": "ok",
-		"message": "presence service is available",
+	})
+}
+
+// Offline handles client offline requests by publishing TopicClientDisconnected events
+func (h *PresenceHandler) Offline(c echo.Context) error {
+	user, ok := c.Get(middleware.UserContextKey).(*domain.User)
+	if !ok || user == nil {
+		return c.JSON(http.StatusUnauthorized, map[string]string{
+			"error": "user not authenticated",
+		})
+	}
+
+	clientID := c.FormValue("client_id")
+	if clientID == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "client_id parameter required",
+		})
+	}
+
+	// Publish the same event that WebSocket bridge publishes for client disconnect
+	payload, err := json.Marshal(map[string]any{
+		"userID":   user.Email,
+		"clientID": clientID,
+		"endpoint": "http", // Indicate this came from HTTP offline
+		"reason":   "client_offline",
+	})
+	if err != nil {
+		c.Logger().Error("Failed to marshal offline payload", "error", err)
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "internal server error",
+		})
+	}
+
+	msg := pubsub.Message{
+		Topic:   "ws.client.disconnected",
+		UserID:  user.Email,
+		Payload: payload,
+	}
+
+	if err := h.publisher.Publish(context.Background(), msg); err != nil {
+		c.Logger().Error("Failed to publish offline event", "error", err)
+		return c.JSON(http.StatusInternalServerError, map[string]string{
+			"error": "failed to publish offline event",
+		})
+	}
+
+	c.Logger().Info("Offline event received and published",
+		"userID", user.Email,
+		"clientID", clientID)
+
+	return c.JSON(http.StatusOK, map[string]string{
+		"status": "ok",
 	})
 }
 

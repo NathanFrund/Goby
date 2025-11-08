@@ -69,6 +69,8 @@ func (s *Server) RegisterRoutes() {
 	protected.GET("/api/presence", s.PresenceHandler.GetPresence)
 	protected.GET("/api/presence/:userID", s.PresenceHandler.GetUserPresence)
 	protected.GET("/api/presence/health", s.PresenceHandler.HealthCheck)
+	protected.POST("/api/presence/heartbeat", s.PresenceHandler.Heartbeat)
+	protected.POST("/api/presence/offline", s.PresenceHandler.Offline)
 
 	// Debug endpoints (only in development)
 

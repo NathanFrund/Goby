@@ -408,7 +408,8 @@ func provideDashboardHandler(i do.Injector) (*handlers.DashboardHandler, error) 
 
 func providePresenceHandler(i do.Injector) (*handlers.PresenceHandler, error) {
 	presenceService := do.MustInvoke[*presence.Service](i)
-	return handlers.NewPresenceHandler(presenceService), nil
+	publisher := do.MustInvoke[pubsub.Publisher](i)
+	return handlers.NewPresenceHandler(presenceService, publisher), nil
 }
 
 func provideLiveQueryService(i do.Injector) (database.LiveQueryService, error) {
