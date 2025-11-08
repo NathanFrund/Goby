@@ -43,24 +43,27 @@ document.addEventListener("DOMContentLoaded", function () {
     }
   };
 
-  // Send immediate heartbeat on page load
-  sendHeartbeat();
+  // Wait for full page load before starting heartbeats to avoid race condition
+  window.addEventListener("load", function () {
+    // Send immediate heartbeat now that page is fully loaded
+    sendHeartbeat();
 
-  // Start heartbeat interval
-  const heartbeatInterval = setInterval(sendHeartbeat, 30000); // 30 second intervals
+    // Start heartbeat interval
+    const heartbeatInterval = setInterval(sendHeartbeat, 30000); // 30 second intervals
 
-  // Mark offline when leaving
-  window.addEventListener("beforeunload", function () {
-    // Use sendBeacon for reliable delivery during page unload
-    navigator.sendBeacon(
-      "/app/api/presence/offline",
-      new URLSearchParams({
-        client_id: clientId,
-        client_type: clientType,
-      })
-    );
+    // Mark offline when leaving
+    window.addEventListener("beforeunload", function () {
+      // Use sendBeacon for reliable delivery during page unload
+      navigator.sendBeacon(
+        "/app/api/presence/offline",
+        new URLSearchParams({
+          client_id: clientId,
+          client_type: clientType,
+        })
+      );
 
-    // Clear heartbeat
-    clearInterval(heartbeatInterval);
+      // Clear heartbeat
+      clearInterval(heartbeatInterval);
+    });
   });
 });

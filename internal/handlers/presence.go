@@ -1,8 +1,6 @@
 package handlers
 
 import (
-	"context"
-	"encoding/json"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
@@ -135,7 +133,7 @@ func (h *PresenceHandler) HealthCheck(c echo.Context) error {
 	})
 }
 
-// Heartbeat handles client heartbeat requests by publishing TopicClientReady events
+// Heartbeat handles client heartbeat requests by directly updating presence
 func (h *PresenceHandler) Heartbeat(c echo.Context) error {
 	user, ok := c.Get(middleware.UserContextKey).(*domain.User)
 	if !ok || user == nil {
@@ -151,48 +149,25 @@ func (h *PresenceHandler) Heartbeat(c echo.Context) error {
 		})
 	}
 
-	// Publish the same event that WebSocket bridge publishes for client ready
+	// Directly update presence instead of publishing event
 	clientType := c.FormValue("client_type")
 	if clientType == "" {
 		clientType = "unknown" // Default if not provided
 	}
 
-	payload, err := json.Marshal(map[string]any{
-		"userID":     user.Email,
-		"clientID":   clientID,
-		"clientType": clientType,
-		"endpoint":   "http", // Indicate this came from HTTP heartbeat
-	})
-	if err != nil {
-		c.Logger().Error("Failed to marshal heartbeat payload", "error", err)
-		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": "internal server error",
-		})
-	}
+	h.presenceService.AddPresenceWithClientType(user.Email, clientID, "", clientType)
 
-	msg := pubsub.Message{
-		Topic:   "ws.client.ready",
-		UserID:  user.Email,
-		Payload: payload,
-	}
-
-	if err := h.publisher.Publish(context.Background(), msg); err != nil {
-		c.Logger().Error("Failed to publish heartbeat event", "error", err)
-		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": "failed to publish heartbeat",
-		})
-	}
-
-	c.Logger().Info("Heartbeat received and published",
+	c.Logger().Info("Heartbeat received and presence updated",
 		"userID", user.Email,
-		"clientID", clientID)
+		"clientID", clientID,
+		"clientType", clientType)
 
 	return c.JSON(http.StatusOK, map[string]string{
 		"status": "ok",
 	})
 }
 
-// Offline handles client offline requests by publishing TopicClientDisconnected events
+// Offline handles client offline requests by directly updating presence
 func (h *PresenceHandler) Offline(c echo.Context) error {
 	user, ok := c.Get(middleware.UserContextKey).(*domain.User)
 	if !ok || user == nil {
@@ -208,40 +183,10 @@ func (h *PresenceHandler) Offline(c echo.Context) error {
 		})
 	}
 
-	// Publish the same event that WebSocket bridge publishes for client disconnect
-	clientType := c.FormValue("client_type")
-	if clientType == "" {
-		clientType = "unknown" // Default if not provided
-	}
+	// Directly update presence instead of publishing event
+	h.presenceService.RemovePresenceForClient(user.Email, clientID)
 
-	payload, err := json.Marshal(map[string]any{
-		"userID":     user.Email,
-		"clientID":   clientID,
-		"clientType": clientType,
-		"endpoint":   "http", // Indicate this came from HTTP offline
-		"reason":     "client_offline",
-	})
-	if err != nil {
-		c.Logger().Error("Failed to marshal offline payload", "error", err)
-		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": "internal server error",
-		})
-	}
-
-	msg := pubsub.Message{
-		Topic:   "ws.client.disconnected",
-		UserID:  user.Email,
-		Payload: payload,
-	}
-
-	if err := h.publisher.Publish(context.Background(), msg); err != nil {
-		c.Logger().Error("Failed to publish offline event", "error", err)
-		return c.JSON(http.StatusInternalServerError, map[string]string{
-			"error": "failed to publish offline event",
-		})
-	}
-
-	c.Logger().Info("Offline event received and published",
+	c.Logger().Info("Offline event received and presence updated",
 		"userID", user.Email,
 		"clientID", clientID)
 

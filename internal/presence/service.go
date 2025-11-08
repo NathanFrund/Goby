@@ -9,7 +9,6 @@ import (
 
 	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/topicmgr"
-	wsTopics "github.com/nfrund/goby/internal/websocket"
 )
 
 type Status string
@@ -219,29 +218,9 @@ func NewService(publisher pubsub.Publisher, subscriber pubsub.Subscriber, topicM
 		svc.logger.Error("failed to register presence topics", "error", err)
 	}
 
-	// Subscribe to WebSocket client lifecycle events
-	ctx := context.Background()
-
-	svc.logger.Info("Subscribing to WebSocket events",
-		"ready_topic", wsTopics.TopicClientReady.Name(),
-		"disconnect_topic", wsTopics.TopicClientDisconnected.Name())
-
-	// Debug: Let's also check what the bridge is publishing to
-	svc.logger.Info("WebSocket bridge should publish to", "ready_topic", wsTopics.TopicClientReady.Name())
-
-	// Listen for WebSocket client ready events (when clients connect)
-	if err := subscriber.Subscribe(ctx, wsTopics.TopicClientReady.Name(), svc.handleClientConnected); err != nil {
-		svc.logger.Error("failed to subscribe to WebSocket client ready events", "error", err)
-	} else {
-		svc.logger.Info("Successfully subscribed to WebSocket client ready events")
-	}
-
-	// Listen for WebSocket client disconnected events
-	if err := subscriber.Subscribe(ctx, wsTopics.TopicClientDisconnected.Name(), svc.handleClientDisconnected); err != nil {
-		svc.logger.Error("failed to subscribe to WebSocket client disconnected events", "error", err)
-	} else {
-		svc.logger.Info("Successfully subscribed to WebSocket client disconnected events")
-	}
+	// Note: Presence service no longer subscribes to WebSocket events.
+	// Presence is now managed exclusively through HTTP heartbeats.
+	// WebSocket bridge events are legacy and have been superseded by client-driven heartbeats.
 
 	// Start cleanup goroutine
 	go svc.startCleanup()
@@ -609,6 +588,16 @@ func (s *Service) GetOnlineUsers() []string {
 	defer s.mu.RUnlock()
 
 	return s.getOnlineUsersUnsafe()
+}
+
+// AddPresenceWithClientType adds a presence entry with client type information
+func (s *Service) AddPresenceWithClientType(userID, clientID, userAgent, clientType string) {
+	s.addPresenceWithClientType(userID, clientID, userAgent, clientType)
+}
+
+// RemovePresenceForClient removes a specific client connection for a user
+func (s *Service) RemovePresenceForClient(userID, clientID string) {
+	s.removePresenceForClient(userID, clientID)
 }
 
 // getOnlineUsersUnsafe returns online users without acquiring lock (internal use)

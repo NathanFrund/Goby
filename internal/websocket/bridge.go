@@ -284,6 +284,24 @@ func (b *Bridge) Handler() echo.HandlerFunc {
 		// Register the client
 		b.clients.Add(client)
 
+		// Publish a "ready" event to the message bus so other modules can react.
+		// This is done in a goroutine to avoid blocking the connection handler.
+		go func() {
+			payload, _ := json.Marshal(map[string]any{
+				"userID":   client.UserID,
+				"clientID": client.ID,
+				"endpoint": client.Endpoint,
+			})
+			readyMsg := pubsub.Message{
+				Topic:   b.readyTopic.Name(),
+				UserID:  client.UserID,
+				Payload: payload,
+			}
+			if err := b.publisher.Publish(context.Background(), readyMsg); err != nil {
+				slog.Error("Failed to publish websocket ready event", "error", err, "userID", client.UserID, "clientID", client.ID)
+			}
+		}()
+
 		// Start the read and write pumps
 		b.wg.Add(2)
 		go b.writePump(client)
@@ -298,6 +316,24 @@ func (b *Bridge) readPump(client *Client) {
 	defer func() {
 		b.clients.Remove(client.ID)
 		client.Close() // Safely close the client's channel.
+
+		// Publish client disconnected event
+		go func() {
+			payload, _ := json.Marshal(map[string]any{
+				"userID":   client.UserID,
+				"clientID": client.ID,
+				"endpoint": client.Endpoint,
+				"reason":   "connection_closed",
+			})
+			disconnectMsg := pubsub.Message{
+				Topic:   TopicClientDisconnected.Name(),
+				UserID:  client.UserID,
+				Payload: payload,
+			}
+			if err := b.publisher.Publish(context.Background(), disconnectMsg); err != nil {
+				slog.Error("Failed to publish websocket disconnect event", "error", err, "userID", client.UserID, "clientID", client.ID)
+			}
+		}()
 
 		b.wg.Done()
 		slog.Info("Client disconnected", "clientID", client.ID, "userID", client.UserID, "endpoint", b.endpoint)
