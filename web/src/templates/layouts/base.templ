@@ -5,26 +5,25 @@ import "github.com/nfrund/goby/web/src/templates/partials"
 // Base defines the main document structure.
 // It accepts a 'title' string, the 'flashes' data, and a 'children' component (which is the page content).
 templ Base(title string, flashes partials.FlashData, children templ.Component) {
-    <!DOCTYPE html>
-    <html lang="en">
-      <head>
-        <meta charset="UTF-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        
-        <!-- Calls the external Go function defined in helpers.go -->
-        <title>{ CalculateTitle(title) }</title> 
-        
-        <!-- Use SVG for modern browsers, with an ICO fallback -->
-        <link rel="icon" type="image/svg+xml" href="/static/img/logo.svg" />
-        <link rel="alternate icon" href="/static/img/favicon.ico" />
-        <link rel="stylesheet" href="/static/css/style.css" />
-        <script src="/static/js/htmx.min.js"></script>
-        <script src="/static/js/ws.js"></script>
-        <script defer src="/static/js/alpine.min.js"></script>
-      </head>
-      <body>
-        @partials.FlashMessages(flashes)
-        @children
-      </body>
-    </html>
+	<!DOCTYPE html>
+	<html lang="en">
+		<head>
+			<meta charset="UTF-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			<!-- Calls the external Go function defined in helpers.go -->
+			<title>{ CalculateTitle(title) }</title>
+			<!-- Use SVG for modern browsers, with an ICO fallback -->
+			<link rel="icon" type="image/svg+xml" href="/static/img/logo.svg"/>
+			<link rel="alternate icon" href="/static/img/favicon.ico"/>
+			<link rel="stylesheet" href="/static/css/style.css"/>
+			<script src="/static/js/htmx.min.js"></script>
+			<script src="/static/js/ws.js"></script>
+			<script defer src="/static/js/alpine.min.js"></script>
+			<script src="/static/js/heartbeat.js"></script>
+		</head>
+		<body>
+			@partials.FlashMessages(flashes)
+			@children
+		</body>
+	</html>
 }

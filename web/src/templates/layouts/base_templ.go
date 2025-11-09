@@ -40,13 +40,13 @@ func Base(title string, flashes partials.FlashData, children templ.Component) te
 		var templ_7745c5c3_Var2 string
 		templ_7745c5c3_Var2, templ_7745c5c3_Err = templ.JoinStringErrs(CalculateTitle(title))
 		if templ_7745c5c3_Err != nil {
-			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/src/templates/layouts/base.templ`, Line: 15, Col: 38}
+			return templ.Error{Err: templ_7745c5c3_Err, FileName: `web/src/templates/layouts/base.templ`, Line: 14, Col: 33}
 		}
 		_, templ_7745c5c3_Err = templ_7745c5c3_Buffer.WriteString(templ.EscapeString(templ_7745c5c3_Var2))
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "</title><!-- Use SVG for modern browsers, with an ICO fallback --><link rel=\"icon\" type=\"image/svg+xml\" href=\"/static/img/logo.svg\"><link rel=\"alternate icon\" href=\"/static/img/favicon.ico\"><link rel=\"stylesheet\" href=\"/static/css/style.css\"><script src=\"/static/js/htmx.min.js\"></script><script src=\"/static/js/ws.js\"></script><script defer src=\"/static/js/alpine.min.js\"></script></head><body>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "</title><!-- Use SVG for modern browsers, with an ICO fallback --><link rel=\"icon\" type=\"image/svg+xml\" href=\"/static/img/logo.svg\"><link rel=\"alternate icon\" href=\"/static/img/favicon.ico\"><link rel=\"stylesheet\" href=\"/static/css/style.css\"><script src=\"/static/js/htmx.min.js\"></script><script src=\"/static/js/ws.js\"></script><script defer src=\"/static/js/alpine.min.js\"></script><script src=\"/static/js/heartbeat.js\"></script></head><body>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
