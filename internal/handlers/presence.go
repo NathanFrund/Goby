@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/domain"
@@ -149,18 +150,35 @@ func (h *PresenceHandler) Heartbeat(c echo.Context) error {
 		})
 	}
 
-	// Directly update presence instead of publishing event
+	// Parse client configuration with defaults
 	clientType := c.FormValue("client_type")
 	if clientType == "" {
 		clientType = "unknown" // Default if not provided
 	}
 
-	h.presenceService.AddPresenceWithClientType(user.Email, clientID, "", clientType)
+	pingIntervalMs := 30000 // Default 30 seconds
+	if pingIntervalStr := c.FormValue("ping_interval_ms"); pingIntervalStr != "" {
+		if parsed, err := strconv.Atoi(pingIntervalStr); err == nil && parsed > 0 {
+			pingIntervalMs = parsed
+		}
+	}
+
+	timeoutMultiplier := 3 // Default 3x interval
+	if timeoutMultiplierStr := c.FormValue("timeout_multiplier"); timeoutMultiplierStr != "" {
+		if parsed, err := strconv.Atoi(timeoutMultiplierStr); err == nil && parsed > 0 {
+			timeoutMultiplier = parsed
+		}
+	}
+
+	// Directly update presence with client configuration
+	h.presenceService.AddPresenceWithClientConfig(user.Email, clientID, "", clientType, pingIntervalMs, timeoutMultiplier)
 
 	c.Logger().Info("Heartbeat received and presence updated",
 		"userID", user.Email,
 		"clientID", clientID,
-		"clientType", clientType)
+		"clientType", clientType,
+		"pingIntervalMs", pingIntervalMs,
+		"timeoutMultiplier", timeoutMultiplier)
 
 	return c.JSON(http.StatusOK, map[string]string{
 		"status": "ok",

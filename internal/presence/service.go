@@ -47,12 +47,14 @@ const (
 )
 
 type Presence struct {
-	UserID     string    `json:"user_id"`
-	Status     Status    `json:"status"`
-	ClientID   string    `json:"client_id,omitempty"`
-	ClientType string    `json:"client_type,omitempty"`
-	Timestamp  time.Time `json:"timestamp"`
-	UserAgent  string    `json:"user_agent,omitempty"`
+	UserID            string        `json:"user_id"`
+	Status            Status        `json:"status"`
+	ClientID          string        `json:"client_id,omitempty"`
+	ClientType        string        `json:"client_type,omitempty"`
+	Timestamp         time.Time     `json:"timestamp"`
+	UserAgent         string        `json:"user_agent,omitempty"`
+	PingInterval      time.Duration `json:"ping_interval,omitempty"`      // Client's declared ping interval
+	TimeoutMultiplier int           `json:"timeout_multiplier,omitempty"` // Multiplier for timeout calculation
 }
 
 type ConnectionState struct {
@@ -232,46 +234,18 @@ func NewService(publisher pubsub.Publisher, subscriber pubsub.Subscriber, topicM
 	return svc
 }
 
-func (s *Service) handleClientConnected(ctx context.Context, msg pubsub.Message) error {
-	s.logger.Info("Received client connected event",
-		"message", string(msg.Payload),
-		"topic", msg.Topic,
-	)
-
-	// WebSocket client ready event structure
-	var event struct {
-		UserID     string `json:"userID"`
-		ClientID   string `json:"clientID"`
-		ClientType string `json:"clientType"`
-		Endpoint   string `json:"endpoint"`
-	}
-
-	if err := json.Unmarshal(msg.Payload, &event); err != nil {
-		s.logger.Error("Failed to unmarshal client ready event", "error", err)
-		return err
-	}
-
-	s.logger.Info("Processing client connection",
-		"userID", event.UserID,
-		"clientID", event.ClientID,
-		"clientType", event.ClientType,
-		"endpoint", event.Endpoint)
-
-	// Use the actual clientID from the WebSocket bridge
-	s.addPresenceWithClientType(event.UserID, event.ClientID, "", event.ClientType)
-
-	// Update timestamp for this client to prevent premature cleanup
-	s.updateClientActivity(event.UserID, event.ClientID)
-
-	return nil
-}
-
 func (s *Service) addPresence(userID, clientID, userAgent string) {
 	s.addPresenceWithClientType(userID, clientID, userAgent, "")
 }
 
 // addPresenceWithClientType adds a presence entry with client type information
 func (s *Service) addPresenceWithClientType(userID, clientID, userAgent, clientType string) {
+	// Use default ping configuration for backward compatibility
+	s.addPresenceWithClientConfig(userID, clientID, userAgent, clientType, 30000, 3)
+}
+
+// addPresenceWithClientConfig adds a presence entry with full client configuration
+func (s *Service) addPresenceWithClientConfig(userID, clientID, userAgent, clientType string, pingIntervalMs int, timeoutMultiplier int) {
 	// Rate limiting check
 	if !s.checkRateLimit(userID) {
 		s.logger.Debug("Rate limit exceeded for user", "user_id", userID)
@@ -317,12 +291,14 @@ func (s *Service) addPresenceWithClientType(userID, clientID, userAgent, clientT
 
 	// Add this specific client's presence
 	s.presences[userID][clientID] = Presence{
-		UserID:     userID,
-		Status:     StatusOnline,
-		ClientID:   clientID,
-		ClientType: clientType,
-		Timestamp:  Now(),
-		UserAgent:  userAgent,
+		UserID:            userID,
+		Status:            StatusOnline,
+		ClientID:          clientID,
+		ClientType:        clientType,
+		Timestamp:         Now(),
+		UserAgent:         userAgent,
+		PingInterval:      time.Duration(pingIntervalMs) * time.Millisecond,
+		TimeoutMultiplier: timeoutMultiplier,
 	}
 	s.metrics.totalConnections++
 	s.metrics.totalUsers = int64(len(s.presences))
@@ -358,37 +334,6 @@ func (s *Service) addPresenceWithClientType(userID, clientID, userAgent, clientT
 
 	// Publish asynchronously to avoid lock contention
 	s.publishAsync(onlineUsers)
-}
-
-func (s *Service) handleClientDisconnected(ctx context.Context, msg pubsub.Message) error {
-	s.logger.Info("Received client disconnected event",
-		"message", string(msg.Payload),
-		"topic", msg.Topic,
-	)
-
-	// WebSocket client disconnected event structure
-	var event struct {
-		UserID     string `json:"userID"`
-		ClientID   string `json:"clientID"`
-		ClientType string `json:"clientType"`
-		Endpoint   string `json:"endpoint"`
-		Reason     string `json:"reason"`
-	}
-
-	if err := json.Unmarshal(msg.Payload, &event); err != nil {
-		s.logger.Error("Failed to unmarshal client disconnected event", "error", err)
-		return err
-	}
-
-	s.logger.Info("Processing client disconnection",
-		"userID", event.UserID,
-		"clientID", event.ClientID,
-		"endpoint", event.Endpoint,
-		"reason", event.Reason)
-
-	s.removePresenceForClient(event.UserID, event.ClientID)
-
-	return nil
 }
 
 // removePresenceForClient removes a specific client connection for a user
@@ -595,6 +540,19 @@ func (s *Service) AddPresenceWithClientType(userID, clientID, userAgent, clientT
 	s.addPresenceWithClientType(userID, clientID, userAgent, clientType)
 }
 
+// AddPresenceWithClientConfig adds a presence entry with full client configuration
+func (s *Service) AddPresenceWithClientConfig(userID, clientID, userAgent, clientType string, pingIntervalMs int, timeoutMultiplier int) {
+	// Apply defaults for backward compatibility
+	if pingIntervalMs <= 0 {
+		pingIntervalMs = 30000 // 30 seconds default
+	}
+	if timeoutMultiplier <= 0 {
+		timeoutMultiplier = 3 // 3x interval default
+	}
+
+	s.addPresenceWithClientConfig(userID, clientID, userAgent, clientType, pingIntervalMs, timeoutMultiplier)
+}
+
 // RemovePresenceForClient removes a specific client connection for a user
 func (s *Service) RemovePresenceForClient(userID, clientID string) {
 	s.removePresenceForClient(userID, clientID)
@@ -620,25 +578,6 @@ func (s *Service) getTotalConnectionsUnsafe() int {
 		total += len(clientPresences)
 	}
 	return total
-}
-
-// updateClientActivity updates the timestamp of a client's presence to show recent activity
-func (s *Service) updateClientActivity(userID, clientID string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	// Find the user's presence and update the specific client's timestamp
-	if clientPresences, exists := s.presences[userID]; exists {
-		if presence, clientExists := clientPresences[clientID]; clientExists {
-			presence.Timestamp = Now()
-			clientPresences[clientID] = presence
-
-			s.logger.Debug("Updated client activity timestamp",
-				"user_id", userID,
-				"client_id", clientID,
-				"new_timestamp", presence.Timestamp)
-		}
-	}
 }
 
 // publishAsync sends a publish request to the background publishing goroutine
@@ -826,15 +765,6 @@ func (s *Service) startCleanup() {
 			return
 		}
 	}
-}
-
-// calculateAdaptiveThreshold determines the appropriate cleanup threshold for a user based on their behavior
-// Conservative approach: Use fixed threshold, avoid aggressive adaptive logic
-// NOTE: Currently unused but kept for future adaptive cleanup features
-// nolint:unused // Will be used when implementing adaptive cleanup based on user behavior patterns
-func (s *Service) calculateAdaptiveThreshold(_ string) time.Duration {
-	// Fixed conservative threshold to prevent false cleanups
-	return s.staleThreshold // Always 3 minutes
 }
 
 // cleanupStalePresences removes presences that haven't been updated recently

@@ -20,6 +20,19 @@ document.addEventListener("DOMContentLoaded", function () {
     "client_" + Date.now() + "_" + Math.random().toString(36).substr(2, 9);
   const clientType = detectClientType();
 
+  // Configure ping behavior based on client type
+  const getPingConfig = (clientType) => {
+    const configs = {
+      desktop: { interval: 30000, multiplier: 3 }, // 30s, expect within 90s
+      mobile: { interval: 60000, multiplier: 5 }, // 1m, expect within 5m
+      tablet: { interval: 45000, multiplier: 4 }, // 45s, expect within 3m
+      iot: { interval: 300000, multiplier: 10 }, // 5m, expect within 50m
+    };
+    return configs[clientType] || configs.desktop;
+  };
+
+  const pingConfig = getPingConfig(clientType);
+
   // Function to send heartbeat
   const sendHeartbeat = async () => {
     try {
@@ -32,6 +45,8 @@ document.addEventListener("DOMContentLoaded", function () {
         body: new URLSearchParams({
           client_id: clientId,
           client_type: clientType,
+          ping_interval_ms: pingConfig.interval,
+          timeout_multiplier: pingConfig.multiplier,
         }),
       });
 
@@ -48,8 +63,8 @@ document.addEventListener("DOMContentLoaded", function () {
     // Send immediate heartbeat now that page is fully loaded
     sendHeartbeat();
 
-    // Start heartbeat interval
-    const heartbeatInterval = setInterval(sendHeartbeat, 30000); // 30 second intervals
+    // Start heartbeat interval using client's configured ping interval
+    const heartbeatInterval = setInterval(sendHeartbeat, pingConfig.interval);
 
     // Mark offline when leaving
     window.addEventListener("beforeunload", function () {
