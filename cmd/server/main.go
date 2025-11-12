@@ -291,6 +291,19 @@ func provideEmailService(i do.Injector) (domain.EmailSender, error) {
 }
 
 func providePubSub(i do.Injector) (pubsub.Publisher, error) {
+	// Load tracing configuration from environment
+	tracingConfig := pubsub.LoadTracingConfigFromEnv()
+
+	// Setup OpenTelemetry if enabled
+	tracer, _, err := pubsub.SetupOTel(context.Background(), tracingConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to setup OpenTelemetry: %w", err)
+	}
+
+	// Create pubsub bridge with or without tracing
+	if tracingConfig.Enabled {
+		return pubsub.NewWatermillBridgeWithTracer(tracer), nil
+	}
 	return pubsub.NewWatermillBridge(), nil
 }
 

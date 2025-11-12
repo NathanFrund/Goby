@@ -8,11 +8,13 @@ Combine Go's performance with modern web development practices to create respons
 
 ## Tech Stack
 
-- **Backend**: Go 1.22+
+- **Backend**: Go 1.25+
 - **Frontend**: HTMX, Templ, and Gomponents
-- **Database**: SurrealDB
+- **Database**: SurrealDB with live queries
 - **Real-time**: WebSockets with custom bridge
 - **Messaging**: Watermill for event-driven architecture
+- **Scripting**: Tengo for embedded scripting
+- **Tracing**: OpenTelemetry for observability
 - **Development**: Seamless development experience with Overmind orchestrating Go hot-reloading (Air), template compilation (Templ), and CSS processing (Tailwind).
 
 ## Quick Start
@@ -23,7 +25,7 @@ Get started with Goby in minutes. This section will help you set up your develop
 
 Before you begin, ensure you have the following tools installed:
 
-- **Go** (1.22 or newer) - [Download](https://golang.org/dl/)
+- **Go** (1.25 or newer) - [Download](https://golang.org/dl/)
 - **Node.js and npm** (LTS version recommended) - [Download](https://nodejs.org/)
 - **Overmind** - Process manager for development
 
@@ -150,6 +152,7 @@ Goby's architecture is designed to make building modern web applications straigh
    - Each component can update independently
 
 3. **Real-Time by Default**
+
    - Built-in WebSocket support for live updates
    - HTMX for fine-grained DOM updates without full page reloads
    - Automatic state synchronization between server and client
@@ -208,6 +211,7 @@ Goby provides two WebSocket endpoints for different types of communication:
      ```
 
 2. **Direct Messages**
+
    - Sent to a specific user
    - Use topic: `ws.{endpoint}.direct`
    - Include `user_id` in message metadata
@@ -240,6 +244,7 @@ Goby supports multiple client types through its flexible architecture:
    - Example WebSocket endpoint: `/ws/html`
 
 3. **Native Mobile/Desktop Apps**
+
    - Connects via WebSockets or HTTP/2 Server-Sent Events (SSE)
    - Receives structured JSON data instead of HTML
    - Can subscribe to specific data channels
@@ -386,31 +391,31 @@ This code snippet from the `wargame` module demonstrates the process:
 ```go
 // internal/modules/wargame/service.go
 
- func (s *Service) handleHit(target string, damage int) error {
-     // 1. Create an instance of the compiled `templ` component.
-    component := view.WargameDamage(target, damage)
+func (s *Service) handleHit(target string, damage int) error {
+    // 1. Create an instance of the compiled `templ` component.
+   component := view.WargameDamage(target, damage)
 
-    // 2. Render the component to an HTML string.
-    html, err := view.RenderComponent(component)
-    if err != nil {
-        return err
-    }
+   // 2. Render the component to an HTML string.
+   html, err := view.RenderComponent(component)
+   if err != nil {
+       return err
+   }
 
-    // 3. Create a new Watermill message with the rendered HTML.
-    msg := message.NewMessage(watermill.NewUUID(), []byte(html))
+   // 3. Create a new Watermill message with the rendered HTML.
+   msg := message.NewMessage(watermill.NewUUID(), []byte(html))
 
-    // 4. Publish the message to the global broadcast topic.
-    return s.pubsub.Publish(topics.HTMLBroadcast, msg)
- }
+   // 4. Publish the message to the global broadcast topic.
+   return s.pubsub.Publish(topics.HTMLBroadcast, msg)
+}
 ```
 
 The corresponding `templ` component (`wargame_damage.templ`) defines the structure and uses an `hx-swap-oob` attribute to tell htmx where to place the content:
 
 ```templ
 templ WargameDamage(target string, damage int) {
-    <div hx-swap-oob="beforeend:#game-log">
-        <div class="p-2 text-red-500">{ target } takes { fmt.Sprintf("%d", damage) } damage!</div>
-    </div>
+   <div hx-swap-oob="beforeend:#game-log">
+       <div class="p-2 text-red-500">{ target } takes { fmt.Sprintf("%d", damage) } damage!</div>
+   </div>
 }
 ```
 
@@ -469,7 +474,9 @@ Goby's UI components are organized in the following structure:
    - Use them directly in your handlers or other components
 
 3. **Hot Reloading**:
+
    The development server automatically handles changes to:
+
    - Go files (via `air`)
    - Templ files (via `templ generate --watch`)
    - CSS/JS (via Tailwind's JIT compiler)
@@ -495,6 +502,7 @@ Goby's architecture is built around the concept of modules - self-contained pack
    - No need for manual casting or type assertions
 
 3. **Lifecycle**
+
    - **Boot Phase**: Called once during application startup after all services are registered
      - Set up HTTP routes and handlers
      - Initialize background services and workers
@@ -538,15 +546,15 @@ type YourModule struct {
 
 // Dependencies is the module's contract, listing the services it needs.
 type Dependencies struct {
-	Publisher pubsub.Publisher
+    Publisher pubsub.Publisher
     // ... other dependencies
 }
 
 // New is the constructor. It accepts the specific dependencies and returns a new module instance.
 func New(deps Dependencies) *YourModule {
-	return &YourModule{
-		publisher: deps.Publisher,
-	}
+    return &YourModule{
+        publisher: deps.Publisher,
+    }
 }
 
 // ... other module methods (Name, Boot, etc.)
@@ -579,21 +587,21 @@ type YourModule struct {
 
 // Dependencies holds all the services that YourModule requires.
 type Dependencies struct {
-	Publisher pubsub.Publisher
-	Service   YourService
+    Publisher pubsub.Publisher
+    Service   YourService
 }
 
 // New creates a new instance of the module
 func New(deps Dependencies) *YourModule {
-	// The service is created here or in main.go and passed in.
-	if deps.Service == nil {
-		deps.Service = NewService()
-	}
+    // The service is created here or in main.go and passed in.
+    if deps.Service == nil {
+        deps.Service = NewService()
+    }
 
-	return &YourModule{
-		publisher: deps.Publisher,
-		service:   deps.Service,
-	}
+    return &YourModule{
+        publisher: deps.Publisher,
+        service:   deps.Service,
+    }
 }
 
 // Name returns the module's unique identifier
@@ -643,13 +651,13 @@ Add your module to the application's module list in `internal/app/modules.go`. T
 
 // NewModules creates and returns a slice of all active application modules.
 func NewModules(deps Dependencies) []module.Module {
-	return []module.Module{
-		// Core application modules
-		chat.New(deps),
+    return []module.Module{
+        // Core application modules
+        chat.New(deps),
 
-		// Add your new module here
-		yourmodule.New(yourmodule.Dependencies{Publisher: deps.Publisher}),
-	}
+        // Add your new module here
+        yourmodule.New(yourmodule.Dependencies{Publisher: deps.Publisher}),
+    }
 }
 ```
 
@@ -754,72 +762,72 @@ For modules that only need to run custom queries, resolving the connection and c
 
 4. **Structured Logging**
 
-   The framework is configured for structured logging using Go's standard `slog` library. This provides a consistent, machine-readable logging format that is essential for production environments. The logging system supports two primary contexts: request-scoped logging and global (background) logging.
+The framework is configured for structured logging using Go's standard `slog` library. This provides a consistent, machine-readable logging format that is essential for production environments. The logging system supports two primary contexts: request-scoped logging and global (background) logging.
 
-   #### Request-Scoped Logging (For HTTP Handlers)
+#### Request-Scoped Logging (For HTTP Handlers)
 
-   For any code that executes as part of an HTTP request, it is critical to use the request-scoped logger. This logger is automatically enriched with a unique `request_id`, allowing you to trace the entire lifecycle of a single request through the system.
+For any code that executes as part of an HTTP request, it is critical to use the request-scoped logger. This logger is automatically enriched with a unique `request_id`, allowing you to trace the entire lifecycle of a single request through the system.
 
-   - A middleware automatically assigns a `request_id` to every incoming request.
-   - A special logger instance, pre-configured with this `request_id`, is injected into the request's `context`.
+- A middleware automatically assigns a `request_id` to every incoming request.
+- A special logger instance, pre-configured with this `request_id`, is injected into the request's `context`.
 
-   To use it, retrieve the logger from the context using the `middleware.FromContext` helper.
+To use it, retrieve the logger from the context using the `middleware.FromContext` helper.
 
-   ```go
-   import "github.com/nfrund/goby/internal/middleware"
+```go
+import "github.com/nfrund/goby/internal/middleware"
 
-   func (h *YourHandler) HandleSomething(c echo.Context) error {
-       // Get the request-scoped logger from the context.
-       logger := middleware.FromContext(c.Request().Context())
+func (h *YourHandler) HandleSomething(c echo.Context) error {
+    // Get the request-scoped logger from the context.
+    logger := middleware.FromContext(c.Request().Context())
 
-       // Any logs made with this logger will automatically include the `request_id`.
-       logger.Info("Handling the request for a specific user", "user_id", "123")
+    // Any logs made with this logger will automatically include the `request_id`.
+    logger.Info("Handling the request for a specific user", "user_id", "123")
 
-       return c.String(http.StatusOK, "Done")
-   }
-   ```
+    return c.String(http.StatusOK, "Done")
+}
+```
 
-   **Resulting Log Output:**
+**Resulting Log Output:**
 
-   ```log
-   level=INFO source=... msg="Handling the request for a specific user" request_id=abc-123 user_id=123
-   ```
+```log
+level=INFO source=... msg="Handling the request for a specific user" request_id=abc-123 user_id=123
+```
 
-   #### Global Logging (For Background Services)
+#### Global Logging (For Background Services)
 
-   For background services, long-running tasks, or any code that runs outside of an HTTP request (e.g., in a module's `Boot` or `Shutdown` method), use the standard global logger. These logs will not have a `request_id` as they are not associated with a specific user request.
+For background services, long-running tasks, or any code that runs outside of an HTTP request (e.g., in a module's `Boot` or `Shutdown` method), use the standard global logger. These logs will not have a `request_id` as they are not associated with a specific user request.
 
-   It is best practice to use the `...Context` variants of the `slog` functions (e.g., `slog.InfoContext`) and pass the context you were given.
+It is best practice to use the `...Context` variants of the `slog` functions (e.g., `slog.InfoContext`) and pass the context you were given.
 
-   ```go
-   import "log/slog"
+```go
+import "log/slog"
 
-   func (m *YourModule) Boot(ctx context.Context, g *echo.Group, reg *registry.Registry) error {
-       // Use the global logger with the provided context for application-level events.
-       slog.InfoContext(ctx, "Booting YourModule: Setting up routes...")
+func (m *YourModule) Boot(ctx context.Context, g *echo.Group, reg *registry.Registry) error {
+    // Use the global logger with the provided context for application-level events.
+    slog.InfoContext(ctx, "Booting YourModule: Setting up routes...")
 
-       // ...
-       return nil
-   }
-   ```
+    // ...
+    return nil
+}
+```
 
 5. **Testing**
 
-   - Write unit tests for business logic
-   - Test HTTP handlers with echo's test utilities
-   - Use table-driven tests for different scenarios
-   - Mock external dependencies using interfaces
+- Write unit tests for business logic
+- Test HTTP handlers with echo's test utilities
+- Use table-driven tests for different scenarios
+- Mock external dependencies using interfaces
 
-   ```go
-   func TestYourHandler(t *testing.T) {
-       // Setup
-       mockService := &MockService{}
-       mockPublisher := &MockPublisher{}
-       h := NewHandler(mockService, mockPublisher)
+```go
+func TestYourHandler(t *testing.T) {
+    // Setup
+    mockService := &MockService{}
+    mockPublisher := &MockPublisher{}
+    h := NewHandler(mockService, mockPublisher)
 
-       // Test cases...
-   }
-   ```
+    // Test cases...
+}
+```
 
 #### Example Module
 
@@ -1001,3 +1009,21 @@ store.Options = &sessions.Options{
     SameSite: http.SameSiteLaxMode,
 }
 ```
+
+## Additional Features
+
+### Presence Service
+
+Goby includes a presence service that tracks user online status and activity. The presence service integrates with the pub/sub system to provide real-time presence updates.
+
+### Scripting with Tengo
+
+Goby supports embedded scripting using the Tengo scripting engine. This allows for dynamic behavior and extensibility without recompiling the application. Scripts can be extracted and modified at runtime.
+
+### Live Queries
+
+The database layer supports live queries, enabling real-time data synchronization between the database and clients.
+
+### OpenTelemetry Tracing
+
+Goby includes OpenTelemetry integration for distributed tracing, helping with observability and debugging in production environments.

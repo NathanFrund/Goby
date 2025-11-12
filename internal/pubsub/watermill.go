@@ -7,6 +7,9 @@ import (
 	"github.com/ThreeDotsLabs/watermill"
 	"github.com/ThreeDotsLabs/watermill/message"
 	"github.com/ThreeDotsLabs/watermill/pubsub/gochannel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // WatermillBridge implements the Publisher and Subscriber interfaces using watermill's GoChannel.
@@ -15,6 +18,8 @@ type WatermillBridge struct {
 	sub message.Subscriber
 	// Logger for watermill to use
 	logger watermill.LoggerAdapter
+	// Optional tracer for observability
+	tracer trace.Tracer
 }
 
 const (
@@ -36,6 +41,26 @@ func NewWatermillBridge() *WatermillBridge {
 		pub:    goChannel,
 		sub:    goChannel,
 		logger: logger,
+	}
+}
+
+// NewWatermillBridgeWithTracer initializes an in-memory Pub/Sub system with tracing support.
+func NewWatermillBridgeWithTracer(tracer trace.Tracer) *WatermillBridge {
+	logger := watermill.NewStdLogger(false, false)
+	// GoChannel is a simple in-memory pub/sub implementation.
+	goChannel := gochannel.NewGoChannel(
+		gochannel.Config{},
+		logger,
+	)
+
+	// Wrap the publisher with tracing middleware
+	tracedPublisher := NewPublisherTracingMiddleware(goChannel, tracer)
+
+	return &WatermillBridge{
+		pub:    tracedPublisher,
+		sub:    goChannel,
+		logger: logger,
+		tracer: tracer,
 	}
 }
 
@@ -102,8 +127,16 @@ func (wb *WatermillBridge) Subscribe(ctx context.Context, topic string, handler 
 			// Convert the watermill message to our internal structure
 			msg := mapToPubSubMessage(wmMsg)
 
+			// If we have a tracer, wrap the handler with tracing middleware
+			var wrappedHandler Handler
+			if wb.tracer != nil {
+				wrappedHandler = wb.wrapHandlerWithTracing(topic, handler)
+			} else {
+				wrappedHandler = handler
+			}
+
 			// Process the message using the provided handler
-			if err := handler(ctx, msg); err != nil {
+			if err := wrappedHandler(ctx, msg); err != nil {
 				slog.Error("Failed to handle message", "topic", topic, "msg_id", wmMsg.UUID, "error", err)
 				// A non-nil return from the handler means we assume the message was NOT processed successfully.
 				// Watermill can be configured to retry, but for the in-memory pub/sub, we acknowledge and log the error.
@@ -118,6 +151,39 @@ func (wb *WatermillBridge) Subscribe(ctx context.Context, topic string, handler 
 
 	// Return immediately, as the subscription is now active and running in the background.
 	return nil
+}
+
+// wrapHandlerWithTracing wraps a handler with tracing capabilities
+func (wb *WatermillBridge) wrapHandlerWithTracing(topic string, handler Handler) Handler {
+	return func(ctx context.Context, msg Message) error {
+		// Create span for message processing
+		ctx, span := wb.tracer.Start(ctx, "pubsub.process."+topic,
+			trace.WithAttributes(
+				attribute.String("messaging.system", "watermill"),
+				attribute.String("messaging.operation", "process"),
+				attribute.String("messaging.destination", topic),
+				attribute.String("user.id", msg.UserID),
+				attribute.Int("messaging.message_payload_size_bytes", len(msg.Payload)),
+			),
+		)
+		defer span.End()
+
+		// Add payload preview for visibility (first 100 chars)
+		payloadPreview := string(msg.Payload)
+		if len(payloadPreview) > 100 {
+			payloadPreview = payloadPreview[:100] + "..."
+		}
+		span.SetAttributes(attribute.String("messaging.message_payload_preview", payloadPreview))
+
+		// Execute the handler
+		err := handler(ctx, msg)
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+		}
+
+		return err
+	}
 }
 
 // Close implements the Publisher and Subscriber interface to shut down the bridge.
