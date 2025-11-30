@@ -3,11 +3,12 @@ package wargame
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 
 	"github.com/google/uuid"
 	"github.com/nfrund/goby/internal/modules/wargame/components"
+	"github.com/nfrund/goby/internal/modules/wargame/events"
+	"github.com/nfrund/goby/internal/modules/wargame/topics"
 	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/rendering"
 	"github.com/nfrund/goby/internal/script"
@@ -36,7 +37,7 @@ func (s *Subscriber) Start(ctx context.Context) {
 
 	// Listen for HTML events
 	go func() {
-		err := s.subscriber.Subscribe(ctx, EventDamage.Name(), s.handleDamageEvent)
+		err := pubsub.Subscribe(ctx, s.subscriber, topics.TopicEventDamage, s.handleDamageEvent)
 		if err != nil && err != context.Canceled {
 			slog.Error("Wargame HTML subscriber stopped with error", "error", err)
 		}
@@ -44,7 +45,7 @@ func (s *Subscriber) Start(ctx context.Context) {
 
 	// Listen for Data events
 	go func() {
-		err := s.subscriber.Subscribe(ctx, StateUpdate.Name(), s.handleStateUpdateEvent)
+		err := pubsub.Subscribe(ctx, s.subscriber, topics.TopicStateUpdate, s.handleStateUpdateEvent)
 		if err != nil && err != context.Canceled {
 			slog.Error("Wargame Data subscriber stopped with error", "error", err)
 		}
@@ -52,23 +53,23 @@ func (s *Subscriber) Start(ctx context.Context) {
 
 	// Listen for player actions
 	go func() {
-		err := s.subscriber.Subscribe(ctx, PlayerAction.Name(), s.handlePlayerAction)
+		err := pubsub.Subscribe(ctx, s.subscriber, topics.TopicPlayerAction, s.handlePlayerAction)
 		if err != nil && err != context.Canceled {
 			slog.Error("Wargame Actions subscriber stopped with error", "error", err)
 		}
 	}()
 }
 
-func (s *Subscriber) handleDamageEvent(ctx context.Context, msg pubsub.Message) error {
-	var event DamageEvent
-	if err := json.Unmarshal(msg.Payload, &event); err != nil {
-		slog.Error("Failed to unmarshal wargame damage event payload", "error", err)
-		return err
-	}
-
+func (s *Subscriber) handleDamageEvent(ctx context.Context, event events.Damage) error {
 	// Execute event processor script if available
 	if s.scriptExecutor != nil {
-		output, err := s.scriptExecutor.ExecuteMessageHandler(ctx, msg.Topic, &msg, s.exposedFuncs)
+		// Re-marshal for script execution (scripts expect pubsub.Message)
+		data, _ := json.Marshal(event)
+		msg := &pubsub.Message{
+			Topic:   topics.TopicEventDamage.Name(),
+			Payload: data,
+		}
+		output, err := s.scriptExecutor.ExecuteMessageHandler(ctx, msg.Topic, msg, s.exposedFuncs)
 		if err != nil {
 			slog.Error("Script execution failed for damage event", "error", err)
 			// Continue with original processing even if script fails
@@ -119,10 +120,16 @@ func (s *Subscriber) handleDamageEvent(ctx context.Context, msg pubsub.Message) 
 	})
 }
 
-func (s *Subscriber) handleStateUpdateEvent(ctx context.Context, msg pubsub.Message) error {
+func (s *Subscriber) handleStateUpdateEvent(ctx context.Context, event events.StateUpdate) error {
 	// Execute event processor script if available
 	if s.scriptExecutor != nil {
-		output, err := s.scriptExecutor.ExecuteMessageHandler(ctx, msg.Topic, &msg, s.exposedFuncs)
+		// Re-marshal for script execution
+		data, _ := json.Marshal(event)
+		msg := &pubsub.Message{
+			Topic:   topics.TopicStateUpdate.Name(),
+			Payload: data,
+		}
+		output, err := s.scriptExecutor.ExecuteMessageHandler(ctx, msg.Topic, msg, s.exposedFuncs)
 		if err != nil {
 			slog.Error("Script execution failed for state update event", "error", err)
 		} else if output != nil {
@@ -132,19 +139,20 @@ func (s *Subscriber) handleStateUpdateEvent(ctx context.Context, msg pubsub.Mess
 		}
 	}
 
+	// Re-marshal the event for forwarding
+	payload, err := json.Marshal(event)
+	if err != nil {
+		return err
+	}
+
 	// Forward the raw state to data clients
 	return s.publisher.Publish(ctx, pubsub.Message{
 		Topic:   "ws.data.broadcast", // Will be updated when WebSocket integration is complete
-		Payload: msg.Payload,
+		Payload: payload,
 	})
 }
 
-func (s *Subscriber) handlePlayerAction(ctx context.Context, msg pubsub.Message) error {
-	var action Action
-	if err := json.Unmarshal(msg.Payload, &action); err != nil {
-		return fmt.Errorf("failed to unmarshal player action: %w", err)
-	}
-
+func (s *Subscriber) handlePlayerAction(ctx context.Context, action events.PlayerAction) error {
 	slog.InfoContext(ctx, "Processing player action",
 		"player_id", action.PlayerID,
 		"action", action.Action,
@@ -152,7 +160,13 @@ func (s *Subscriber) handlePlayerAction(ctx context.Context, msg pubsub.Message)
 
 	// Execute event processor script if available
 	if s.scriptExecutor != nil {
-		output, err := s.scriptExecutor.ExecuteMessageHandler(ctx, msg.Topic, &msg, s.exposedFuncs)
+		// Re-marshal for script execution
+		data, _ := json.Marshal(action)
+		msg := &pubsub.Message{
+			Topic:   topics.TopicPlayerAction.Name(),
+			Payload: data,
+		}
+		output, err := s.scriptExecutor.ExecuteMessageHandler(ctx, msg.Topic, msg, s.exposedFuncs)
 		if err != nil {
 			slog.Error("Script execution failed for player action", "error", err)
 		} else if output != nil {

@@ -6,7 +6,11 @@ import (
 	"log/slog"
 	"time"
 
+	announcerEvents "github.com/nfrund/goby/internal/modules/announcer/events"
+	announcerTopics "github.com/nfrund/goby/internal/modules/announcer/topics"
+	"github.com/nfrund/goby/internal/modules/chat/events"
 	"github.com/nfrund/goby/internal/modules/chat/templates/components"
+	"github.com/nfrund/goby/internal/modules/chat/topics"
 	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/rendering"
 	wsTopics "github.com/nfrund/goby/internal/websocket"
@@ -38,7 +42,7 @@ func (cs *ChatSubscriber) Start(ctx context.Context) {
 	// Listen for new messages from clients.
 	// These messages originate from clients via the websocket bridge.
 	go func() {
-		err := cs.subscriber.Subscribe(ctx, ClientMessageNew.Name(), cs.handleChatMessage)
+		err := pubsub.Subscribe(ctx, cs.subscriber, topics.TopicNewMessage, cs.handleChatMessage)
 		if err != nil && err != context.Canceled {
 			slog.Error("Chat message subscriber stopped with error", "error", err)
 		}
@@ -46,8 +50,9 @@ func (cs *ChatSubscriber) Start(ctx context.Context) {
 
 	// Also listen on the module's own "chat.messages" topic for messages
 	// that might originate from other parts of the system (e.g., an HTTP handler).
+	// Note: This is untyped (raw messages), so we keep the old Subscribe pattern
 	go func() {
-		err := cs.subscriber.Subscribe(ctx, Messages.Name(), cs.handleChatMessage)
+		err := cs.subscriber.Subscribe(ctx, topics.TopicMessages.Name(), cs.handleChatMessageUntyped)
 		if err != nil && err != context.Canceled {
 			slog.Error("Chat message subscriber stopped with error", "error", err)
 		}
@@ -62,7 +67,7 @@ func (cs *ChatSubscriber) Start(ctx context.Context) {
 
 	// Listen for user creation events from the announcer module
 	go func() {
-		err := cs.subscriber.Subscribe(ctx, "announcer.user.created", cs.handleUserCreated)
+		err := pubsub.Subscribe(ctx, cs.subscriber, announcerTopics.TopicUserCreated, cs.handleUserCreated)
 		if err != nil && err != context.Canceled {
 			slog.Error("User created subscriber stopped with error", "error", err)
 		}
@@ -104,14 +109,59 @@ func (cs *ChatSubscriber) handleClientConnect(ctx context.Context, msg pubsub.Me
 	return nil
 }
 
-// handleChatMessage processes incoming chat messages (both direct and broadcast)
-func (cs *ChatSubscriber) handleChatMessage(ctx context.Context, msg pubsub.Message) error {
-	// Parse the message payload
-	var payload struct {
-		Content   string `json:"content"`
-		User      string `json:"user"`
-		Recipient string `json:"recipient,omitempty"`
+// handleChatMessage processes incoming typed chat messages
+func (cs *ChatSubscriber) handleChatMessage(ctx context.Context, payload events.NewMessage) error {
+	// Use the user from the payload if available
+	userID := payload.User
+	if userID == "" {
+		// Fallback not available in typed version
+		userID = "unknown"
 	}
+
+	// Render the message component with current timestamp
+	messageComponent := components.ChatMessage(userID, payload.Content, time.Now())
+	renderedHTML, err := cs.renderer.RenderComponent(ctx, messageComponent)
+	if err != nil {
+		slog.Error("Failed to render chat message", "error", err, "userID", userID)
+		return err
+	}
+
+	// Determine if this is a direct message by checking the topic
+	isDirect := payload.Recipient != ""
+	var recipient string
+	if isDirect {
+		// The recipient is now explicitly in the payload.
+		recipient = payload.Recipient
+	}
+
+	// Determine the target topic based on message type
+	var targetTopicName string
+	if isDirect {
+		targetTopicName = wsTopics.TopicHTMLDirect.Name()
+	} else {
+		targetTopicName = wsTopics.TopicHTMLBroadcast.Name()
+	}
+
+	// Publish the message with appropriate routing
+	pubMsg := pubsub.Message{
+		Topic:   targetTopicName,
+		Payload: renderedHTML, // Send the raw rendered HTML directly
+	}
+
+	// Add recipient metadata for direct messages
+	if isDirect {
+		pubMsg.Metadata = map[string]string{
+			"recipient_id": recipient,
+		}
+	}
+
+	return cs.publisher.Publish(ctx, pubMsg)
+}
+
+// handleChatMessageUntyped processes incoming untyped chat messages (for backward compatibility)
+func (cs *ChatSubscriber) handleChatMessageUntyped(ctx context.Context, msg pubsub.Message) error {
+	// Parse the message payload using typed event
+	var payload events.NewMessage
 
 	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
 		slog.Error("Failed to unmarshal chat message", "error", err)
@@ -165,19 +215,7 @@ func (cs *ChatSubscriber) handleChatMessage(ctx context.Context, msg pubsub.Mess
 }
 
 // handleUserCreated processes user creation events from the announcer module
-func (cs *ChatSubscriber) handleUserCreated(ctx context.Context, msg pubsub.Message) error {
-	var eventData struct {
-		UserID    string `json:"userID"`
-		Email     string `json:"email"`
-		Name      string `json:"name"`
-		Timestamp string `json:"timestamp"`
-	}
-
-	if err := json.Unmarshal(msg.Payload, &eventData); err != nil {
-		slog.Error("Failed to unmarshal user created event", "error", err)
-		return nil // Don't stop the subscriber for a bad message
-	}
-
+func (cs *ChatSubscriber) handleUserCreated(ctx context.Context, eventData announcerEvents.UserCreated) error {
 	// Create a broadcast message announcing the new user
 	content := "🎉 " + eventData.Email + " has joined!"
 	announcement := struct {
@@ -194,12 +232,12 @@ func (cs *ChatSubscriber) handleUserCreated(ctx context.Context, msg pubsub.Mess
 		return err
 	}
 
-	// Use the existing handleChatMessage method to process and broadcast this message
+	// Use the existing handleChatMessageUntyped method to process and broadcast this message
 	announcementMsg := pubsub.Message{
-		Topic:   Messages.Name(), // Send to the chat messages topic
+		Topic:   topics.TopicMessages.Name(), // Send to the chat messages topic
 		Payload: payload,
 		UserID:  "system",
 	}
 
-	return cs.handleChatMessage(ctx, announcementMsg)
+	return cs.handleChatMessageUntyped(ctx, announcementMsg)
 }

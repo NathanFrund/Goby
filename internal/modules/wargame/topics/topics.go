@@ -1,130 +1,42 @@
 package topics
 
-import "github.com/nfrund/goby/internal/topicmgr"
+import (
+	"github.com/nfrund/goby/internal/modules/wargame/events"
+	"github.com/nfrund/goby/internal/pubsub"
+)
 
 // Module topics for the wargame system
 // These topics handle wargame events, state updates, and player actions
 
 var (
 	// TopicEventDamage is published when a unit takes damage in the wargame
-	TopicEventDamage = topicmgr.DefineModule(topicmgr.TopicConfig{
-		Name:        "wargame.event.damage",
-		Module:      "wargame",
-		Description: "Damage event in wargame when a unit takes damage",
-		Pattern:     "wargame.event.damage",
-		Example:     `{"targetUnit":"Tank-01","damageAmount":25,"attacker":"Artillery-03","timestamp":"2024-01-01T00:00:00Z"}`,
-		Metadata: map[string]interface{}{
-			"event_type": "damage",
-			"payload_fields": []string{"targetUnit", "damageAmount", "attacker", "timestamp"},
-		},
-	})
+	TopicEventDamage = pubsub.NewEvent[events.Damage]("wargame.event.damage", "Damage event in wargame when a unit takes damage")
 
 	// TopicStateUpdate is published when the game state changes
-	TopicStateUpdate = topicmgr.DefineModule(topicmgr.TopicConfig{
-		Name:        "wargame.state.update",
-		Module:      "wargame",
-		Description: "Game state update containing current game state information",
-		Pattern:     "wargame.state.update",
-		Example:     `{"gameID":"game123","turn":5,"phase":"combat","units":[...],"timestamp":"2024-01-01T00:00:00Z"}`,
-		Metadata: map[string]interface{}{
-			"event_type": "state_change",
-			"payload_fields": []string{"gameID", "turn", "phase", "units", "timestamp"},
-		},
-	})
+	TopicStateUpdate = pubsub.NewEvent[events.StateUpdate]("wargame.state.update", "Game state update containing current game state information")
 
 	// TopicPlayerAction represents player-initiated actions
-	TopicPlayerAction = topicmgr.DefineModule(topicmgr.TopicConfig{
-		Name:        "wargame.action",
-		Module:      "wargame",
-		Description: "Player action in wargame such as move, attack, or special abilities",
-		Pattern:     "wargame.action",
-		Example:     `{"playerID":"player123","action":"move","unitID":"tank-01","target":{"x":10,"y":15},"timestamp":"2024-01-01T00:00:00Z"}`,
-		Metadata: map[string]interface{}{
-			"event_type": "player_action",
-			"payload_fields": []string{"playerID", "action", "unitID", "target", "timestamp"},
-			"valid_actions": []string{"move", "attack", "defend", "special"},
-		},
-	})
+	TopicPlayerAction = pubsub.NewEvent[events.PlayerAction]("wargame.action", "Player action in wargame such as move, attack, or special abilities")
 
 	// TopicGameStart is published when a new game begins
-	TopicGameStart = topicmgr.DefineModule(topicmgr.TopicConfig{
-		Name:        "wargame.game.start",
-		Module:      "wargame",
-		Description: "Published when a new wargame begins",
-		Pattern:     "wargame.game.start",
-		Example:     `{"gameID":"game123","players":["player1","player2"],"scenario":"desert_storm","timestamp":"2024-01-01T00:00:00Z"}`,
-		Metadata: map[string]interface{}{
-			"event_type": "lifecycle",
-			"payload_fields": []string{"gameID", "players", "scenario", "timestamp"},
-		},
-	})
+	TopicGameStart = pubsub.NewEvent[events.GameStart]("wargame.game.start", "Published when a new wargame begins")
 
 	// TopicGameEnd is published when a game ends
-	TopicGameEnd = topicmgr.DefineModule(topicmgr.TopicConfig{
-		Name:        "wargame.game.end",
-		Module:      "wargame",
-		Description: "Published when a wargame ends",
-		Pattern:     "wargame.game.end",
-		Example:     `{"gameID":"game123","winner":"player1","reason":"victory","duration":3600,"timestamp":"2024-01-01T00:00:00Z"}`,
-		Metadata: map[string]interface{}{
-			"event_type": "lifecycle",
-			"payload_fields": []string{"gameID", "winner", "reason", "duration", "timestamp"},
-		},
-	})
+	TopicGameEnd = pubsub.NewEvent[events.GameEnd]("wargame.game.end", "Published when a wargame ends")
 
 	// TopicTurnChange is published when the turn changes
-	TopicTurnChange = topicmgr.DefineModule(topicmgr.TopicConfig{
-		Name:        "wargame.turn.change",
-		Module:      "wargame",
-		Description: "Published when the active turn changes to a different player",
-		Pattern:     "wargame.turn.change",
-		Example:     `{"gameID":"game123","previousPlayer":"player1","currentPlayer":"player2","turn":6,"timestamp":"2024-01-01T00:00:00Z"}`,
-		Metadata: map[string]interface{}{
-			"event_type": "turn_management",
-			"payload_fields": []string{"gameID", "previousPlayer", "currentPlayer", "turn", "timestamp"},
-		},
-	})
+	TopicTurnChange = pubsub.NewEvent[events.TurnChange]("wargame.turn.change", "Published when the active turn changes to a different player")
 
 	// TopicUnitDestroyed is published when a unit is destroyed
-	TopicUnitDestroyed = topicmgr.DefineModule(topicmgr.TopicConfig{
-		Name:        "wargame.unit.destroyed",
-		Module:      "wargame",
-		Description: "Published when a unit is destroyed in combat",
-		Pattern:     "wargame.unit.destroyed",
-		Example:     `{"unitID":"tank-01","unitType":"tank","owner":"player1","destroyedBy":"artillery-03","timestamp":"2024-01-01T00:00:00Z"}`,
-		Metadata: map[string]interface{}{
-			"event_type": "unit_lifecycle",
-			"payload_fields": []string{"unitID", "unitType", "owner", "destroyedBy", "timestamp"},
-		},
-	})
+	TopicUnitDestroyed = pubsub.NewEvent[events.UnitDestroyed]("wargame.unit.destroyed", "Published when a unit is destroyed in combat")
 )
 
-// RegisterTopics registers all wargame module topics with the topic manager
+// RegisterTopics is now a no-op because NewEvent auto-registers topics.
+// Kept for backward compatibility with module interface.
 func RegisterTopics() error {
-	manager := topicmgr.Default()
-	
-	topics := []topicmgr.Topic{
-		TopicEventDamage,
-		TopicStateUpdate,
-		TopicPlayerAction,
-		TopicGameStart,
-		TopicGameEnd,
-		TopicTurnChange,
-		TopicUnitDestroyed,
-	}
-	
-	for _, topic := range topics {
-		if err := manager.Register(topic); err != nil {
-			return err
-		}
-	}
-	
 	return nil
 }
 
-// MustRegisterTopics registers all wargame module topics and panics on error
+// MustRegisterTopics is now a no-op.
 func MustRegisterTopics() {
-	if err := RegisterTopics(); err != nil {
-		panic("failed to register wargame module topics: " + err.Error())
-	}
 }

@@ -2,12 +2,12 @@ package wargame
 
 import (
 	"context"
-	"encoding/json"
 	"math/rand"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/nfrund/goby/internal/middleware"
+	"github.com/nfrund/goby/internal/modules/wargame/events"
+	"github.com/nfrund/goby/internal/modules/wargame/topics"
 	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/topicmgr"
 )
@@ -47,61 +47,40 @@ func (e *Engine) SimulateHit(ctx context.Context) {
 	damage := rand.Intn(30) + 5
 
 	// Create and publish damage event
-	event := DamageEvent{
-		BaseMessage: BaseMessage{
-			MessageID: uuid.New().String(),
-			Timestamp: time.Now().UTC(),
-			Version:   "1.0",
-		},
+	event := events.Damage{
 		TargetUnit:   target.Name,
 		DamageAmount: damage,
 		Attacker:     attacker,
-		WeaponType:   "ballistic",
+		Timestamp:    time.Now().UTC().Format(time.RFC3339),
 	}
 
-	if err := e.publishEvent(ctx, EventDamage, event); err != nil {
+	if err := pubsub.Publish(ctx, e.publisher, topics.TopicEventDamage, event); err != nil {
 		logger.Error("Failed to publish damage event", "error", err)
 	}
 
 	// Update and publish game state
 	state := e.calculateNewState(event)
-	if err := e.publishEvent(ctx, StateUpdate, state); err != nil {
+	if err := pubsub.Publish(ctx, e.publisher, topics.TopicStateUpdate, state); err != nil {
 		logger.Error("Failed to publish state update", "error", err)
 	}
 }
 
-func (e *Engine) publishEvent(ctx context.Context, topic topicmgr.Topic, payload interface{}) error {
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
-
-	return e.publisher.Publish(ctx, pubsub.Message{
-		Topic:   topic.Name(),
-		Payload: data,
-	})
-}
-
-func (e *Engine) calculateNewState(event DamageEvent) GameState {
+func (e *Engine) calculateNewState(event events.Damage) events.StateUpdate {
 	// Simplified for example - implement actual game state logic here
-	return GameState{
-		BaseMessage: BaseMessage{
-			MessageID: uuid.New().String(),
-			Timestamp: time.Now().UTC(),
-			Version:   "1.0",
-		},
-		Units: []UnitState{
+	return events.StateUpdate{
+		GameID: "game-1",
+		Turn:   1,
+		Phase:  "battle",
+		Units: []map[string]interface{}{
 			{
-				ID:        "unit-1",
-				Name:      event.TargetUnit,
-				Health:    100 - event.DamageAmount,
-				MaxHealth: 100,
-				Position:  "A1",
-				Status:    "active",
+				"id":         "unit-1",
+				"name":       event.TargetUnit,
+				"health":     100 - event.DamageAmount,
+				"max_health": 100,
+				"position":   "A1",
+				"status":     "active",
 			},
 		},
-		CurrentTurn: "player-1",
-		GamePhase:   "battle",
-		LastUpdated: time.Now().UTC(),
+		Timestamp: time.Now().UTC().Format(time.RFC3339),
 	}
 }
