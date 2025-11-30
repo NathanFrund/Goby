@@ -9,6 +9,7 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.17.0"
 	"go.opentelemetry.io/otel/trace"
+	"go.opentelemetry.io/otel/trace/noop"
 )
 
 // TracingConfig holds configuration for OpenTelemetry tracing
@@ -33,7 +34,7 @@ func DefaultTracingConfig() TracingConfig {
 func SetupOTel(ctx context.Context, config TracingConfig) (trace.Tracer, func(), error) {
 	if !config.Enabled {
 		// Return no-op tracer when disabled
-		tracer := trace.NewNoopTracerProvider().Tracer("goby-pubsub")
+		tracer := noop.NewTracerProvider().Tracer("goby-pubsub")
 		cleanup := func() {} // No-op cleanup
 		return tracer, cleanup, nil
 	}
