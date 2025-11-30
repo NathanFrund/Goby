@@ -8,6 +8,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/nfrund/goby/internal/modules/wargame/components"
+	"github.com/nfrund/goby/internal/modules/wargame/events"
+	"github.com/nfrund/goby/internal/modules/wargame/topics"
 	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/rendering"
 	"github.com/nfrund/goby/internal/script"
@@ -36,7 +38,7 @@ func (s *Subscriber) Start(ctx context.Context) {
 
 	// Listen for HTML events
 	go func() {
-		err := s.subscriber.Subscribe(ctx, EventDamage.Name(), s.handleDamageEvent)
+		err := s.subscriber.Subscribe(ctx, topics.TopicEventDamage.Name(), s.handleDamageEvent)
 		if err != nil && err != context.Canceled {
 			slog.Error("Wargame HTML subscriber stopped with error", "error", err)
 		}
@@ -44,7 +46,7 @@ func (s *Subscriber) Start(ctx context.Context) {
 
 	// Listen for Data events
 	go func() {
-		err := s.subscriber.Subscribe(ctx, StateUpdate.Name(), s.handleStateUpdateEvent)
+		err := s.subscriber.Subscribe(ctx, topics.TopicStateUpdate.Name(), s.handleStateUpdateEvent)
 		if err != nil && err != context.Canceled {
 			slog.Error("Wargame Data subscriber stopped with error", "error", err)
 		}
@@ -52,7 +54,7 @@ func (s *Subscriber) Start(ctx context.Context) {
 
 	// Listen for player actions
 	go func() {
-		err := s.subscriber.Subscribe(ctx, PlayerAction.Name(), s.handlePlayerAction)
+		err := s.subscriber.Subscribe(ctx, topics.TopicPlayerAction.Name(), s.handlePlayerAction)
 		if err != nil && err != context.Canceled {
 			slog.Error("Wargame Actions subscriber stopped with error", "error", err)
 		}
@@ -60,7 +62,7 @@ func (s *Subscriber) Start(ctx context.Context) {
 }
 
 func (s *Subscriber) handleDamageEvent(ctx context.Context, msg pubsub.Message) error {
-	var event DamageEvent
+	var event events.Damage
 	if err := json.Unmarshal(msg.Payload, &event); err != nil {
 		slog.Error("Failed to unmarshal wargame damage event payload", "error", err)
 		return err
@@ -140,7 +142,7 @@ func (s *Subscriber) handleStateUpdateEvent(ctx context.Context, msg pubsub.Mess
 }
 
 func (s *Subscriber) handlePlayerAction(ctx context.Context, msg pubsub.Message) error {
-	var action Action
+	var action events.PlayerAction
 	if err := json.Unmarshal(msg.Payload, &action); err != nil {
 		return fmt.Errorf("failed to unmarshal player action: %w", err)
 	}

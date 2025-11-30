@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"time"
 
+	announcerEvents "github.com/nfrund/goby/internal/modules/announcer/events"
+	"github.com/nfrund/goby/internal/modules/chat/events"
 	"github.com/nfrund/goby/internal/modules/chat/templates/components"
 	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/rendering"
@@ -106,12 +108,8 @@ func (cs *ChatSubscriber) handleClientConnect(ctx context.Context, msg pubsub.Me
 
 // handleChatMessage processes incoming chat messages (both direct and broadcast)
 func (cs *ChatSubscriber) handleChatMessage(ctx context.Context, msg pubsub.Message) error {
-	// Parse the message payload
-	var payload struct {
-		Content   string `json:"content"`
-		User      string `json:"user"`
-		Recipient string `json:"recipient,omitempty"`
-	}
+	// Parse the message payload using typed event
+	var payload events.NewMessage
 
 	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
 		slog.Error("Failed to unmarshal chat message", "error", err)
@@ -166,12 +164,7 @@ func (cs *ChatSubscriber) handleChatMessage(ctx context.Context, msg pubsub.Mess
 
 // handleUserCreated processes user creation events from the announcer module
 func (cs *ChatSubscriber) handleUserCreated(ctx context.Context, msg pubsub.Message) error {
-	var eventData struct {
-		UserID    string `json:"userID"`
-		Email     string `json:"email"`
-		Name      string `json:"name"`
-		Timestamp string `json:"timestamp"`
-	}
+	var eventData announcerEvents.UserCreated
 
 	if err := json.Unmarshal(msg.Payload, &eventData); err != nil {
 		slog.Error("Failed to unmarshal user created event", "error", err)

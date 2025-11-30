@@ -141,7 +141,7 @@ func (m *AnnouncerModule) publishUserCreated(ctx context.Context, data interface
 	}
 
 	msg := pubsub.Message{
-		Topic:   topics.TopicUserCreated.Pattern(),
+		Topic:   topics.TopicUserCreated.Name(),
 		Payload: payload,
 		UserID:  "system",
 	}
@@ -180,7 +180,7 @@ func (m *AnnouncerModule) publishUserDeleted(ctx context.Context, data interface
 	}
 
 	msg := pubsub.Message{
-		Topic:   topics.TopicUserDeleted.Pattern(),
+		Topic:   topics.TopicUserDeleted.Name(),
 		Payload: payload,
 		UserID:  "system",
 	}

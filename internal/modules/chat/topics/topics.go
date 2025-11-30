@@ -1,26 +1,20 @@
 package topics
 
-import "github.com/nfrund/goby/internal/topicmgr"
+import (
+	"github.com/nfrund/goby/internal/modules/chat/events"
+	"github.com/nfrund/goby/internal/pubsub"
+	"github.com/nfrund/goby/internal/topicmgr"
+)
 
 // Module topics for the chat system
 // These topics handle chat message routing and communication
 
 var (
 	// TopicNewMessage represents a new chat message from a client
-	TopicNewMessage = topicmgr.DefineModule(topicmgr.TopicConfig{
-		Name:        "client.chat.message.new",
-		Module:      "chat",
-		Description: "A new chat message sent by a client",
-		Pattern:     "client.chat.message.new",
-		Example:     `{"action":"client.chat.message.new","payload":{"content":"Hello!"}}`,
-		Metadata: map[string]interface{}{
-			"source":       "client",
-			"message_type": "new",
-			"payload_fields": []string{"content", "user"},
-		},
-	})
+	TopicNewMessage = pubsub.NewEvent[events.NewMessage]("client.chat.message.new", "A new chat message sent by a client")
 
 	// TopicMessages represents broadcast messages to all clients
+	// Note: This is for rendered HTML, not typed data
 	TopicMessages = topicmgr.DefineModule(topicmgr.TopicConfig{
 		Name:        "chat.messages",
 		Module:      "chat",
@@ -34,6 +28,7 @@ var (
 	})
 
 	// TopicDirectMessage represents direct messages to specific users
+	// Note: This is for rendered HTML, not typed data
 	TopicDirectMessage = topicmgr.DefineModule(topicmgr.TopicConfig{
 		Name:        "chat.direct",
 		Module:      "chat",
@@ -48,68 +43,30 @@ var (
 	})
 
 	// TopicMessageHistory represents requests for chat history
-	TopicMessageHistory = topicmgr.DefineModule(topicmgr.TopicConfig{
-		Name:        "chat.history.request",
-		Module:      "chat",
-		Description: "Request for chat message history",
-		Pattern:     "chat.history.request",
-		Example:     `{"userID":"user123","limit":50,"before":"2024-01-01T00:00:00Z"}`,
-		Metadata: map[string]interface{}{
-			"request_type": "history",
-			"payload_fields": []string{"userID", "limit", "before"},
-		},
-	})
+	TopicMessageHistory = pubsub.NewEvent[events.MessageHistory]("chat.history.request", "Request for chat message history")
 
 	// TopicMessageDeleted represents deleted messages
-	TopicMessageDeleted = topicmgr.DefineModule(topicmgr.TopicConfig{
-		Name:        "chat.message.deleted",
-		Module:      "chat",
-		Description: "Notification that a chat message was deleted",
-		Pattern:     "chat.message.deleted",
-		Example:     `{"messageID":"msg123","deletedBy":"user456","timestamp":"2024-01-01T00:00:00Z"}`,
-		Metadata: map[string]interface{}{
-			"event_type": "deletion",
-			"payload_fields": []string{"messageID", "deletedBy", "timestamp"},
-		},
-	})
+	TopicMessageDeleted = pubsub.NewEvent[events.MessageDeleted]("chat.message.deleted", "Notification that a chat message was deleted")
 
 	// TopicUserTyping represents typing indicators
-	TopicUserTyping = topicmgr.DefineModule(topicmgr.TopicConfig{
-		Name:        "chat.user.typing",
-		Module:      "chat",
-		Description: "Indicates that a user is typing",
-		Pattern:     "chat.user.typing",
-		Example:     `{"userID":"user123","isTyping":true,"timestamp":"2024-01-01T00:00:00Z"}`,
-		Metadata: map[string]interface{}{
-			"event_type": "typing_indicator",
-			"payload_fields": []string{"userID", "isTyping", "timestamp"},
-		},
-	})
+	TopicUserTyping = pubsub.NewEvent[events.UserTyping]("chat.user.typing", "Indicates that a user is typing")
 )
 
-// RegisterTopics registers all chat module topics with the topic manager
+// RegisterTopics is now a no-op because NewEvent auto-registers topics.
+// Kept for backward compatibility with module interface.
 func RegisterTopics() error {
+	// Manually register the non-typed topics (Messages and DirectMessage)
 	manager := topicmgr.Default()
-	
-	topics := []topicmgr.Topic{
-		TopicNewMessage,
-		TopicMessages,
-		TopicDirectMessage,
-		TopicMessageHistory,
-		TopicMessageDeleted,
-		TopicUserTyping,
+	if err := manager.Register(TopicMessages); err != nil {
+		return err
 	}
-	
-	for _, topic := range topics {
-		if err := manager.Register(topic); err != nil {
-			return err
-		}
+	if err := manager.Register(TopicDirectMessage); err != nil {
+		return err
 	}
-	
 	return nil
 }
 
-// MustRegisterTopics registers all chat module topics and panics on error
+// MustRegisterTopics registers topics and panics on error
 func MustRegisterTopics() {
 	if err := RegisterTopics(); err != nil {
 		panic("failed to register chat module topics: " + err.Error())
