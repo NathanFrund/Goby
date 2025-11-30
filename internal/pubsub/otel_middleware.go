@@ -25,7 +25,7 @@ func TracingMiddleware(tracer trace.Tracer) func(message.HandlerFunc) message.Ha
 			userID := msg.Metadata.Get(metaKeyUserID)
 
 			// Create span for message processing
-			ctx, span := tracer.Start(ctx, fmt.Sprintf("pubsub.process.%s", topic),
+			spanCtx, span := tracer.Start(ctx, fmt.Sprintf("pubsub.process.%s", topic),
 				trace.WithAttributes(
 					attribute.String("messaging.system", "watermill"),
 					attribute.String("messaging.operation", "process"),
@@ -36,6 +36,9 @@ func TracingMiddleware(tracer trace.Tracer) func(message.HandlerFunc) message.Ha
 				),
 			)
 			defer span.End()
+
+			// Update message context with span context
+			msg.SetContext(spanCtx)
 
 			// Add payload preview for visibility (first 100 chars)
 			payloadPreview := string(msg.Payload)
@@ -87,7 +90,7 @@ func (p *PublisherTracingMiddleware) Publish(topic string, messages ...*message.
 		userID := msg.Metadata.Get(metaKeyUserID)
 
 		// Create span for publish operation
-		ctx, span := p.tracer.Start(ctx, fmt.Sprintf("pubsub.publish.%s", topic),
+		spanCtx, span := p.tracer.Start(ctx, fmt.Sprintf("pubsub.publish.%s", topic),
 			trace.WithAttributes(
 				attribute.String("messaging.system", "watermill"),
 				attribute.String("messaging.operation", "publish"),
@@ -107,7 +110,7 @@ func (p *PublisherTracingMiddleware) Publish(topic string, messages ...*message.
 		span.SetAttributes(attribute.String("messaging.message_payload_preview", payloadPreview))
 
 		// Update message context with tracing context
-		msg.SetContext(ctx)
+		msg.SetContext(spanCtx)
 	}
 
 	// Publish the messages
