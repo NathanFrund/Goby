@@ -47,12 +47,10 @@ func NewEvent[T any](name string, description string) Event[T] {
 	// 2. Create Config
 	// Extract module name from topic (e.g., "wargame.event.damage" -> "wargame")
 	module := ""
-	if dotIdx := 0; dotIdx < len(name) {
-		for i, ch := range name {
-			if ch == '.' {
-				module = name[:i]
-				break
-			}
+	for i, ch := range name {
+		if ch == '.' {
+			module = name[:i]
+			break
 		}
 	}
 
@@ -61,7 +59,7 @@ func NewEvent[T any](name string, description string) Event[T] {
 		Module:      module,
 		Description: description,
 		Pattern:     name, // Use exact topic name as pattern
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"payload_fields": fields,
 			"type_name":      t.Name(),
 			"is_typed":       true,
@@ -96,5 +94,19 @@ func Publish[T any](ctx context.Context, p Publisher, event Event[T], payload T)
 	return p.Publish(ctx, Message{
 		Topic:   event.Name(),
 		Payload: data,
+	})
+}
+
+// Subscribe creates a type-safe subscription to an event.
+// The handler receives the unmarshaled payload directly, with automatic error handling.
+// If unmarshaling fails, the error is returned and the subscriber will stop.
+func Subscribe[T any](ctx context.Context, s Subscriber, event Event[T], handler func(context.Context, T) error) error {
+	return s.Subscribe(ctx, event.Name(), func(ctx context.Context, msg Message) error {
+		var payload T
+		if err := json.Unmarshal(msg.Payload, &payload); err != nil {
+			// Return error to stop subscriber - malformed typed events indicate a bug
+			return err
+		}
+		return handler(ctx, payload)
 	})
 }
