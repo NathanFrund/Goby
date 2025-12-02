@@ -132,7 +132,6 @@ func buildServer(appCtx context.Context, cfg config.Provider) (srv *server.Serve
 
 	// Provide handlers
 	do.Provide(injector, provideFileHandler)
-	do.Provide(injector, provideDashboardHandler)
 	do.Provide(injector, providePresenceHandler)
 
 	// Provide module dependencies
@@ -414,11 +413,6 @@ func provideFileHandler(i do.Injector) (*handlers.FileHandler, error) {
 	), nil
 }
 
-func provideDashboardHandler(i do.Injector) (*handlers.DashboardHandler, error) {
-	fileRepo := do.MustInvoke[*database.FileStore](i)
-	return handlers.NewDashboardHandler(fileRepo), nil
-}
-
 func providePresenceHandler(i do.Injector) (*handlers.PresenceHandler, error) {
 	presenceService := do.MustInvoke[*presence.Service](i)
 	publisher := do.MustInvoke[pubsub.Publisher](i)
@@ -432,21 +426,24 @@ func provideLiveQueryService(i do.Injector) (database.LiveQueryService, error) {
 
 // provideModuleDependencies creates the app.Dependencies struct for module initialization
 func provideModuleDependencies(i do.Injector) (app.Dependencies, error) {
-	ps := do.MustInvoke[pubsub.Publisher](i)
-	sub := do.MustInvoke[pubsub.Subscriber](i)
+	publisher := do.MustInvoke[pubsub.Publisher](i)
+	subscriber := do.MustInvoke[pubsub.Subscriber](i)
 	renderer := do.MustInvoke[rendering.Renderer](i)
 	topicMgr := do.MustInvoke[*topicmgr.Manager](i)
 	presenceService := do.MustInvoke[*presence.Service](i)
 	scriptEngine := do.MustInvoke[script.ScriptEngine](i)
 	liveQueryService := do.MustInvoke[database.LiveQueryService](i)
+	fileRepo := do.MustInvoke[*database.FileStore](i)
+
 	return app.Dependencies{
-		Publisher:        ps,
-		Subscriber:       sub,
+		Publisher:        publisher,
+		Subscriber:       subscriber,
 		Renderer:         renderer,
 		TopicMgr:         topicMgr,
 		PresenceService:  presenceService,
 		ScriptEngine:     scriptEngine,
 		LiveQueryService: liveQueryService,
+		FileRepository:   fileRepo,
 	}, nil
 }
 
@@ -460,21 +457,19 @@ func provideServer(i do.Injector) (*server.Server, error) {
 	htmlBridge := do.MustInvokeNamed[*websocket.Bridge](i, "html")
 	dataBridge := do.MustInvokeNamed[*websocket.Bridge](i, "data")
 	fileHandler := do.MustInvoke[*handlers.FileHandler](i)
-	dashboardHandler := do.MustInvoke[*handlers.DashboardHandler](i)
 	presenceHandler := do.MustInvoke[*handlers.PresenceHandler](i)
 	scriptEngine := do.MustInvoke[script.ScriptEngine](i)
 	return server.New(server.Dependencies{
-		Config:           cfg,
-		Emailer:          emailer,
-		UserStore:        userStore,
-		Renderer:         echoRenderer,
-		Publisher:        ps,
-		Echo:             echo,
-		HTMLBridge:       htmlBridge,
-		DataBridge:       dataBridge,
-		FileHandler:      fileHandler,
-		DashboardHandler: dashboardHandler,
-		PresenceHandler:  presenceHandler,
-		ScriptEngine:     scriptEngine,
+		Config:          cfg,
+		Emailer:         emailer,
+		UserStore:       userStore,
+		Renderer:        echoRenderer,
+		Publisher:       ps,
+		Echo:            echo,
+		HTMLBridge:      htmlBridge,
+		DataBridge:      dataBridge,
+		FileHandler:     fileHandler,
+		PresenceHandler: presenceHandler,
+		ScriptEngine:    scriptEngine,
 	})
 }

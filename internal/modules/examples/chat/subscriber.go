@@ -8,9 +8,9 @@ import (
 
 	announcerEvents "github.com/nfrund/goby/internal/modules/announcer/events"
 	announcerTopics "github.com/nfrund/goby/internal/modules/announcer/topics"
-	"github.com/nfrund/goby/internal/modules/chat/events"
-	"github.com/nfrund/goby/internal/modules/chat/templates/components"
-	"github.com/nfrund/goby/internal/modules/chat/topics"
+	"github.com/nfrund/goby/internal/modules/examples/chat/events"
+	"github.com/nfrund/goby/internal/modules/examples/chat/templates/components"
+	"github.com/nfrund/goby/internal/modules/examples/chat/topics"
 	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/rendering"
 	wsTopics "github.com/nfrund/goby/internal/websocket"

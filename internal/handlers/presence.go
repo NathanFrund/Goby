@@ -7,7 +7,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/domain"
 	"github.com/nfrund/goby/internal/middleware"
-	"github.com/nfrund/goby/internal/modules/chat/templates/components"
+	"github.com/nfrund/goby/internal/modules/examples/chat/templates/components"
 	"github.com/nfrund/goby/internal/presence"
 	"github.com/nfrund/goby/internal/pubsub"
 )

@@ -1,7 +1,7 @@
 package topics
 
 import (
-	"github.com/nfrund/goby/internal/modules/wargame/events"
+	"github.com/nfrund/goby/internal/modules/examples/wargame/events"
 	"github.com/nfrund/goby/internal/pubsub"
 )
 

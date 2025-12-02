@@ -1,7 +1,7 @@
 package topics
 
 import (
-	"github.com/nfrund/goby/internal/modules/chat/events"
+	"github.com/nfrund/goby/internal/modules/examples/chat/events"
 	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/topicmgr"
 )

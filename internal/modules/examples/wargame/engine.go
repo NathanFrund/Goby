@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/nfrund/goby/internal/middleware"
-	"github.com/nfrund/goby/internal/modules/wargame/events"
-	"github.com/nfrund/goby/internal/modules/wargame/topics"
+	"github.com/nfrund/goby/internal/modules/examples/wargame/events"
+	"github.com/nfrund/goby/internal/modules/examples/wargame/topics"
 	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/topicmgr"
 )

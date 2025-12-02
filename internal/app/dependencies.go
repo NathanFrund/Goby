@@ -3,8 +3,9 @@ package app
 import (
 	"github.com/nfrund/goby/internal/database"
 	"github.com/nfrund/goby/internal/modules/announcer"
-	"github.com/nfrund/goby/internal/modules/chat"
-	"github.com/nfrund/goby/internal/modules/wargame"
+	"github.com/nfrund/goby/internal/modules/examples/chat"
+	"github.com/nfrund/goby/internal/modules/examples/profile"
+	"github.com/nfrund/goby/internal/modules/examples/wargame"
 	"github.com/nfrund/goby/internal/presence"
 	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/rendering"
@@ -22,6 +23,7 @@ type Dependencies struct {
 	PresenceService  *presence.Service
 	ScriptEngine     script.ScriptEngine
 	LiveQueryService database.LiveQueryService
+	FileRepository   *database.FileStore
 }
 
 // chatDeps creates the dependency struct for the chat module.
@@ -51,5 +53,12 @@ func announcerDeps(deps Dependencies) announcer.Dependencies {
 	return announcer.Dependencies{
 		LiveQueryService: deps.LiveQueryService,
 		Publisher:        deps.Publisher,
+	}
+}
+
+// profileDeps creates the dependency struct for the profile module.
+func profileDeps(deps Dependencies) profile.Dependencies {
+	return profile.Dependencies{
+		FileRepository: deps.FileRepository,
 	}
 }

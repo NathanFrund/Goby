@@ -53,7 +53,6 @@ func (s *Server) RegisterRoutes() {
 	protected.Use(authMiddleware)
 
 	// Standard routes
-	protected.GET("/dashboard", s.DashboardHandler.Get)
 	protected.GET("/ws/html", s.HTMLBridge.Handler())
 	protected.GET("/ws/data", s.DataBridge.Handler())
 

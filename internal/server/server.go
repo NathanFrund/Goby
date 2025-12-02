@@ -29,17 +29,16 @@ import (
 
 // Server holds the dependencies for the HTTP server.
 type Server struct {
-	E                *echo.Echo
-	Cfg              config.Provider
-	Emailer          domain.EmailSender
-	UserStore        domain.UserRepository
-	Renderer         rendering.Renderer
-	FileHandler      *handlers.FileHandler
-	DashboardHandler *handlers.DashboardHandler
-	PresenceHandler  *handlers.PresenceHandler
-	HTMLBridge       *websocket.Bridge
-	DataBridge       *websocket.Bridge
-	ScriptEngine     script.ScriptEngine
+	E               *echo.Echo
+	Cfg             config.Provider
+	Emailer         domain.EmailSender
+	UserStore       domain.UserRepository
+	Renderer        rendering.Renderer
+	FileHandler     *handlers.FileHandler
+	PresenceHandler *handlers.PresenceHandler
+	HTMLBridge      *websocket.Bridge
+	DataBridge      *websocket.Bridge
+	ScriptEngine    script.ScriptEngine
 
 	modules []module.Module
 	PubSub  pubsub.Publisher
@@ -48,18 +47,17 @@ type Server struct {
 // Dependencies holds all the services that the Server requires to operate.
 // This struct is used for constructor injection to make dependencies explicit.
 type Dependencies struct {
-	Config           config.Provider
-	Emailer          domain.EmailSender
-	UserStore        domain.UserRepository
-	Renderer         echo.Renderer // The renderer for the Echo framework
-	Publisher        pubsub.Publisher
-	Echo             *echo.Echo
-	HTMLBridge       *websocket.Bridge
-	DataBridge       *websocket.Bridge
-	FileHandler      *handlers.FileHandler
-	DashboardHandler *handlers.DashboardHandler
-	PresenceHandler  *handlers.PresenceHandler
-	ScriptEngine     script.ScriptEngine
+	Config          config.Provider
+	Emailer         domain.EmailSender
+	UserStore       domain.UserRepository
+	Renderer        echo.Renderer // The renderer for the Echo framework
+	Publisher       pubsub.Publisher
+	Echo            *echo.Echo
+	HTMLBridge      *websocket.Bridge
+	DataBridge      *websocket.Bridge
+	FileHandler     *handlers.FileHandler
+	PresenceHandler *handlers.PresenceHandler
+	ScriptEngine    script.ScriptEngine
 }
 
 func setupErrorHandling(e *echo.Echo) {
@@ -139,18 +137,17 @@ func New(deps Dependencies) (*Server, error) {
 	}
 
 	s := &Server{
-		E:                e,
-		Cfg:              deps.Config,
-		Emailer:          deps.Emailer,
-		Renderer:         appRenderer,
-		PubSub:           deps.Publisher,
-		UserStore:        deps.UserStore,
-		HTMLBridge:       deps.HTMLBridge,
-		DataBridge:       deps.DataBridge,
-		FileHandler:      deps.FileHandler,
-		DashboardHandler: deps.DashboardHandler,
-		PresenceHandler:  deps.PresenceHandler,
-		ScriptEngine:     deps.ScriptEngine,
+		E:               e,
+		Cfg:             deps.Config,
+		Emailer:         deps.Emailer,
+		Renderer:        appRenderer,
+		PubSub:          deps.Publisher,
+		UserStore:       deps.UserStore,
+		HTMLBridge:      deps.HTMLBridge,
+		DataBridge:      deps.DataBridge,
+		FileHandler:     deps.FileHandler,
+		PresenceHandler: deps.PresenceHandler,
+		ScriptEngine:    deps.ScriptEngine,
 	}
 
 	// Configure and use session middleware

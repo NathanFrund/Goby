@@ -8,8 +8,8 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/module"
-	"github.com/nfrund/goby/internal/modules/wargame/scripts"
-	"github.com/nfrund/goby/internal/modules/wargame/topics"
+	"github.com/nfrund/goby/internal/modules/examples/wargame/scripts"
+	"github.com/nfrund/goby/internal/modules/examples/wargame/topics"
 	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/registry"
 	"github.com/nfrund/goby/internal/rendering"

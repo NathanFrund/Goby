@@ -6,7 +6,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/module"
-	"github.com/nfrund/goby/internal/modules/chat/topics"
+	"github.com/nfrund/goby/internal/modules/examples/chat/topics"
 	"github.com/nfrund/goby/internal/presence"
 	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/registry"

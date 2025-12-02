@@ -1,6 +1,6 @@
 package wargame
 
-import "github.com/nfrund/goby/internal/modules/wargame/topics"
+import "github.com/nfrund/goby/internal/modules/examples/wargame/topics"
 
 // Topic references for backward compatibility during migration
 var (

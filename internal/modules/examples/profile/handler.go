@@ -1,4 +1,4 @@
-package handlers
+package profile
 
 import (
 	"fmt"
@@ -7,28 +7,25 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/domain"
 	"github.com/nfrund/goby/internal/middleware"
-
-	"github.com/nfrund/goby/internal/view"
-	"github.com/nfrund/goby/internal/view/dto/dashboard" // DTO
-	"github.com/nfrund/goby/web/src/templates/layouts"   // Layout
-	"github.com/nfrund/goby/web/src/templates/pages"     // Page Component
-	// Partials
+	"github.com/nfrund/goby/internal/modules/examples/profile/view"
+	gview "github.com/nfrund/goby/internal/view"
+	"github.com/nfrund/goby/web/src/templates/layouts"
 )
 
-// DashboardHandler handles requests for the user dashboard.
-type DashboardHandler struct {
+// Handler handles requests for the user dashboard.
+type Handler struct {
 	fileRepo domain.FileRepository
 }
 
-// NewDashboardHandler creates a new DashboardHandler.
-func NewDashboardHandler(fileRepo domain.FileRepository) *DashboardHandler {
-	return &DashboardHandler{
+// NewHandler creates a new DashboardHandler.
+func NewHandler(fileRepo domain.FileRepository) *Handler {
+	return &Handler{
 		fileRepo: fileRepo,
 	}
 }
 
 // Get renders the user dashboard page.
-func (h *DashboardHandler) Get(c echo.Context) error {
+func (h *Handler) Get(c echo.Context) error {
 	userVal := c.Get(middleware.UserContextKey)
 	if userVal == nil {
 		c.Logger().Warn("unauthenticated access attempt on protected dashboard")
@@ -54,17 +51,15 @@ func (h *DashboardHandler) Get(c echo.Context) error {
 		}
 	}
 
-	data := dashboard.Data{
+	data := view.Data{
 		ID:                user.ID.String(),
 		Email:             user.Email,
 		ProfilePictureURL: profilePicURL,
 	}
 
-	pageContent := pages.Dashboard(data)
-	flashData := view.GetFlashData(c) // Use view helper to get flash data
+	pageContent := view.Profile(data)
+	flashData := gview.GetFlashData(c) // Use view helper to get flash data
 
-	finalComponent := layouts.Base("Dashboard", flashData.Messages, pageContent)
+	finalComponent := layouts.Base("Profile", flashData.Messages, pageContent)
 	return c.Render(http.StatusOK, "", finalComponent)
 }
-
-

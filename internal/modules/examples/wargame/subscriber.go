@@ -6,9 +6,9 @@ import (
 	"log/slog"
 
 	"github.com/google/uuid"
-	"github.com/nfrund/goby/internal/modules/wargame/components"
-	"github.com/nfrund/goby/internal/modules/wargame/events"
-	"github.com/nfrund/goby/internal/modules/wargame/topics"
+	"github.com/nfrund/goby/internal/modules/examples/wargame/components"
+	"github.com/nfrund/goby/internal/modules/examples/wargame/events"
+	"github.com/nfrund/goby/internal/modules/examples/wargame/topics"
 	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/rendering"
 	"github.com/nfrund/goby/internal/script"

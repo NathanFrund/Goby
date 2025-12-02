@@ -1,13 +1,12 @@
-package pages
+package view
 
-import "github.com/nfrund/goby/internal/view/dto/dashboard"
-
-// Dashboard renders the protected dashboard content for an authenticated user.
-// It uses the simple view.DashboardData model for clean rendering.
-templ Dashboard(data dashboard.Data) {
+// Profile renders the protected profile page for an authenticated user.
+// It displays user information and allows profile picture upload.
+// This is an educational example demonstrating file uploads and HTMX integration.
+templ Profile(data Data) {
 	<div class="container mx-auto mt-10 px-4">
 		<div class="prose">
-			<h1>Welcome to your Dashboard, { data.Email }!</h1>
+			<h1>Welcome to your Profile, { data.Email }!</h1>
 			<p>This is a protected page. You can only see it if you are logged in.</p>
 			<p>Your User ID is: <code>{ data.ID }</code></p>
 		</div>
