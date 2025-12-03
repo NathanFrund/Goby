@@ -17,9 +17,11 @@ import (
 	"github.com/nfrund/goby/internal/domain"
 	"github.com/nfrund/goby/internal/email"
 	appmiddleware "github.com/nfrund/goby/internal/middleware"
+	"github.com/nfrund/goby/internal/presence"
 	"github.com/nfrund/goby/internal/pubsub"
 	"github.com/nfrund/goby/internal/registry"
 	"github.com/nfrund/goby/internal/rendering"
+	"github.com/nfrund/goby/internal/script"
 	"github.com/nfrund/goby/internal/server"
 	"github.com/nfrund/goby/internal/topicmgr"
 	wsTopics "github.com/nfrund/goby/internal/websocket"
@@ -115,11 +117,30 @@ func setupIntegrationTest(t *testing.T) (*server.Server, *httptest.Server, func(
 	require.NoError(t, err)
 
 	// 4. Initialize modules and register all routes, just like in main.go
+	liveQueryService := database.NewSurrealLiveQueryService(dbConn)
+
+	// Create PresenceService
+	presenceServiceInstance := presence.NewService(ps, ps, topicManager)
+	registry.Set(reg, "core.presence.Service", presenceServiceInstance)
+
+	// Create ScriptEngine
+	scriptEngine, err := script.RegisterService(reg, cfg)
+	require.NoError(t, err)
+
+	// Create FileRepository
+	fileClient, err := database.NewClient[domain.File](dbConn)
+	require.NoError(t, err)
+	fileRepo := database.NewFileStore(fileClient)
+
 	moduleDeps := app.Dependencies{
-		Publisher:  ps,
-		Subscriber: ps,
-		Renderer:   renderer,
-		TopicMgr:   topicManager,
+		Publisher:        ps,
+		Subscriber:       ps,
+		Renderer:         renderer,
+		TopicMgr:         topicManager,
+		LiveQueryService: liveQueryService,
+		PresenceService:  presenceServiceInstance,
+		ScriptEngine:     scriptEngine,
+		FileRepository:   fileRepo,
 	}
 	modules := app.NewModules(moduleDeps)
 	s.InitModules(context.Background(), modules, reg)

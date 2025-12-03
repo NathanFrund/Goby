@@ -7,7 +7,6 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/domain"
 	"github.com/nfrund/goby/internal/middleware"
-	"github.com/nfrund/goby/internal/modules/examples/chat/templates/components"
 	"github.com/nfrund/goby/internal/presence"
 	"github.com/nfrund/goby/internal/pubsub"
 )
@@ -16,6 +15,7 @@ import (
 type PresenceHandler struct {
 	presenceService *presence.Service
 	publisher       pubsub.Publisher
+	renderer        presence.PresenceRenderer
 }
 
 // NewPresenceHandler creates a new presence handler
@@ -23,7 +23,14 @@ func NewPresenceHandler(presenceService *presence.Service, publisher pubsub.Publ
 	return &PresenceHandler{
 		presenceService: presenceService,
 		publisher:       publisher,
+		renderer:        presence.DefaultRenderer,
 	}
+}
+
+// SetRenderer allows modules to inject a custom presence renderer.
+// This enables modules to customize the UI while keeping the handler in the framework.
+func (h *PresenceHandler) SetRenderer(renderer presence.PresenceRenderer) {
+	h.renderer = renderer
 }
 
 // GetPresence returns the current online users as JSON
@@ -65,9 +72,9 @@ func (h *PresenceHandler) GetPresenceHTML(c echo.Context) error {
 	onlineUsers := h.presenceService.GetOnlineUsers()
 	c.Logger().Info("Retrieved online users", "count", len(onlineUsers), "users", onlineUsers)
 
-	// Render the presence component
+	// Render using the injected renderer (default or module-provided)
 	c.Logger().Info("About to render component")
-	component := components.OnlineUsers(onlineUsers)
+	component := h.renderer(onlineUsers)
 
 	c.Logger().Info("About to return rendered component")
 	return c.Render(http.StatusOK, "", component)

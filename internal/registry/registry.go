@@ -32,7 +32,7 @@ func (r *Registry) Config() config.Provider {
 
 // Set registers a service instance against a type-safe key.
 func Set[T any](r *Registry, key Key[T], value T) {
-	r.services.Store(key, value)
+	r.services.Store(string(key), value)
 }
 
 // Get retrieves a service from the registry by its type.

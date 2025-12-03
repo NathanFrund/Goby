@@ -1,0 +1,20 @@
+package presence
+
+import "strconv"
+
+// defaultPresenceList is the internal template for the default renderer.
+// It provides a basic, unstyled list of online users.
+templ defaultPresenceList(users []string) {
+	<div id="online-users" class="presence-list">
+		<h3>Online Users ({ strconv.Itoa(len(users)) })</h3>
+		if len(users) == 0 {
+			<p class="no-users">No users online</p>
+		} else {
+			<ul>
+				for _, user := range users {
+					<li>{ user }</li>
+				}
+			</ul>
+		}
+	</div>
+}

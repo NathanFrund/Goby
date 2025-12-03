@@ -2,10 +2,13 @@ package chat
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 
 	"github.com/labstack/echo/v4"
+	"github.com/nfrund/goby/internal/handlers"
 	"github.com/nfrund/goby/internal/module"
+	"github.com/nfrund/goby/internal/modules/examples/chat/templates/components"
 	"github.com/nfrund/goby/internal/modules/examples/chat/topics"
 	"github.com/nfrund/goby/internal/presence"
 	"github.com/nfrund/goby/internal/pubsub"
@@ -80,8 +83,22 @@ func (m *ChatModule) Shutdown(ctx context.Context) error {
 
 // Boot sets up the routes and starts background services for the chat module.
 func (m *ChatModule) Boot(ctx context.Context, g *echo.Group, reg *registry.Registry) error {
-	// --- Start Background Services ---
+	// --- Setup Presence Handler ---
+	// We create a local instance of PresenceHandler for this module
+	// This allows us to have a chat-specific renderer while sharing the global presence service
 
+	// 1. Get the global presence service
+	presenceService, ok := registry.Get[*presence.Service](reg, "core.presence.Service")
+	if !ok {
+		return fmt.Errorf("presence service not found in registry")
+	}
+
+	// 2. Create a local handler and inject our custom renderer
+	// Note: We pass nil for publisher as this handler instance is only used for HTML rendering
+	presenceHandler := handlers.NewPresenceHandler(presenceService, nil)
+	presenceHandler.SetRenderer(components.OnlineUsers)
+
+	// --- Start Background Services ---
 	// Create and start the chat subscriber in a goroutine.
 	chatSubscriber := NewChatSubscriber(m.subscriber, m.publisher, m.renderer)
 	go chatSubscriber.Start(ctx)
@@ -97,7 +114,9 @@ func (m *ChatModule) Boot(ctx context.Context, g *echo.Group, reg *registry.Regi
 	// Set up routes - the server mounts us under /app/chat, so we use root paths here
 	g.GET("", handler.ChatGet)
 	g.POST("/message", handler.MessagePost)
-	g.GET("/presence", handler.PresenceGet) // HTML endpoint for presence component
+
+	// Use our local presence handler for the presence endpoint
+	g.GET("/presence", presenceHandler.GetPresenceHTML)
 
 	return nil
 }
