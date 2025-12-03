@@ -1,4 +1,33 @@
-.PHONY: dev build build-embed run run-embed clean tidy test test-unit test-generator generate-routes
+.PHONY: help dev build build-embed run run-embed clean tidy test test-unit test-generator generate-routes install-cli new-module
+
+# Default target - show help
+.DEFAULT_GOAL := help
+
+# ==============================================================================
+# HELP
+# ==============================================================================
+
+# Show this help message
+help:
+	@echo "Goby Framework - Available Commands"
+	@echo ""
+	@echo "Development:"
+	@echo "  make dev              Run development server with hot-reloading"
+	@echo "  make install-cli      Build and install goby-cli tool"
+	@echo "  make new-module NAME=<name>  Create a new module"
+	@echo ""
+	@echo "Building:"
+	@echo "  make build            Build production binary and assets"
+	@echo "  make run              Build and run the application"
+	@echo ""
+	@echo "Testing:"
+	@echo "  make test             Run all tests"
+	@echo "  make test-unit        Run unit tests only"
+	@echo ""
+	@echo "Maintenance:"
+	@echo "  make clean            Remove build artifacts"
+	@echo "  make tidy             Tidy go.mod and go.sum"
+	@echo ""
 
 # ==============================================================================
 # DEVELOPMENT
@@ -7,6 +36,19 @@
 # Run the development server with live-reloading for Go and Tailwind CSS.
 dev: 
 	@ENV=development overmind start
+
+# Build and install the CLI tool
+install-cli:
+	@echo "Building and installing goby-cli..."
+	@go install ./cmd/goby-cli
+	@echo "✓ goby-cli installed successfully"
+
+# Create a new module using the CLI tool
+new-module:
+ifndef NAME
+	$(error NAME is required. Usage: make new-module NAME=mymodule)
+endif
+	@go run ./cmd/goby-cli new-module --name=$(NAME)
 
 # ==============================================================================
 # BUILD

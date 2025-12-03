@@ -21,7 +21,34 @@ Combine Go's performance with modern web development practices to create respons
 
 Get started with Goby in minutes. This section will help you set up your development environment and run the application.
 
-## Prerequisites
+## Quick Start
+
+Get up and running in minutes with the initialization script:
+
+```sh
+# Clone the repository
+git clone https://github.com/nfrund/goby.git
+cd goby
+
+# Run the initialization script
+./scripts/init.sh
+```
+
+The init script will:
+- ✓ Check for required tools (Go, Node.js, Overmind)
+- ✓ Install dependencies
+- ✓ Create your `.env` file
+- ✓ Build the CLI tool
+- ✓ Provide next steps
+
+> [!TIP]
+> **Troubleshooting?** See [`docs/troubleshooting.md`](docs/troubleshooting.md) for common issues and solutions.
+
+## Detailed Installation
+
+If you prefer manual setup or need more control:
+
+### Prerequisites
 
 Before you begin, ensure you have the following tools installed:
 
@@ -84,7 +111,91 @@ templ generate --watch
 npm run dev:tailwind
 ```
 
+## CLI Tools
+
+Goby includes a powerful CLI tool to help you develop faster. 
+
+### Using the CLI
+
+The recommended way to use the CLI during development is with `go run`:
+
+```sh
+# Generate a new module
+go run ./cmd/goby-cli new-module --name=myfeature
+
+# List services
+go run ./cmd/goby-cli list-services
+
+# Manage topics
+go run ./cmd/goby-cli topics list
+```
+
+Alternatively, you can build it once for faster execution:
+
+```sh
+# Build the CLI tool
+go build -o goby-cli ./cmd/goby-cli
+
+# Then use it directly
+./goby-cli new-module --name=myfeature
+
+# Or install to your PATH
+go install ./cmd/goby-cli
+goby-cli new-module --name=myfeature
+```
+
+### Creating New Modules
+
+The fastest way to add a new feature to your application:
+
+```sh
+# Generate a new module with all boilerplate
+go run ./cmd/goby-cli new-module --name=myfeature
+
+# Generate a minimal module (fewer dependencies)
+go run ./cmd/goby-cli new-module --name=myfeature --minimal
+```
+
+This automatically creates:
+- Module structure in `internal/modules/myfeature/`
+- Handler with example routes
+- Topic definitions and registration
+- Integration with `internal/app/modules.go` and `dependencies.go`
+
+### Service Discovery
+
+List all registered services in your application:
+
+```sh
+# View all services
+go run ./cmd/goby-cli list-services
+
+# Filter by category
+go run ./cmd/goby-cli list-services --category core
+
+# Get details on a specific service
+go run ./cmd/goby-cli list-services "core.database.Connection"
+```
+
+### Topic Management
+
+Manage pub/sub topics across your application:
+
+```sh
+# List all registered topics
+go run ./cmd/goby-cli topics list
+
+# Get details on a specific topic
+go run ./cmd/goby-cli topics get ws.html.broadcast
+
+# Validate topic registrations
+go run ./cmd/goby-cli topics validate
+```
+
+For complete CLI documentation, see [`cmd/goby-cli/README.md`](cmd/goby-cli/README.md).
+
 ## Why Choose Goby?
+
 
 Goby is built around a presentation-first architecture that makes building modern, real-time web applications a joy. Here's what sets it apart:
 
@@ -505,12 +616,32 @@ Goby's architecture is built around the concept of modules - self-contained pack
 
    - **Boot Phase**: Called once during application startup after all services are registered
      - Set up HTTP routes and handlers
-     - Initialize background services and workers
-     - Register event handlers and subscriptions
-   - **Runtime**: Handles incoming requests and events
-   - **Shutdown**: Graceful cleanup (handled automatically by the framework)
+1.  **Module Structure**
+    -   Each module lives in its own directory under `internal/modules/`
+    -   Implements the `module.Module` interface with `Name()` and `Boot()` methods
+    -   Can include routes, services, templates, and static assets
+    -   Follows Go's standard package structure and conventions
+2.  **Type-Safe Dependency Injection**
+    -   Uses a type-safe `Registry` for dependency injection
+    -   Services are registered and resolved by their type, not by string keys
+    -   Provides compile-time safety and better IDE support
+    -   No need for manual casting or type assertions
+3.  **Lifecycle**
+    -   **Boot Phase**: Called once during application startup after all services are registered
+        -   Set up HTTP routes and handlers
+        -   Initialize background services and workers
+        -   Register event handlers and subscriptions
+    -   **Runtime**: Handles incoming requests and events
+    -   **Shutdown**: Graceful cleanup (handled automatically by the framework)
 
 ### Creating a New Module
+
+> [!TIP]
+> **Quick Start**: Use the CLI tool to generate a new module automatically:
+> ```sh
+> go run ./cmd/goby-cli new-module --name=yourmodule
+> ```
+> This creates all the files below and registers the module for you. Continue reading to understand the structure.
 
 Creating a new module follows a clear, three-step pattern that ensures consistency and promotes a decoupled architecture.
 
