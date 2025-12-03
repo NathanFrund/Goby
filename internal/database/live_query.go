@@ -224,15 +224,9 @@ func (s *SurrealLiveQueryService) subscribeQuery(ctx context.Context, table, que
 				cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cleanupCancel()
 
-				// Close the notification channel first to stop receiving new notifications
-				if err := dbConn.CloseLiveNotifications(state.liveQueryID); err != nil {
-					slog.Warn("Failed to close live notifications", "error", err, "liveQueryID", state.liveQueryID)
-				}
-
-				// Give a moment for the channel to close cleanly
-				time.Sleep(100 * time.Millisecond)
-
-				// Kill the live query on the database side using a parameter
+				// Kill the live query on the database side
+				// After this, the SDK will stop receiving notifications and eventually
+				// close the notification channel cleanly on its own
 				killQuery := "KILL $liveQueryID"
 				killParams := map[string]interface{}{
 					"liveQueryID": state.liveQueryID,
@@ -244,6 +238,10 @@ func (s *SurrealLiveQueryService) subscribeQuery(ctx context.Context, table, que
 				} else {
 					slog.Debug("Killed live query", "liveQueryID", state.liveQueryID)
 				}
+
+				// Note: We do NOT call dbConn.CloseLiveNotifications here.
+				// The SDK will close the notification channel automatically after processing
+				// the KILL response, which prevents "send on closed channel" panics.
 			}
 		}()
 
