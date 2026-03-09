@@ -151,6 +151,9 @@ go run ./cmd/goby-cli new-module --name=myfeature
 
 # Generate a minimal module (fewer dependencies)
 go run ./cmd/goby-cli new-module --name=myfeature --minimal
+
+# Generate a quick prototype (single file, no wiring)
+go run ./cmd/goby-cli new-module --name=myidea --quick
 ```
 
 This automatically creates:
@@ -159,6 +162,9 @@ This automatically creates:
 - Handler with example routes
 - Topic definitions and registration
 - Integration with `internal/app/modules.go` and `dependencies.go`
+
+> [!TIP]
+> Use `--quick` for rapid prototyping - it creates a single file with inline HTML handlers and skips automatic wiring.
 
 ### Service Discovery
 
