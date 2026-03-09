@@ -96,10 +96,7 @@ func generateModule(name string, minimal bool) error {
 
 	// Choose template based on mode
 	var moduleTempl, handlerTempl string
-	if quickMode {
-		moduleTempl = quickModuleTemplate
-		handlerTempl = "" // No handler file for quick mode
-	} else if minimal {
+	if minimal {
 		moduleTempl = minimalModuleTemplate
 		handlerTempl = minimalHandlerTemplate
 	} else {
