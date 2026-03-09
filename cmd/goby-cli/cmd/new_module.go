@@ -82,6 +82,8 @@ type TemplateData struct {
 	PascalName string
 }
 
+// generateModule creates a module with full or minimal template.
+// For quick prototyping, use generateQuickModule instead.
 func generateModule(name string, minimal bool) error {
 	caser := cases.Title(language.English)
 	data := TemplateData{
