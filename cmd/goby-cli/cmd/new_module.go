@@ -22,6 +22,7 @@ import (
 var (
 	moduleName  string
 	minimalMode bool
+	quickMode   bool
 )
 
 // newModuleCmd represents the new-module command
@@ -36,6 +37,15 @@ and topic management. Use --minimal flag to generate a simpler module with only 
 	Run: func(cmd *cobra.Command, args []string) {
 		if moduleName == "" {
 			log.Fatal("Module name is required: --name=<module-name>")
+		}
+
+		// Quick mode doesn't need dependency wiring
+		if quickMode {
+			if err := generateQuickModule(moduleName); err != nil {
+				log.Fatalf("Failed to generate quick module: %v", err)
+			}
+			printQuickSuccessMessage(moduleName)
+			return
 		}
 
 		if err := generateModule(moduleName, minimalMode); err != nil {
@@ -64,6 +74,7 @@ func init() {
 	rootCmd.AddCommand(newModuleCmd)
 	newModuleCmd.Flags().StringVarP(&moduleName, "name", "n", "", "The name of the new module (e.g., 'inventory')")
 	newModuleCmd.Flags().BoolVar(&minimalMode, "minimal", false, "Generate a minimal module with only basic dependencies (Renderer only)")
+	newModuleCmd.Flags().BoolVarP(&quickMode, "quick", "q", false, "Generate a quick prototype module with no dependency wiring")
 }
 
 type TemplateData struct {
@@ -83,9 +94,12 @@ func generateModule(name string, minimal bool) error {
 		return fmt.Errorf("failed to create module directory: %w", err)
 	}
 
-	// Choose template based on minimal mode
+	// Choose template based on mode
 	var moduleTempl, handlerTempl string
-	if minimal {
+	if quickMode {
+		moduleTempl = quickModuleTemplate
+		handlerTempl = "" // No handler file for quick mode
+	} else if minimal {
 		moduleTempl = minimalModuleTemplate
 		handlerTempl = minimalHandlerTemplate
 	} else {
@@ -98,13 +112,15 @@ func generateModule(name string, minimal bool) error {
 		return err
 	}
 
-	// Generate handler.go
-	if err := generateFile(filepath.Join(moduleDir, "handler.go"), handlerTempl, data); err != nil {
-		return err
+	// Generate handler.go (skip for quick mode)
+	if handlerTempl != "" {
+		if err := generateFile(filepath.Join(moduleDir, "handler.go"), handlerTempl, data); err != nil {
+			return err
+		}
 	}
 
-	// Generate additional files only for full mode
-	if !minimal {
+	// Generate additional files only for full mode (not minimal, not quick)
+	if !minimal && !quickMode {
 		// Generate subscriber.go
 		if err := generateFile(filepath.Join(moduleDir, "subscriber.go"), subscriberTemplate, data); err != nil {
 			return err
@@ -123,13 +139,42 @@ func generateModule(name string, minimal bool) error {
 
 	// Generate README.md (different template based on mode)
 	var readmeTempl string
-	if minimal {
+	if quickMode {
+		readmeTempl = quickReadmeTemplate
+	} else if minimal {
 		readmeTempl = minimalReadmeTemplate
 	} else {
 		readmeTempl = readmeTemplate
 	}
 
 	if err := generateFile(filepath.Join(moduleDir, "README.md"), readmeTempl, data); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// generateQuickModule creates a minimal module for prototyping.
+// It does NOT modify app/dependencies.go or app/modules.go.
+func generateQuickModule(name string) error {
+	caser := cases.Title(language.English)
+	data := TemplateData{
+		Name:       name,
+		PascalName: caser.String(name),
+	}
+
+	moduleDir := filepath.Join("internal", "modules", name)
+	if err := os.MkdirAll(moduleDir, 0755); err != nil {
+		return fmt.Errorf("failed to create module directory: %w", err)
+	}
+
+	// Generate module.go with everything inline
+	if err := generateFile(filepath.Join(moduleDir, "module.go"), quickModuleTemplate, data); err != nil {
+		return err
+	}
+
+	// Generate simple README
+	if err := generateFile(filepath.Join(moduleDir, "README.md"), quickReadmeTemplate, data); err != nil {
 		return err
 	}
 
@@ -317,6 +362,20 @@ func %sDeps(deps Dependencies) %s.Dependencies {
 		fmt.Println("  • See existing chat/wargame modules for examples")
 		fmt.Println("\n🚀 Ready to start building your new module!")
 	}
+}
+
+func printQuickSuccessMessage(name string) {
+	caser := cases.Title(language.English)
+	pascalName := caser.String(name)
+	fmt.Printf("✅ Created quick prototype module '%s'\n", name)
+	fmt.Println("-----------------------------------------------------------------")
+	fmt.Printf("Module created at: internal/modules/%s/\n", name)
+	fmt.Println("-----------------------------------------------------------------")
+	fmt.Println("📋 Next steps:")
+	fmt.Printf("  1. Add to app/modules.go: %s.New()\n", pascalName)
+	fmt.Println("  2. Customize the handler in internal/modules/" + name + "/module.go")
+	fmt.Println("  3. Run: go run ./cmd/server")
+	fmt.Println("\n🚀 Ready to prototype!")
 }
 
 func printNextSteps(name string, minimal bool) {
@@ -2257,4 +2316,80 @@ When extending this minimal module:
 ## License
 
 This module is part of the Goby application.
+`
+
+const quickModuleTemplate = `package {{.Name}}
+
+import (
+	"context"
+	"log/slog"
+
+	"github.com/labstack/echo/v4"
+	"github.com/nfrund/goby/internal/module"
+)
+
+// {{.PascalName}}Module is a quick prototype module.
+// It embeds BaseModule for default implementations.
+type {{.PascalName}}Module struct {
+	module.BaseModule
+}
+
+// New creates a new {{.PascalName}}Module.
+// No dependencies needed - uses BaseModule defaults.
+func New() *{{.PascalName}}Module {
+	return &{{.PascalName}}Module{}
+}
+
+// Name returns the module name.
+func (m *{{.PascalName}}Module) Name() string {
+	return "{{.Name}}"
+}
+
+// Boot sets up routes for the {{.Name}} module.
+// This is where you define your HTTP handlers.
+func (m *{{.PascalName}}Module) Boot(ctx context.Context, g *echo.Group, reg any) error {
+	slog.Info("Booting {{.PascalName}}Module")
+
+	// Define your routes here
+	// Example: g.GET("", func(c echo.Context) error {
+	//     return c.HTML(200, "<h1>Hello from {{.Name}}!</h1>")
+	// })
+
+	g.GET("", func(c echo.Context) error {
+		return c.HTML(200, "<div style=\"padding: 2rem; font-family: system-ui;\"><h1>{{.PascalName}} Module</h1><p>Welcome to your quick prototype!</p><p>Edit this handler in internal/modules/{{.Name}}/module.go</p></div>")
+	})
+
+	return nil
+}
+`
+
+const quickReadmeTemplate = `# {{.PascalName}} Module (Quick Prototype)
+
+This is a quick prototype module - no dependency wiring required.
+
+## Quick Start
+
+1. Add to your app/modules.go:
+   import "github.com/nfrund/goby/internal/modules/{{.Name}}"
+   
+   // In NewModules():
+   {{.PascalName}}.New(),
+
+2. Run the server: go run ./cmd/server
+
+3. Visit: http://localhost:8080/app/{{.Name}}
+
+## Customizing
+
+Edit module.go to add more routes:
+func (m *{{.PascalName}}Module) Boot(ctx context.Context, g *echo.Group, reg any) error {
+    g.GET("/hello", func(c echo.Context) error {
+        return c.HTML(200, "<h1>Hello!</h1>")
+    })
+    return nil
+}
+
+## Upgrading
+
+When ready, you can convert to a full module by adding dependencies and a handler.go file.
 `
