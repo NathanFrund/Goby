@@ -19,10 +19,6 @@ Combine Go's performance with modern web development practices to create respons
 
 ## Quick Start
 
-Get started with Goby in minutes. This section will help you set up your development environment and run the application.
-
-## Quick Start
-
 Get up and running in minutes with the initialization script:
 
 ```sh
@@ -35,6 +31,7 @@ cd goby
 ```
 
 The init script will:
+
 - ✓ Check for required tools (Go, Node.js, Overmind)
 - ✓ Install dependencies
 - ✓ Create your `.env` file
@@ -44,15 +41,15 @@ The init script will:
 > [!TIP]
 > **Troubleshooting?** See [`docs/troubleshooting.md`](docs/troubleshooting.md) for common issues and solutions.
 
-## Detailed Installation
+## Manual Installation
 
-If you prefer manual setup or need more control:
+If you prefer manual setup or need more control, follow these steps:
 
 ### Prerequisites
 
 Before you begin, ensure you have the following tools installed:
 
-- **Go** (1.25 or newer) - [Download](https://golang.org/dl/)
+- **Go** (1.23 or newer) - [Download](https://golang.org/dl/)
 - **Node.js and npm** (LTS version recommended) - [Download](https://nodejs.org/)
 - **Overmind** - Process manager for development
 
@@ -64,7 +61,7 @@ Before you begin, ensure you have the following tools installed:
   # macOS (Homebrew): brew install overmind
   ```
 
-## Installation
+### Installation Steps
 
 1. **Clone the repository**
 
@@ -113,7 +110,7 @@ npm run dev:tailwind
 
 ## CLI Tools
 
-Goby includes a powerful CLI tool to help you develop faster. 
+Goby includes a powerful CLI tool to help you develop faster.
 
 ### Using the CLI
 
@@ -157,6 +154,7 @@ go run ./cmd/goby-cli new-module --name=myfeature --minimal
 ```
 
 This automatically creates:
+
 - Module structure in `internal/modules/myfeature/`
 - Handler with example routes
 - Topic definitions and registration
@@ -195,7 +193,6 @@ go run ./cmd/goby-cli topics validate
 For complete CLI documentation, see [`cmd/goby-cli/README.md`](cmd/goby-cli/README.md).
 
 ## Why Choose Goby?
-
 
 Goby is built around a presentation-first architecture that makes building modern, real-time web applications a joy. Here's what sets it apart:
 
@@ -251,19 +248,16 @@ Goby's architecture is designed to make building modern web applications straigh
 ### Core Architecture
 
 1. **UI-First Design**
-
    - Backend services are structured around delivering UI components
    - Real-time updates are a first-class concern
    - Components manage their own state and updates
 
 2. **Component-Based Architecture**
-
    - Build reusable UI components with **Templ** and **Gomponents**
    - Components can be composed together to build complex interfaces
    - Each component can update independently
 
 3. **Real-Time by Default**
-
    - Built-in WebSocket support for live updates
    - HTMX for fine-grained DOM updates without full page reloads
    - Automatic state synchronization between server and client
@@ -313,7 +307,6 @@ Goby provides two WebSocket endpoints for different types of communication:
 #### Message Types
 
 1. **Broadcast Messages**
-
    - Sent to all connected clients
    - Use topic: `ws.{endpoint}.broadcast` (e.g., `ws.html.broadcast`)
    - Example:
@@ -322,7 +315,6 @@ Goby provides two WebSocket endpoints for different types of communication:
      ```
 
 2. **Direct Messages**
-
    - Sent to a specific user
    - Use topic: `ws.{endpoint}.direct`
    - Include `user_id` in message metadata
@@ -343,19 +335,16 @@ Goby provides two WebSocket endpoints for different types of communication:
 Goby supports multiple client types through its flexible architecture:
 
 1. **Web Browsers (HTMX)**
-
    - Connects to `/ws/html` for HTML fragments
    - Zero client-side JavaScript required for basic interactions
    - Automatic DOM updates via HTMX WebSockets
 
 2. **Data Clients**
-
    - Connects to `/ws/data` for JSON data
    - Ideal for mobile apps or custom JavaScript applications
    - Example WebSocket endpoint: `/ws/html`
 
 3. **Native Mobile/Desktop Apps**
-
    - Connects via WebSockets or HTTP/2 Server-Sent Events (SSE)
    - Receives structured JSON data instead of HTML
    - Can subscribe to specific data channels
@@ -365,7 +354,6 @@ Goby supports multiple client types through its flexible architecture:
 
 1. **Backend Event**: An event occurs in the backend (e.g., a new chat message is posted).
 2. **HTML Rendering**: The module renders an HTML fragment using either:
-
    - **Templ**: Type-safe HTML templates that compile to Go code
    - **Gomponents**: Composable HTML components in pure Go
 
@@ -561,7 +549,6 @@ Goby leverages two powerful templating systems:
 Goby's UI components are organized in the following structure:
 
 - **`web/src/templates/`** - Main templates directory
-
   - `components/` - Reusable UI components
   - `layouts/` - Base layouts and page templates
   - `pages/` - Page-specific templates
@@ -573,13 +560,11 @@ Goby's UI components are organized in the following structure:
 #### Component Development
 
 1. **Templ Components**:
-
    - Create `.templ` files for your components
    - Changes are automatically picked up by the `templ generate --watch` process
    - Import and use components in your Go code
 
 2. **Gomponents**:
-
    - Create Go files that use the `g` package to build UI components
    - Components are just Go functions that return `g.Node`
    - Use them directly in your handlers or other components
@@ -587,7 +572,6 @@ Goby's UI components are organized in the following structure:
 3. **Hot Reloading**:
 
    The development server automatically handles changes to:
-
    - Go files (via `air`)
    - Templ files (via `templ generate --watch`)
    - CSS/JS (via Tailwind's JIT compiler)
@@ -599,48 +583,48 @@ Goby's architecture is built around the concept of modules - self-contained pack
 ### Core Concepts
 
 1. **Module Structure**
-
    - Each module lives in its own directory under `internal/modules/`
    - Implements the `module.Module` interface with `Name()` and `Boot()` methods
    - Can include routes, services, templates, and static assets
    - Follows Go's standard package structure and conventions
 
 2. **Type-Safe Dependency Injection**
-
    - Uses a type-safe `Registry` for dependency injection
    - Services are registered and resolved by their type, not by string keys
    - Provides compile-time safety and better IDE support
    - No need for manual casting or type assertions
 
 3. **Lifecycle**
-
    - **Boot Phase**: Called once during application startup after all services are registered
      - Set up HTTP routes and handlers
-1.  **Module Structure**
-    -   Each module lives in its own directory under `internal/modules/`
-    -   Implements the `module.Module` interface with `Name()` and `Boot()` methods
-    -   Can include routes, services, templates, and static assets
-    -   Follows Go's standard package structure and conventions
-2.  **Type-Safe Dependency Injection**
-    -   Uses a type-safe `Registry` for dependency injection
-    -   Services are registered and resolved by their type, not by string keys
-    -   Provides compile-time safety and better IDE support
-    -   No need for manual casting or type assertions
-3.  **Lifecycle**
-    -   **Boot Phase**: Called once during application startup after all services are registered
-        -   Set up HTTP routes and handlers
-        -   Initialize background services and workers
-        -   Register event handlers and subscriptions
-    -   **Runtime**: Handles incoming requests and events
-    -   **Shutdown**: Graceful cleanup (handled automatically by the framework)
+
+4. **Module Structure**
+   - Each module lives in its own directory under `internal/modules/`
+   - Implements the `module.Module` interface with `Name()` and `Boot()` methods
+   - Can include routes, services, templates, and static assets
+   - Follows Go's standard package structure and conventions
+5. **Type-Safe Dependency Injection**
+   - Uses a type-safe `Registry` for dependency injection
+   - Services are registered and resolved by their type, not by string keys
+   - Provides compile-time safety and better IDE support
+   - No need for manual casting or type assertions
+6. **Lifecycle**
+   - **Boot Phase**: Called once during application startup after all services are registered
+     - Set up HTTP routes and handlers
+     - Initialize background services and workers
+     - Register event handlers and subscriptions
+   - **Runtime**: Handles incoming requests and events
+   - **Shutdown**: Graceful cleanup (handled automatically by the framework)
 
 ### Creating a New Module
 
 > [!TIP]
 > **Quick Start**: Use the CLI tool to generate a new module automatically:
+>
 > ```sh
 > go run ./cmd/goby-cli new-module --name=yourmodule
 > ```
+>
 > This creates all the files below and registers the module for you. Continue reading to understand the structure.
 
 Creating a new module follows a clear, three-step pattern that ensures consistency and promotes a decoupled architecture.
@@ -806,14 +790,12 @@ This approach offers several benefits:
 #### Best Practices
 
 1. **Module Design**
-
    - **Single Responsibility**: Each module should focus on one domain concern
    - **Loose Coupling**: Depend on interfaces, not concrete implementations
    - **Encapsulation**: Keep implementation details private to the module
    - **Error Handling**: Return meaningful errors and use custom error types for domain-specific errors
 
 2. **Dependency Management**
-
    - **Constructor Injection**: Pass dependencies through constructors
    - **Interface Segregation**: Define small, focused interfaces
    - **Lazy Initialization**: Initialize resources only when needed
@@ -834,7 +816,6 @@ This approach offers several benefits:
    ```
 
 3. **Concurrency**
-
    - Use context for cancellation and timeouts
    - Start background workers in Boot() using goroutines
    - Handle graceful shutdown of resources
