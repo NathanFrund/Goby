@@ -2319,6 +2319,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/nfrund/goby/internal/module"
+	"github.com/nfrund/goby/internal/registry"
 )
 
 // {{.PascalName}}Module is a quick prototype module.
@@ -2340,7 +2341,7 @@ func (m *{{.PascalName}}Module) Name() string {
 
 // Boot sets up routes for the {{.Name}} module.
 // This is where you define your HTTP handlers.
-func (m *{{.PascalName}}Module) Boot(ctx context.Context, g *echo.Group, reg any) error {
+func (m *{{.PascalName}}Module) Boot(ctx context.Context, g *echo.Group, reg *registry.Registry) error {
 	slog.Info("Booting {{.PascalName}}Module")
 
 	// Define your routes here
