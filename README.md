@@ -763,35 +763,27 @@ func (m *YourModule) Boot(g *echo.Group, reg *registry.Registry) error {
 }
 ```
 
-#### 4. Register the Module
+#### 4. Module Auto-Discovery
 
-Add your module to the application's module list in `internal/app/modules.go`. This is the central place where all application features are registered.
+Modules are **automatically discovered** - no manual registration needed!
 
-```go
-// in internal/app/modules.go
+When you create a new module in `internal/modules/` or `internal/modules/examples/`, it is automatically detected and included in the application. The code generator (`genmodules.go`) handles:
 
-// NewModules creates and returns a slice of all active application modules.
-func NewModules(deps Dependencies) []module.Module {
-    return []module.Module{
-        // Core application modules
-        chat.New(deps),
+- **Module Discovery**: Scans all module directories for `module.go` files
+- **Dependency Wiring**: Generates type-safe dependency structs for each module
+- **Module List**: Creates the `NewModules()` function that returns all active modules
 
-        // Add your new module here
-        yourmodule.New(yourmodule.Dependencies{Publisher: deps.Publisher}),
-    }
-}
+To regenerate the code manually (e.g., after adding a new module):
+
+```bash
+go run genmodules.go
 ```
 
-**Module Registration Notes**:
+The generated files are:
+- `internal/app/modules.gen.go` - Module list and constructors
+- `internal/app/dependencies.gen.go` - Type-safe dependency wiring
 
-1. **Core Services First**: Core services (database, pub/sub, etc.) are registered in `main.go` before modules
-2. **Module Initialization**: Each module provides a constructor (e.g., `New()`) that returns a `module.Module`
-3. **Explicit Registration**: Modules are explicitly listed in the `modules` slice in `main.go`
-
-This approach offers several benefits:
-
-- Clear visibility of all active modules in one place
-- Simple dependency management through the type-safe registry
+**Note**: Generated files are committed to the repository and should not be edited manually.
 
 #### Best Practices
 

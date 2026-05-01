@@ -1,7 +1,18 @@
 // Package modules contains all self-contained application features.
 //
 // Each subdirectory is a module that implements the [module.Module] interface.
-// Modules are registered in internal/app/modules.go and are loaded at startup.
+// Modules are automatically discovered and registered - no manual edits needed!
+//
+// # Auto-Discovery & Code Generation
+//
+// The Goby framework uses code generation (genmodules.go) to automatically:
+//   - Discover all modules in internal/modules/ and internal/modules/examples/
+//   - Generate type-safe dependency wiring (internal/app/dependencies.gen.go)
+//   - Generate the module list (internal/app/modules.gen.go)
+//
+// Simply create a new module directory with a module.go file, and it will be
+// automatically included in the next build. Run "go run genmodules.go" to
+// regenerate the code manually.
 //
 // # Module Types
 //
@@ -37,16 +48,7 @@
 //
 //	goby-cli new-module --quick --name=myidea
 //
-// Then manually add to internal/app/modules.go:
-//
-//	import "github.com/nfrund/goby/internal/modules/myidea"
-//
-//	func NewModules(deps Dependencies) []module.Module {
-//	    return []module.Module{
-//	        myidea.New(),
-//	        // ... other modules
-//	    }
-//	}
+// The module will be automatically discovered and wired on the next build.
 //
 // # Module Interface
 //
@@ -54,8 +56,8 @@
 //
 //	type Module interface {
 //	    Name() string
-//	    Register(reg *Registry) error
-//	    Boot(ctx context.Context, router *echo.Group, reg *Registry) error
+//	    Register(reg *registry.Registry) error
+//	    Boot(ctx context.Context, router *echo.Group, reg *registry.Registry) error
 //	    Shutdown(ctx context.Context) error
 //	}
 //
