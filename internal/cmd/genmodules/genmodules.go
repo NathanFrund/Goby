@@ -1,6 +1,3 @@
-//go:build ignore
-// +build ignore
-
 // genmodules generates module registration code
 package main
 	import (

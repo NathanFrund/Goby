@@ -1,4 +1,4 @@
-.PHONY: help dev build build-embed run run-embed clean tidy test test-unit test-generator generate-routes install-cli new-module
+.PHONY: help dev build build-embed run run-embed clean tidy test test-unit test-generator generate-routes install-cli new-module genmodules
 
 # Default target - show help
 .DEFAULT_GOAL := help
@@ -15,6 +15,7 @@ help:
 	@echo "  make dev              Run development server with hot-reloading"
 	@echo "  make install-cli      Build and install goby-cli tool"
 	@echo "  make new-module NAME=<name>  Create a new module"
+	@echo "  make genmodules       Regenerate module wiring"
 	@echo ""
 	@echo "Building:"
 	@echo "  make build            Build production binary and assets"
@@ -49,6 +50,12 @@ ifndef NAME
 	$(error NAME is required. Usage: make new-module NAME=mymodule)
 endif
 	@go run ./cmd/goby-cli new-module --name=$(NAME)
+
+# Regenerate module wiring from genmodules.go
+.PHONY: genmodules
+genmodules:
+	@echo "Regenerating module wiring..."
+	@go run ./internal/cmd/genmodules
 
 # ==============================================================================
 # BUILD

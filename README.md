@@ -776,7 +776,7 @@ When you create a new module in `internal/modules/` or `internal/modules/example
 To regenerate the code manually (e.g., after adding a new module):
 
 ```bash
-go run genmodules.go
+make genmodules
 ```
 
 The generated files are:
